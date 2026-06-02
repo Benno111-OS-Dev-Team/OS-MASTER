@@ -1452,6 +1452,12 @@ static int storage_disk_read_sector(int disk_index, uint32_t lba, void *buffer) 
   if (disk_index < 0 || disk_index >= storage_disk_count || !buffer)
     return -1;
 
+  /* CD-ROM backends expose 2048-byte logical blocks.  Do not service a
+   * 512-byte sector request through their generic read callback because that
+   * would copy a full optical block into a 512-byte caller buffer. */
+  if (storage_disks[disk_index].kind == STORAGE_KIND_CDROM)
+    return -1;
+
   if (storage_disks[disk_index].read_fn) {
     return storage_disks[disk_index].read_fn(lba, 1, buffer,
                                              storage_disks[disk_index].backend_ctx);

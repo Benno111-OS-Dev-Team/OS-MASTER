@@ -13,6 +13,8 @@
 
 #define ACCOUNT_CONFIG_PATH "/System/account.cfg"
 #define ACCOUNTS_DIR "/System/Accounts"
+#define PASSWD_PATH "/etc/passwd"
+#define SHADOW_PATH "/etc/shadow"
 #define MAX_USER_LEN 32
 #define MAX_PASS_LEN 32
 #define MAX_HOME_LEN 96
@@ -60,7 +62,7 @@ static void build_default_home(const char *username, char *out, size_t len) {
        i++) {
     int fd;
 
-    snprintf(candidate, sizeof(candidate), "%s/Users/%s", persistent_roots[i],
+    snprintf(candidate, sizeof(candidate), "%s/home/%s", persistent_roots[i],
              username ? username : "user");
     fd = open(candidate, O_RDONLY);
     if (fd >= 0) {
@@ -70,7 +72,7 @@ static void build_default_home(const char *username, char *out, size_t len) {
     }
   }
 
-  snprintf(out, len, "/Users/%s", username ? username : "user");
+  snprintf(out, len, "/home/%s", username ? username : "user");
 }
 
 static void build_partition_home(const char *disk_location,
@@ -149,6 +151,108 @@ static int read_account_manifest_file(const char *path, char *manifest,
   return 0;
 }
 
+
+static int unix_get_field(const char *line, int field, char *out, size_t max) {
+  int current = 0;
+  size_t idx = 0;
+
+  if (!line || !out || max == 0 || field < 0)
+    return -1;
+  out[0] = '\0';
+  for (size_t i = 0; line[i] && line[i] != '\n' && line[i] != '\r'; i++) {
+    if (line[i] == ':') {
+      if (current == field) {
+        out[idx] = '\0';
+        return 0;
+      }
+      current++;
+      idx = 0;
+      continue;
+    }
+    if (current == field && idx < max - 1)
+      out[idx++] = line[i];
+  }
+  if (current == field) {
+    out[idx] = '\0';
+    return 0;
+  }
+  return -1;
+}
+
+static int unix_line_matches_user(const char *line, const char *username) {
+  size_t i = 0;
+
+  if (!line || !username || !username[0])
+    return 0;
+  while (username[i] && line[i] == username[i])
+    i++;
+  return username[i] == '\0' && line[i] == ':';
+}
+
+static int find_unix_line(const char *path, const char *username, char *out,
+                          size_t out_len) {
+  FILE *fp;
+  char line[256];
+
+  if (!path || !username || !out || out_len == 0)
+    return -1;
+  fp = fopen(path, "r");
+  if (!fp)
+    return -1;
+  while (fgets(line, sizeof(line), fp)) {
+    if (unix_line_matches_user(line, username)) {
+      snprintf(out, out_len, "%s", line);
+      trim_newline(out);
+      fclose(fp);
+      return 0;
+    }
+  }
+  fclose(fp);
+  return -1;
+}
+
+static int load_unix_account_by_name(const char *requested_user,
+                                     struct user_cred *cred) {
+  char passwd_line[256];
+  char shadow_line[256];
+  char field[96];
+
+  if (!requested_user || !requested_user[0] || !cred)
+    return -1;
+  if (find_unix_line(PASSWD_PATH, requested_user, passwd_line,
+                     sizeof(passwd_line)) != 0)
+    return -1;
+
+  memset(cred, 0, sizeof(*cred));
+  snprintf(cred->shell, sizeof(cred->shell), "/bin/sh");
+  snprintf(cred->username, sizeof(cred->username), "%s", requested_user);
+
+  if (unix_get_field(passwd_line, 2, field, sizeof(field)) == 0)
+    cred->uid = (uid_t)strtoul(field, NULL, 10);
+  if (unix_get_field(passwd_line, 3, field, sizeof(field)) == 0)
+    cred->gid = (gid_t)strtoul(field, NULL, 10);
+  if (unix_get_field(passwd_line, 5, field, sizeof(field)) == 0 && field[0])
+    snprintf(cred->home, sizeof(cred->home), "%s", field);
+  if (unix_get_field(passwd_line, 6, field, sizeof(field)) == 0 && field[0])
+    snprintf(cred->shell, sizeof(cred->shell), "%s", field);
+
+  if (find_unix_line(SHADOW_PATH, requested_user, shadow_line,
+                     sizeof(shadow_line)) == 0 &&
+      unix_get_field(shadow_line, 1, field, sizeof(field)) == 0 && field[0]) {
+    snprintf(cred->password_hash, sizeof(cred->password_hash), "%s", field);
+  } else if (unix_get_field(passwd_line, 1, field, sizeof(field)) == 0 &&
+             field[0] && strcmp(field, "x") != 0) {
+    snprintf(cred->password_hash, sizeof(cred->password_hash), "%s", field);
+  } else {
+    return -1;
+  }
+
+  if (!cred->home[0])
+    build_default_home(cred->username, cred->home, sizeof(cred->home));
+  cred->configured = 1;
+  return 0;
+}
+
 static int load_system_account_by_name(const char *requested_user,
                                        struct user_cred *cred) {
   char manifest[192];
@@ -157,6 +261,9 @@ static int load_system_account_by_name(const char *requested_user,
 
   if (!cred)
     return -1;
+
+  if (load_unix_account_by_name(requested_user, cred) == 0)
+    return 0;
 
   memset(cred, 0, sizeof(*cred));
   snprintf(cred->shell, sizeof(cred->shell), "/bin/sh");

@@ -78,7 +78,7 @@ archive = pathlib.Path(sys.argv[2]).resolve()
 archive.parent.mkdir(parents=True, exist_ok=True)
 if archive.exists():
     archive.unlink()
-with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as zf:
     for path in sorted(root.rglob("*")):
         if path.is_dir():
             continue

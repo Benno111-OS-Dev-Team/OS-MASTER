@@ -123,6 +123,8 @@ static int parse_account_manifest(const char *manifest, const char *fallback_nam
                                   int *wallpaper_index,
                                   char *partition_label, int partition_label_max,
                                   char *disk_location, int disk_location_max);
+static void account_unix_home_path(const char *username, char *buf, int max);
+static int account_write_unix_databases(void);
 static void runtime_sync_log_line(const char *line);
 static void runtime_sync_flush_best_effort(const char *path);
 void gui_open_image_viewer(const char *path);
@@ -637,6 +639,7 @@ static char installer_progress_stage[64] = "Ready";
 static char installer_progress_detail[160] =
     "The installer is waiting to start.";
 static char installer_progress_current_item[160] = "";
+static char installer_system_image_payload_path[96] = "";
 static char partition_manager_status[96] = "Select a real disk to manage.";
 static int installer_disk_count = 0;
 static int installer_selected_disk = 0;
@@ -4247,6 +4250,11 @@ typedef struct {
 #define GUI_SETUP_STATE_PATH "/System/setup-state.cfg"
 #define GUI_ACCOUNT_PATH "/System/account.cfg"
 #define GUI_ACCOUNTS_DIR "/System/Accounts"
+#define GUI_ETC_DIR "/etc"
+#define GUI_PASSWD_PATH "/etc/passwd"
+#define GUI_SHADOW_PATH "/etc/shadow"
+#define GUI_GROUP_PATH "/etc/group"
+#define GUI_HOME_ROOT "/home"
 #define GUI_VERSION_PATH "/System/version.cfg"
 #define ACCOUNT_RAW_SECTORS 16
 #define ACCOUNT_RAW_BYTES (ACCOUNT_RAW_SECTORS * 512)
@@ -4850,8 +4858,10 @@ static int path_is_active_account_home(const char *path) {
   if (!path || !user_home_mount_active || !user_home_mounted_username[0])
     return 0;
 
-  str_copy_safe(home_prefix, "/Users/", sizeof(home_prefix));
-  idx = 7;
+  str_copy_safe(home_prefix, path_starts_with(path, GUI_HOME_ROOT) ?
+                            "/home/" : "/Users/",
+                sizeof(home_prefix));
+  idx = path_starts_with(path, GUI_HOME_ROOT) ? 6 : 7;
   for (int i = 0; user_home_mounted_username[i] &&
                   idx < (int)sizeof(home_prefix) - 1;
        i++)
@@ -4871,7 +4881,10 @@ static int path_is_active_account_home_root(const char *path) {
   if (!path || !user_home_mount_active || !user_home_mounted_username[0])
     return 0;
 
-  str_copy_safe(home_path, "/Users/", sizeof(home_path));
+  str_copy_safe(home_path, path_starts_with(path, GUI_HOME_ROOT) ?
+                           "/home/" : "/Users/",
+                sizeof(home_path));
+  idx = path_starts_with(path, GUI_HOME_ROOT) ? 6 : 7;
   for (int i = 0; user_home_mounted_username[i] &&
                   idx < (int)sizeof(home_path) - 1;
        i++)
@@ -4883,16 +4896,18 @@ static int path_is_active_account_home_root(const char *path) {
 static int path_is_user_storage(const char *path) {
   if (!path)
     return 0;
-  return str_cmp(path, "/Users") == 0 ||
+  return str_cmp(path, "/Users") == 0 || str_cmp(path, GUI_HOME_ROOT) == 0 ||
          (path[0] == '/' && path[1] == 'U' && path[2] == 's' &&
           path[3] == 'e' && path[4] == 'r' && path[5] == 's' &&
-          path[6] == '/');
+          path[6] == '/') ||
+         (path[0] == '/' && path[1] == 'h' && path[2] == 'o' &&
+          path[3] == 'm' && path[4] == 'e' && path[5] == '/');
 }
 
 static int path_is_runtime_mutable(const char *path) {
   static const char *prefixes[] = {"/System", "/Applications", "/Desktop",
                                    "/Documents", "/Pictures", "/Music",
-                                   "/Users"};
+                                   "/Users", GUI_HOME_ROOT, GUI_ETC_DIR};
 
   if (!path || path[0] != '/')
     return 0;
@@ -4932,8 +4947,10 @@ static const char *resolve_user_storage_path(const char *path, char *buf,
     return path;
   if (path_is_active_account_home(path) &&
       account_storage_root_path(account_root, sizeof(account_root)) == 0) {
-    str_copy_safe(home_prefix, "/Users/", sizeof(home_prefix));
-    path_idx = 7;
+    str_copy_safe(home_prefix, path_starts_with(path, GUI_HOME_ROOT) ?
+                               "/home/" : "/Users/",
+                  sizeof(home_prefix));
+    path_idx = path_starts_with(path, GUI_HOME_ROOT) ? 6 : 7;
     while (home_prefix[path_idx] && path_idx < (int)sizeof(home_prefix) - 1)
       path_idx++;
     for (int i = 0; user_home_mounted_username[i] &&
@@ -4985,8 +5002,12 @@ static void ensure_user_storage_dirs(void) {
   int idx = 0;
 
   vfs_mkdir("/Users", 0755);
+  vfs_mkdir(GUI_HOME_ROOT, 0755);
   resolve_user_storage_path("/Users", persistent_path, sizeof(persistent_path));
   if (str_cmp(persistent_path, "/Users") != 0)
+    vfs_mkdir(persistent_path, 0755);
+  resolve_user_storage_path(GUI_HOME_ROOT, persistent_path, sizeof(persistent_path));
+  if (str_cmp(persistent_path, GUI_HOME_ROOT) != 0)
     vfs_mkdir(persistent_path, 0755);
 
   if (!account_username[0])
@@ -5003,6 +5024,11 @@ static void ensure_user_storage_dirs(void) {
       str_cmp(user_home_mounted_username, account_username) == 0) {
     vfs_mkdir(user_home, 0755);
   }
+  if (str_cmp(persistent_path, user_home) != 0)
+    vfs_mkdir(persistent_path, 0755);
+  account_unix_home_path(account_username, user_home, sizeof(user_home));
+  vfs_mkdir(user_home, 0755);
+  resolve_user_storage_path(user_home, persistent_path, sizeof(persistent_path));
   if (str_cmp(persistent_path, user_home) != 0)
     vfs_mkdir(persistent_path, 0755);
   if (account_storage_root_path(account_root, sizeof(account_root)) == 0) {
@@ -5028,6 +5054,9 @@ static void mount_active_user_home(void) {
     user_home[idx++] = account_username[i];
   user_home[idx] = '\0';
   vfs_mkdir("/Users", 0755);
+  vfs_mkdir(user_home, 0755);
+  account_unix_home_path(account_username, user_home, sizeof(user_home));
+  vfs_mkdir(GUI_HOME_ROOT, 0755);
   vfs_mkdir(user_home, 0755);
 }
 
@@ -5056,8 +5085,10 @@ static int user_storage_mkdir(const char *path, mode_t mode) {
   const char *target = resolve_user_storage_path(path, resolved, sizeof(resolved));
   int ret;
 
-  if (path_is_user_storage(path))
+  if (path_is_user_storage(path)) {
     vfs_mkdir("/Users", 0755);
+    vfs_mkdir(GUI_HOME_ROOT, 0755);
+  }
   if (path_is_active_account_home(path) && str_cmp(target, path) != 0 &&
       !path_is_active_account_home_root(path))
     return vfs_mkdir(target, mode);
@@ -5777,6 +5808,194 @@ static int account_manifest_path(const char *username, char *path, int max) {
   return 0;
 }
 
+
+static void account_unix_home_path(const char *username, char *buf, int max) {
+  int idx = 0;
+
+  if (!buf || max <= 0)
+    return;
+  if (username && str_cmp(username, "root") == 0) {
+    str_copy_safe(buf, "/root", max);
+    return;
+  }
+  str_copy_safe(buf, GUI_HOME_ROOT, max);
+  while (buf[idx] && idx < max - 1)
+    idx++;
+  if (idx < max - 1)
+    buf[idx++] = '/';
+  for (int i = 0; username && username[i] && idx < max - 1; i++)
+    buf[idx++] = username[i];
+  buf[idx] = '\0';
+}
+
+static uint32_t account_unix_uid_for_name(const char *username, int ordinal) {
+  if (username && str_cmp(username, "root") == 0)
+    return 0;
+  if (ordinal < 0)
+    ordinal = 0;
+  return 1000U + (uint32_t)ordinal;
+}
+
+static void account_append_decimal(char *buf, int max, uint64_t value) {
+  int idx = 0;
+
+  if (!buf || max <= 0)
+    return;
+  while (buf[idx] && idx < max - 1)
+    idx++;
+  append_decimal(buf, &idx, value);
+  buf[idx] = '\0';
+}
+
+static void account_append_line(char *buf, int max, const char *text) {
+  installer_append_to_buf(buf, max, text);
+  installer_append_to_buf(buf, max, "\n");
+}
+
+static int account_unix_line_matches_user(const char *line, const char *username) {
+  int i = 0;
+
+  if (!line || !username || !username[0])
+    return 0;
+  while (username[i] && line[i] == username[i])
+    i++;
+  return username[i] == '\0' && line[i] == ':';
+}
+
+static int account_unix_get_field(const char *line, int field, char *out,
+                                  int out_max) {
+  int current = 0;
+  int idx = 0;
+
+  if (!line || !out || out_max <= 0 || field < 0)
+    return -1;
+  out[0] = '\0';
+  for (int i = 0; line[i] && line[i] != '\n' && line[i] != '\r'; i++) {
+    if (line[i] == ':') {
+      if (current == field) {
+        out[idx] = '\0';
+        return 0;
+      }
+      current++;
+      idx = 0;
+      continue;
+    }
+    if (current == field && idx < out_max - 1)
+      out[idx++] = line[i];
+  }
+  if (current == field) {
+    out[idx] = '\0';
+    return 0;
+  }
+  return -1;
+}
+
+static int account_read_unix_manifest(const char *username, char *manifest,
+                                      int max) {
+  char passwd[1024];
+  char shadow[1024];
+  char line[256];
+  char selected[256];
+  char hash[64];
+  char uid_buf[16];
+  char gid_buf[16];
+  char gecos[64];
+  char home[96];
+  char shell[32];
+  int found = 0;
+  int idx = 0;
+
+  if (!username || !username[0] || !manifest || max <= 0)
+    return -1;
+  manifest[0] = '\0';
+  if (read_text_file(GUI_PASSWD_PATH, passwd, sizeof(passwd)) < 0)
+    return -1;
+
+  selected[0] = '\0';
+  for (int i = 0; passwd[i];) {
+    int len = 0;
+    while (passwd[i] && passwd[i] != '\n' && len < (int)sizeof(line) - 1)
+      line[len++] = passwd[i++];
+    while (passwd[i] && passwd[i] != '\n')
+      i++;
+    if (passwd[i] == '\n')
+      i++;
+    line[len] = '\0';
+    if (account_unix_line_matches_user(line, username)) {
+      str_copy_safe(selected, line, sizeof(selected));
+      found = 1;
+      break;
+    }
+  }
+  if (!found)
+    return -1;
+
+  hash[0] = '\0';
+  if (read_text_file(GUI_SHADOW_PATH, shadow, sizeof(shadow)) >= 0) {
+    for (int i = 0; shadow[i];) {
+      int len = 0;
+      while (shadow[i] && shadow[i] != '\n' && len < (int)sizeof(line) - 1)
+        line[len++] = shadow[i++];
+      while (shadow[i] && shadow[i] != '\n')
+        i++;
+      if (shadow[i] == '\n')
+        i++;
+      line[len] = '\0';
+      if (account_unix_line_matches_user(line, username)) {
+        account_unix_get_field(line, 1, hash, sizeof(hash));
+        break;
+      }
+    }
+  }
+  if (!hash[0])
+    account_unix_get_field(selected, 1, hash, sizeof(hash));
+  if (!hash[0] || str_cmp(hash, "x") == 0)
+    return -1;
+
+  account_unix_get_field(selected, 2, uid_buf, sizeof(uid_buf));
+  account_unix_get_field(selected, 3, gid_buf, sizeof(gid_buf));
+  account_unix_get_field(selected, 4, gecos, sizeof(gecos));
+  account_unix_get_field(selected, 5, home, sizeof(home));
+  account_unix_get_field(selected, 6, shell, sizeof(shell));
+
+  for (const char *p = "username="; *p && idx < max - 1; p++)
+    manifest[idx++] = *p;
+  for (int i = 0; username[i] && idx < max - 1; i++)
+    manifest[idx++] = username[i];
+  manifest[idx++] = '\n';
+  for (const char *p = "password_hash="; *p && idx < max - 1; p++)
+    manifest[idx++] = *p;
+  for (int i = 0; hash[i] && idx < max - 1; i++)
+    manifest[idx++] = hash[i];
+  manifest[idx++] = '\n';
+  for (const char *p = "role="; *p && idx < max - 1; p++)
+    manifest[idx++] = *p;
+  {
+    int admin_role = uid_buf[0] == '0' && uid_buf[1] == '\0';
+    for (int i = 0; gecos[i]; i++) {
+      if (gecos[i] == 'a' && gecos[i + 1] == 'd' && gecos[i + 2] == 'm' &&
+          gecos[i + 3] == 'i' && gecos[i + 4] == 'n')
+        admin_role = 1;
+    }
+    if (admin_role)
+      for (const char *p = "admin"; *p && idx < max - 1; p++)
+        manifest[idx++] = *p;
+    else
+      for (const char *p = "user"; *p && idx < max - 1; p++)
+        manifest[idx++] = *p;
+  }
+  manifest[idx++] = '\n';
+  for (const char *p = "wallpaper=4\npartition_label=\ndisk_location=\n";
+       *p && idx < max - 1; p++)
+    manifest[idx++] = *p;
+  manifest[idx] = '\0';
+  (void)gid_buf;
+  (void)gecos;
+  (void)home;
+  (void)shell;
+  return 0;
+}
+
 static int read_account_manifest(const char *username, char *manifest, int max) {
   char path[160];
 
@@ -5784,6 +6003,8 @@ static int read_account_manifest(const char *username, char *manifest, int max) 
     return -1;
 
   if (username && username[0]) {
+    if (account_read_unix_manifest(username, manifest, max) == 0)
+      return 0;
     if (account_manifest_path(username, path, sizeof(path)) != 0)
       return -1;
     return read_text_file(path, manifest, max) >= 0 ? 0 : -1;
@@ -6146,6 +6367,7 @@ static int settings_add_user_account(void) {
     user_home[idx++] = settings_user_new_name[i];
   user_home[idx] = '\0';
   user_storage_mkdir(user_home, 0755);
+  account_write_unix_databases();
 
   str_copy_safe(settings_user_selected, settings_user_new_name,
                 sizeof(settings_user_selected));
@@ -6198,6 +6420,7 @@ static int settings_remove_selected_user_account(void) {
     user_home[idx++] = settings_user_selected[i];
   user_home[idx] = '\0';
   user_storage_rmdir(user_home);
+  account_write_unix_databases();
 
   settings_user_selected[0] = '\0';
   settings_sync_selected_user();
@@ -6584,6 +6807,152 @@ static void save_setup_state(int setup_complete, int apps_seeded) {
   write_text_file(GUI_SETUP_STATE_PATH, manifest);
 }
 
+
+static void account_unix_append_user(char *passwd, int passwd_max,
+                                     char *shadow, int shadow_max,
+                                     char *admin_members, int admin_max,
+                                     char *user_members, int user_max,
+                                     const char *username,
+                                     const char *password_hash,
+                                     const char *role, int ordinal) {
+  char home[96];
+  uint32_t uid;
+  uint32_t gid;
+
+  if (!passwd || !shadow || !username || !username[0] || !password_hash ||
+      !password_hash[0])
+    return;
+
+  uid = account_unix_uid_for_name(username, ordinal);
+  gid = uid == 0 ? 0U : 100U;
+  account_unix_home_path(username, home, sizeof(home));
+
+  installer_append_to_buf(passwd, passwd_max, username);
+  installer_append_to_buf(passwd, passwd_max, ":x:");
+  account_append_decimal(passwd, passwd_max, uid);
+  installer_append_to_buf(passwd, passwd_max, ":");
+  account_append_decimal(passwd, passwd_max, gid);
+  installer_append_to_buf(passwd, passwd_max, ":OS8 ");
+  installer_append_to_buf(passwd, passwd_max,
+                          role && role[0] ? role : "user");
+  installer_append_to_buf(passwd, passwd_max, ":");
+  installer_append_to_buf(passwd, passwd_max, home);
+  installer_append_to_buf(passwd, passwd_max, ":/bin/sh\n");
+
+  installer_append_to_buf(shadow, shadow_max, username);
+  installer_append_to_buf(shadow, shadow_max, ":");
+  installer_append_to_buf(shadow, shadow_max, password_hash);
+  installer_append_to_buf(shadow, shadow_max, ":19000:0:99999:7:::\n");
+
+  if (uid != 0) {
+    if (user_members && user_max > 0) {
+      if (user_members[0])
+        installer_append_to_buf(user_members, user_max, ",");
+      installer_append_to_buf(user_members, user_max, username);
+    }
+    if (role && str_cmp(role, "admin") == 0 && admin_members && admin_max > 0) {
+      if (admin_members[0])
+        installer_append_to_buf(admin_members, admin_max, ",");
+      installer_append_to_buf(admin_members, admin_max, username);
+    }
+  }
+
+  vfs_mkdir(GUI_HOME_ROOT, 0755);
+  vfs_mkdir(home, 0755);
+}
+
+static int account_write_unix_databases(void) {
+  settings_account_list_t list;
+  char passwd[1024];
+  char shadow[1024];
+  char group[512];
+  char admin_members[256];
+  char user_members[256];
+  int ordinal = 0;
+
+  passwd[0] = '\0';
+  shadow[0] = '\0';
+  group[0] = '\0';
+  admin_members[0] = '\0';
+  user_members[0] = '\0';
+
+  ensure_gui_app_dirs();
+  vfs_mkdir(GUI_ETC_DIR, 0755);
+  vfs_mkdir(GUI_HOME_ROOT, 0755);
+
+  settings_account_list_init(&list);
+  settings_collect_accounts(&list);
+
+  if (account_username[0] && account_password[0] &&
+      settings_account_list_index_of(&list, account_username) < 0) {
+    settings_account_list_append(&list, account_username);
+  }
+
+  for (int i = 0; i < list.count; i++) {
+    char manifest[256];
+    char username[32];
+    char password_hash[33];
+    char role[16];
+    int wallpaper = DEFAULT_WALLPAPER_INDEX;
+    char partition_label[32];
+    char disk_location[32];
+
+    username[0] = '\0';
+    password_hash[0] = '\0';
+    str_copy_safe(role, "user", sizeof(role));
+    partition_label[0] = '\0';
+    disk_location[0] = '\0';
+
+    if (account_username[0] && str_cmp(list.names[i], account_username) == 0) {
+      str_copy_safe(username, account_username, sizeof(username));
+      str_copy_safe(password_hash, account_password, sizeof(password_hash));
+      str_copy_safe(role, account_role, sizeof(role));
+    } else {
+      char path[160];
+      if (account_manifest_path(list.names[i], path, sizeof(path)) == 0 &&
+          read_text_file(path, manifest, sizeof(manifest)) >= 0 &&
+          parse_account_manifest(manifest, list.names[i], username,
+                                 sizeof(username), password_hash,
+                                 sizeof(password_hash), role, sizeof(role),
+                                 &wallpaper, partition_label,
+                                 sizeof(partition_label), disk_location,
+                                 sizeof(disk_location)) == 0) {
+        (void)wallpaper;
+      }
+    }
+
+    if (username[0] && password_hash[0]) {
+      account_unix_append_user(passwd, sizeof(passwd), shadow, sizeof(shadow),
+                               admin_members, sizeof(admin_members),
+                               user_members, sizeof(user_members), username,
+                               password_hash, role, ordinal);
+      if (str_cmp(username, "root") != 0)
+        ordinal++;
+    }
+  }
+
+  if (!passwd[0]) {
+    settings_account_list_free(&list);
+    return -1;
+  }
+
+  account_append_line(group, sizeof(group), "root:x:0:root");
+  installer_append_to_buf(group, sizeof(group), "wheel:x:10:root");
+  if (admin_members[0]) {
+    installer_append_to_buf(group, sizeof(group), ",");
+    installer_append_to_buf(group, sizeof(group), admin_members);
+  }
+  installer_append_to_buf(group, sizeof(group), "\nusers:x:100:");
+  installer_append_to_buf(group, sizeof(group), user_members);
+  installer_append_to_buf(group, sizeof(group), "\n");
+
+  write_text_file(GUI_PASSWD_PATH, passwd);
+  write_text_file(GUI_SHADOW_PATH, shadow);
+  write_text_file(GUI_GROUP_PATH, group);
+  settings_account_list_free(&list);
+  return 0;
+}
+
 static void save_account_state(void) {
   char manifest[256];
   char per_user_path[160];
@@ -6638,6 +7007,7 @@ static void save_account_state(void) {
                             sizeof(per_user_path)) == 0) {
     write_text_file(per_user_path, manifest);
   }
+  account_write_unix_databases();
   if (account_partition_storage_ready)
     partition_save_ok = save_account_manifest_to_partition(manifest) == 0;
   if (partition_save_ok)
@@ -6649,40 +7019,82 @@ static void gui_flush_account_state_before_power_transition(void) {
     save_account_state();
 }
 
+static int startup_find_setup_disk_index(void) {
+  extern int storage_get_disk_count(void);
+  extern int storage_get_disk_kind(int index);
+  extern int storage_disk_supports_partition_writes(int disk_index);
+  extern int storage_get_partition_count(int disk_index);
+  extern int storage_get_partition_info(int disk_index, int partition_index,
+                                        storage_partition_kind_t *kind,
+                                        char *label, int label_max,
+                                        uint32_t *start_lba,
+                                        uint32_t *sector_count);
+  int disk_count = storage_get_disk_count();
+  int first_writable = -1;
+  int first_fixed_writable = -1;
+
+  for (int i = 0; i < disk_count; i++) {
+    int kind = storage_get_disk_kind(i);
+
+    if (kind == STORAGE_KIND_CDROM)
+      continue;
+    if (!storage_disk_supports_partition_writes(i))
+      continue;
+
+    if (first_writable < 0)
+      first_writable = i;
+    if (kind != STORAGE_KIND_USB_MASS_STORAGE && first_fixed_writable < 0)
+      first_fixed_writable = i;
+
+    for (int part = 0; part < storage_get_partition_count(i); part++) {
+      storage_partition_kind_t part_kind = STORAGE_PARTITION_UNKNOWN;
+      if (storage_get_partition_info(i, part, &part_kind, NULL, 0, NULL,
+                                     NULL) == 0 &&
+          (part_kind == STORAGE_PARTITION_SYSTEM ||
+           part_kind == STORAGE_PARTITION_DATA)) {
+        return i;
+      }
+    }
+  }
+
+  if (first_fixed_writable >= 0)
+    return first_fixed_writable;
+  return first_writable;
+}
+
 static int load_install_target_disk_location(char *buf, int max) {
   char manifest[256];
-  int fallback_disk = -1;
-  int fixed_disk_count = 0;
+  char configured_location[32];
+  int fallback_disk;
+
+  extern int storage_get_disk_index_by_location(const char *location);
+  extern int storage_get_disk_location(int index, char *buf, int max);
 
   if (!buf || max <= 0)
     return -1;
   buf[0] = '\0';
 
-  if (read_text_file("/System/install-target.cfg", manifest, sizeof(manifest)) <
+  configured_location[0] = '\0';
+  if (read_text_file("/System/install-target.cfg", manifest, sizeof(manifest)) >=
       0) {
-    extern int storage_get_disk_count(void);
-    extern int storage_get_disk_kind(int index);
-    extern int storage_get_disk_location(int index, char *buf, int max);
-    int disk_count = storage_get_disk_count();
-
-    for (int i = 0; i < disk_count; i++) {
-      int kind = storage_get_disk_kind(i);
-      if (kind == STORAGE_KIND_CDROM || kind == STORAGE_KIND_USB_MASS_STORAGE)
-        continue;
-      fallback_disk = i;
-      fixed_disk_count++;
-    }
-
-    if (fixed_disk_count == 1 && fallback_disk >= 0 &&
-        storage_get_disk_location(fallback_disk, buf, max) == 0 && buf[0]) {
+    manifest_get_value(manifest, "disk_location", configured_location,
+                       sizeof(configured_location));
+    if (configured_location[0] &&
+        storage_get_disk_index_by_location(configured_location) >= 0) {
+      str_copy_safe(buf, configured_location, max);
       return 0;
     }
-    return -1;
   }
 
-  if (manifest_get_value(manifest, "disk_location", buf, max) != 0 || !buf[0])
-    return -1;
-  return 0;
+  fallback_disk = startup_find_setup_disk_index();
+  if (fallback_disk >= 0 &&
+      storage_get_disk_location(fallback_disk, buf, max) == 0 && buf[0]) {
+    return 0;
+  }
+
+  if (configured_location[0])
+    str_copy_safe(buf, configured_location, max);
+  return -1;
 }
 
 static void startup_default_data_label(int ordinal, char *buf, int max) {
@@ -6720,14 +7132,17 @@ static int startup_assign_account_partition(void) {
 
   if (load_install_target_disk_location(disk_location, sizeof(disk_location)) !=
       0) {
-    set_startup_status("Setup warning: install disk not recorded.");
+    set_startup_status("Setup warning: no writable disk detected yet.");
     return -1;
   }
 
   disk_index = storage_get_disk_index_by_location(disk_location);
   if (disk_index < 0) {
-    set_startup_status("Setup warning: target disk is unavailable.");
-    return -1;
+    disk_index = startup_find_setup_disk_index();
+    if (disk_index < 0) {
+      set_startup_status("Setup warning: target disk is unavailable.");
+      return -1;
+    }
   }
 
   data_partitions =
@@ -8110,18 +8525,8 @@ static int installer_copy_system_image_to_root(const char *target_root,
                                                int *failed_files) {
   const char *installer_system_image_root = installer_system_image_root_path();
   if (installer_system_image_is_archive(installer_system_image_root)) {
-    uint8_t *archive_data = NULL;
-    size_t archive_size = 0;
-    int ret;
-
-    if (media_load_file(installer_system_image_root, &archive_data,
-                        &archive_size) != 0) {
-      return -1;
-    }
-    ret = media_zip_extract_to_root(archive_data, archive_size, target_root,
-                                    copied_files, failed_files);
-    media_free_file(archive_data);
-    if (ret != 0)
+    if (media_zip_extract_file_to_root(installer_system_image_root, target_root,
+                                       copied_files, failed_files) != 0)
       return -1;
   } else if (installer_copy_tree_to_root(installer_system_image_root,
                                          target_root, copied_files,
@@ -8197,14 +8602,7 @@ static int installer_count_tree_files(const char *src_root) {
   if (!src_root || !src_root[0])
     return 0;
   if (installer_system_image_is_archive(src_root)) {
-    uint8_t *archive_data = NULL;
-    size_t archive_size = 0;
-    int count;
-
-    if (media_load_file(src_root, &archive_data, &archive_size) != 0)
-      return 0;
-    count = media_zip_count_files(archive_data, archive_size);
-    media_free_file(archive_data);
+    int count = media_zip_count_file_entries(src_root);
     return (count > 0) ? count : 0;
   }
   dir = vfs_open(src_root, O_RDONLY, 0);
@@ -8235,16 +8633,30 @@ static const char *installer_system_disk_image_path(void) {
 }
 
 static const char *installer_system_image_root_path(void) {
+  if (installer_system_image_payload_path[0] &&
+      installer_payload_file_exists(installer_system_image_payload_path))
+    return installer_system_image_payload_path;
+  if (installer_payload_file_exists("/install/system-image"))
+    return "/install/system-image";
+  if (installer_payload_file_exists("/setup/install/system-image"))
+    return "/setup/install/system-image";
   if (installer_payload_file_exists("/install/system-image.zip"))
     return "/install/system-image.zip";
   if (installer_payload_file_exists("/setup/install/system-image.zip"))
     return "/setup/install/system-image.zip";
-  if (installer_payload_file_exists("/install/system-image"))
-    return "/install/system-image";
   return "/setup/install/system-image";
 }
 
-static int installer_validate_system_image_payload(void) {
+static void installer_select_system_image_payload(const char *path) {
+  if (!path || !path[0]) {
+    installer_system_image_payload_path[0] = '\0';
+    return;
+  }
+  str_copy_safe(installer_system_image_payload_path, path,
+                sizeof(installer_system_image_payload_path));
+}
+
+static int installer_validate_system_image_candidate(const char *payload_root) {
   static const char *required_suffixes[] = {
       "/boot/main.sys",
       "/boot/bootloader.sys",
@@ -8265,49 +8677,36 @@ static int installer_validate_system_image_payload(void) {
       "/limine/limine.conf",
       "/EFI/BOOT/limine.conf",
   };
-  const char *payload_root = installer_system_image_root_path();
   char full_path[192];
   char msg[320];
 
+  if (!payload_root || !payload_root[0])
+    return -1;
+
   if (installer_system_image_is_archive(payload_root)) {
-    uint8_t *archive_data = NULL;
-    size_t archive_size = 0;
-
-    if (media_load_file(payload_root, &archive_data, &archive_size) != 0) {
-      str_copy_safe(msg, "install payload missing: ", sizeof(msg));
-      installer_append_to_buf(msg, sizeof(msg), payload_root);
-      installer_log(msg);
-      return -1;
-    }
-
     for (int i = 0;
          i < (int)(sizeof(required_suffixes) / sizeof(required_suffixes[0]));
          i++) {
-      if (media_zip_has_entry(archive_data, archive_size,
-                              required_suffixes[i]))
+      if (media_zip_file_has_entry(payload_root, required_suffixes[i]))
         continue;
-      str_copy_safe(msg, "install payload missing: ", sizeof(msg));
+      str_copy_safe(msg, "install archive unusable: ", sizeof(msg));
       installer_append_to_buf(msg, sizeof(msg), payload_root);
       installer_append_to_buf(msg, sizeof(msg), required_suffixes[i]);
       installer_log(msg);
-      media_free_file(archive_data);
       return -1;
     }
 
     for (int i = 0;
          i < (int)(sizeof(limine_cfg_suffixes) / sizeof(limine_cfg_suffixes[0]));
          i++) {
-      if (media_zip_has_entry(archive_data, archive_size,
-                              limine_cfg_suffixes[i])) {
-        media_free_file(archive_data);
+      if (media_zip_file_has_entry(payload_root, limine_cfg_suffixes[i]))
         return 0;
-      }
     }
 
-    str_copy_safe(msg, "install payload missing: no Limine config in archive",
+    str_copy_safe(msg, "install archive unusable: no Limine config in ",
                   sizeof(msg));
+    installer_append_to_buf(msg, sizeof(msg), payload_root);
     installer_log(msg);
-    media_free_file(archive_data);
     return -1;
   }
 
@@ -8334,9 +8733,34 @@ static int installer_validate_system_image_payload(void) {
       return 0;
   }
 
-  str_copy_safe(msg, "install payload missing: no Limine config in system image",
+  str_copy_safe(msg, "install payload missing: no Limine config in ",
                 sizeof(msg));
+  installer_append_to_buf(msg, sizeof(msg), payload_root);
   installer_log(msg);
+  return -1;
+}
+
+static int installer_validate_system_image_payload(void) {
+  static const char *payload_candidates[] = {
+      "/install/system-image",
+      "/setup/install/system-image",
+      "/install/system-image.zip",
+      "/setup/install/system-image.zip",
+  };
+
+  installer_select_system_image_payload(NULL);
+  for (int i = 0;
+       i < (int)(sizeof(payload_candidates) / sizeof(payload_candidates[0]));
+       i++) {
+    if (!installer_payload_file_exists(payload_candidates[i]))
+      continue;
+    if (installer_validate_system_image_candidate(payload_candidates[i]) == 0) {
+      installer_select_system_image_payload(payload_candidates[i]);
+      return 0;
+    }
+  }
+
+  installer_log("install payload missing: no usable system image payload found");
   return -1;
 }
 
@@ -8665,6 +9089,7 @@ static void installer_start_background_install(void) {
   installer_efi_root[0] = '\0';
   installer_update_root[0] = '\0';
   installer_progress_current_item[0] = '\0';
+  installer_select_system_image_payload(NULL);
   installer_set_progress_state(2, "Preparing", "Preparing install...",
                                "Loading installer context and refreshing storage.");
   installer_log("starting system image install");
@@ -10231,11 +10656,16 @@ static int disk_imager_write_range(int disk_index, uint32_t start_lba,
 
   if (disk_index < 0 || !path || path[0] == '\0' || sector_count == 0)
     return -1;
+  if (storage_get_disk_kind(disk_index) == STORAGE_KIND_CDROM) {
+    disk_imager_set_status("Optical media cannot be imaged as 512-byte sectors.");
+    return -1;
+  }
 
   disk_capacity = storage_get_disk_capacity_mib(disk_index) * 2048U;
   if ((uint64_t)start_lba + (uint64_t)sector_count > disk_capacity)
     return -1;
 
+  installer_ensure_parent_dirs(path);
   file = vfs_open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
   if (!file)
     return -1;
@@ -10265,6 +10695,10 @@ static int disk_imager_read_range(int disk_index, uint32_t start_lba,
 
   if (disk_index < 0 || !path || path[0] == '\0' || sector_count == 0)
     return -1;
+  if (!storage_disk_supports_partition_writes(disk_index)) {
+    disk_imager_set_status("Selected disk is not writable.");
+    return -1;
+  }
 
   disk_capacity = storage_get_disk_capacity_mib(disk_index) * 2048U;
   if ((uint64_t)start_lba + (uint64_t)sector_count > disk_capacity)

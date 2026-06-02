@@ -23,10 +23,15 @@ int media_install_text_file(const char *path, const char *content);
 int media_zip_pack_tree(const char *src_root, uint8_t **out_data,
                         size_t *out_size);
 int media_zip_count_files(const uint8_t *data, size_t size);
+int media_zip_count_file_entries(const char *archive_path);
 int media_zip_has_entry(const uint8_t *data, size_t size, const char *path);
+int media_zip_file_has_entry(const char *archive_path, const char *path);
 int media_zip_extract_to_root(const uint8_t *data, size_t size,
                               const char *dst_root, int *copied_files,
                               int *failed_files);
+int media_zip_extract_file_to_root(const char *archive_path,
+                                   const char *dst_root, int *copied_files,
+                                   int *failed_files);
 
 int media_decode_jpeg(const uint8_t *data, size_t size, media_image_t *out);
 int media_decode_jpeg_buffer(const uint8_t *data, size_t size,

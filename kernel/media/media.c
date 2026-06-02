@@ -794,6 +794,284 @@ int media_zip_extract_to_root(const uint8_t *data, size_t size,
   return (extract.copied_files > 0 && extract.failed_files == 0) ? 0 : -1;
 }
 
+typedef int (*media_zip_stream_entry_cb_t)(void *ctx, struct file *archive,
+                                           const char *name,
+                                           uint32_t comp_size, int is_dir);
+
+static int media_zip_read_exact(struct file *file, uint8_t *buf, size_t size) {
+  size_t total = 0;
+
+  if (!file || (!buf && size > 0))
+    return -EINVAL;
+  while (total < size) {
+    ssize_t read_len = vfs_read(file, (char *)buf + total, size - total);
+    if (read_len <= 0)
+      return -EIO;
+    total += (size_t)read_len;
+  }
+  return 0;
+}
+
+static uint16_t media_zip_read_u16(const uint8_t *buf, size_t offset) {
+  return (uint16_t)buf[offset] | ((uint16_t)buf[offset + 1] << 8);
+}
+
+static uint32_t media_zip_read_u32(const uint8_t *buf, size_t offset) {
+  return (uint32_t)buf[offset] | ((uint32_t)buf[offset + 1] << 8) |
+         ((uint32_t)buf[offset + 2] << 16) |
+         ((uint32_t)buf[offset + 3] << 24);
+}
+
+static int media_zip_stream_skip(struct file *file, uint32_t size) {
+  if (!file)
+    return -EINVAL;
+  if (size == 0)
+    return 0;
+  return vfs_lseek(file, (loff_t)size, SEEK_CUR) < 0 ? -EIO : 0;
+}
+
+static int media_zip_file_foreach(const char *archive_path,
+                                  media_zip_stream_entry_cb_t cb, void *ctx) {
+  struct file *archive;
+  uint8_t header[30];
+  int ret = 0;
+
+  if (!archive_path || !archive_path[0] || !cb)
+    return -EINVAL;
+
+  archive = vfs_open(archive_path, O_RDONLY, 0);
+  if (!archive)
+    return -ENOENT;
+
+  for (;;) {
+    uint32_t sig;
+    uint16_t flags;
+    uint16_t method;
+    uint32_t comp_size;
+    uint16_t name_len;
+    uint16_t extra_len;
+    char name[256];
+
+    ret = media_zip_read_exact(archive, header, sizeof(header));
+    if (ret != 0) {
+      ret = 0;
+      break;
+    }
+
+    sig = media_zip_read_u32(header, 0);
+    if (sig != MEDIA_ZIP_LOCAL_HEADER_SIG)
+      break;
+
+    flags = media_zip_read_u16(header, 6);
+    method = media_zip_read_u16(header, 8);
+    comp_size = media_zip_read_u32(header, 18);
+    name_len = media_zip_read_u16(header, 26);
+    extra_len = media_zip_read_u16(header, 28);
+
+    if (method != 0 || (flags & 0x08u)) {
+      ret = -EIO;
+      break;
+    }
+    if (name_len >= sizeof(name)) {
+      ret = -ENAMETOOLONG;
+      break;
+    }
+    if (media_zip_read_exact(archive, (uint8_t *)name, name_len) != 0) {
+      ret = -EIO;
+      break;
+    }
+    name[name_len] = '\0';
+    if (media_zip_stream_skip(archive, extra_len) != 0) {
+      ret = -EIO;
+      break;
+    }
+
+    ret = cb(ctx, archive, name, comp_size,
+             name_len > 0 && name[name_len - 1] == '/');
+    if (ret != 0)
+      break;
+  }
+
+  vfs_close(archive);
+  return ret;
+}
+
+static int media_zip_stream_count_cb(void *ctx, struct file *archive,
+                                     const char *name, uint32_t comp_size,
+                                     int is_dir) {
+  int *count = (int *)ctx;
+  size_t name_len = 0;
+
+  if (!count || !name)
+    return -EINVAL;
+  while (name[name_len])
+    name_len++;
+  if (!is_dir &&
+      !(name_len == 14 && name[0] == 'I' && name[1] == 'M' &&
+        name[2] == 'A' && name[3] == 'G' && name[4] == 'E' &&
+        name[5] == '_' && name[6] == 'I' && name[7] == 'N' &&
+        name[8] == 'F' && name[9] == 'O' && name[10] == '.' &&
+        name[11] == 't' && name[12] == 'x' && name[13] == 't')) {
+    (*count)++;
+  }
+  return media_zip_stream_skip(archive, comp_size);
+}
+
+int media_zip_count_file_entries(const char *archive_path) {
+  int count = 0;
+
+  if (media_zip_file_foreach(archive_path, media_zip_stream_count_cb, &count) !=
+      0)
+    return -1;
+  return count;
+}
+
+typedef struct {
+  const char *path;
+  int found;
+} media_zip_stream_find_ctx_t;
+
+static int media_zip_stream_find_cb(void *ctx, struct file *archive,
+                                    const char *name, uint32_t comp_size,
+                                    int is_dir) {
+  media_zip_stream_find_ctx_t *find = (media_zip_stream_find_ctx_t *)ctx;
+  size_t idx = 0;
+  size_t target_len = 0;
+  size_t name_len = 0;
+
+  if (!find || !find->path)
+    return -EINVAL;
+  if (!is_dir && name) {
+    while (find->path[idx] == '/')
+      idx++;
+    while (find->path[idx + target_len])
+      target_len++;
+    while (name[name_len])
+      name_len++;
+    if (name_len == target_len) {
+      int matches = 1;
+      for (size_t i = 0; i < name_len; i++) {
+        if (name[i] != find->path[idx + i]) {
+          matches = 0;
+          break;
+        }
+      }
+      if (matches)
+        find->found = 1;
+    }
+  }
+  return media_zip_stream_skip(archive, comp_size);
+}
+
+int media_zip_file_has_entry(const char *archive_path, const char *path) {
+  media_zip_stream_find_ctx_t find;
+
+  if (!archive_path || !archive_path[0] || !path || !path[0])
+    return 0;
+  find.path = path;
+  find.found = 0;
+  if (media_zip_file_foreach(archive_path, media_zip_stream_find_cb, &find) !=
+      0)
+    return 0;
+  return find.found;
+}
+
+typedef struct {
+  const char *root;
+  int copied_files;
+  int failed_files;
+} media_zip_stream_extract_ctx_t;
+
+static int media_zip_stream_write_file(struct file *archive, const char *path,
+                                       uint32_t size) {
+  struct file *out;
+  uint8_t buf[512];
+  uint32_t remaining = size;
+
+  if (!archive || !path)
+    return -EINVAL;
+
+  media_ensure_parent_dirs(path);
+  vfs_unlink(path);
+  out = vfs_open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  if (!out) {
+    if (media_zip_stream_skip(archive, size) != 0)
+      return -EIO;
+    return -ENOENT;
+  }
+
+  while (remaining > 0) {
+    size_t chunk = remaining > sizeof(buf) ? sizeof(buf) : remaining;
+    ssize_t written;
+
+    if (media_zip_read_exact(archive, buf, chunk) != 0) {
+      vfs_close(out);
+      return -EIO;
+    }
+    written = vfs_write(out, (const char *)buf, chunk);
+    if (written < 0 || (size_t)written != chunk) {
+      vfs_close(out);
+      if (remaining > chunk)
+        media_zip_stream_skip(archive, remaining - (uint32_t)chunk);
+      return -ENOSPC;
+    }
+    remaining -= (uint32_t)chunk;
+  }
+
+  vfs_close(out);
+  return 0;
+}
+
+static int media_zip_stream_extract_cb(void *ctx, struct file *archive,
+                                       const char *name, uint32_t comp_size,
+                                       int is_dir) {
+  media_zip_stream_extract_ctx_t *extract =
+      (media_zip_stream_extract_ctx_t *)ctx;
+  char full_path[256];
+
+  if (!extract || !extract->root || !extract->root[0] || !name || !name[0])
+    return media_zip_stream_skip(archive, comp_size);
+  if (media_zip_path_join(full_path, sizeof(full_path), extract->root, name) !=
+      0)
+    return media_zip_stream_skip(archive, comp_size);
+
+  if (is_dir) {
+    media_ensure_parent_dirs(full_path);
+    vfs_mkdir(full_path, 0755);
+    return media_zip_stream_skip(archive, comp_size);
+  }
+
+  {
+    int ret = media_zip_stream_write_file(archive, full_path, comp_size);
+    if (ret == 0)
+      extract->copied_files++;
+    else
+      extract->failed_files++;
+    return ret == -EIO ? -EIO : 0;
+  }
+}
+
+int media_zip_extract_file_to_root(const char *archive_path,
+                                   const char *dst_root, int *copied_files,
+                                   int *failed_files) {
+  media_zip_stream_extract_ctx_t extract;
+
+  if (!archive_path || !archive_path[0] || !dst_root || !dst_root[0])
+    return -EINVAL;
+
+  extract.root = dst_root;
+  extract.copied_files = 0;
+  extract.failed_files = 0;
+  if (media_zip_file_foreach(archive_path, media_zip_stream_extract_cb,
+                             &extract) != 0)
+    return -EIO;
+  if (copied_files)
+    *copied_files = extract.copied_files;
+  if (failed_files)
+    *failed_files = extract.failed_files;
+  return (extract.copied_files > 0 && extract.failed_files == 0) ? 0 : -1;
+}
+
 /* --------------------------------------------------------------------- */
 /* JPEG decoding (picojpeg)                                               */
 /* --------------------------------------------------------------------- */
