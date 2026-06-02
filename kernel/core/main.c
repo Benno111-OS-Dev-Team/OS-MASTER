@@ -968,10 +968,9 @@ static void populate_installer_payload(void) {
       "OS8 Installer Types\n"
       "\n"
       "1. DOS Text Setup\n"
-      "   Default boot entry: \"OS8 DOS Text Setup\"\n"
-      "   Generated installer media mirrors the DOS loader at /OSINST.COM and /OSSYS.IMG.\n"
-      "   A hybrid BIOS+UEFI DOS environment image is shipped as /DOSENV.IMG when available.\n"
-      "   The graphical installer path is disabled on this media.\n";
+      "   Primary artifacts: OSINST.COM, OSSYS.IMG, and DOSENV.IMG when available.\n"
+      "   DOSENV.IMG is the preferred installer image produced by the build.\n"
+      "   The ISO output is a carrier for the DOS payload files.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"

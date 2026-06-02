@@ -127,10 +127,9 @@ write_boot_metadata() {
 OS8 Installer Types
 
 1. DOS Text Setup
-   Default boot entry: "OS8 DOS Text Setup"
-   Generated installer media mirrors the DOS loader at /OSINST.COM and /OSSYS.IMG.
-   A hybrid BIOS+UEFI DOS environment image is shipped as /DOSENV.IMG when available.
-   The graphical installer path is disabled on this media.
+   Primary artifacts: OSINST.COM, OSSYS.IMG, and DOSENV.IMG when available.
+   DOSENV.IMG is the preferred installer image produced by the build.
+   The ISO output is a carrier for the DOS payload files.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF
