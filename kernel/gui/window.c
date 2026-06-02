@@ -608,10 +608,7 @@ static int gui_is_installer_mode(void) {
 }
 
 static int gui_installer_text_mode(void) {
-  extern int boot_cmdline_contains(const char *token);
-  return boot_cmdline_contains("textsetup") ||
-         boot_cmdline_contains("setup=text") ||
-         boot_cmdline_contains("loader=dos");
+  return gui_is_installer_mode();
 }
 
 static char installer_status[96] = "Ready to install the system image.";
@@ -9612,7 +9609,7 @@ static void draw_installer_window(int content_x, int content_y, int content_w,
                       fg, bg);
       line_y += 20;
       gui_draw_string(content_x + 12, line_y,
-                      "The graphical installer remains available from the alternate boot entry.",
+                      "This installer media runs text setup only.",
                       fg, bg);
       line_y += 28;
       gui_draw_string(content_x + 12, line_y,

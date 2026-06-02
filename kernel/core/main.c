@@ -933,12 +933,7 @@ static void populate_installer_payload(void) {
       "/OS8 DOS Text Setup\n"
       "    protocol: limine\n"
       "    kernel_path: boot():/boot/main.sys\n"
-      "    cmdline: boot=usb mode=installer textsetup=1\n"
-      "\n"
-      "/OS8 Graphical Installer\n"
-      "    protocol: limine\n"
-      "    kernel_path: boot():/boot/main.sys\n"
-      "    cmdline: boot=usb mode=installer\n";
+      "    cmdline: boot=usb mode=installer textsetup=1\n";
   static const char *image_info =
       "OS8 System Image\n"
       "\n"
@@ -975,10 +970,8 @@ static void populate_installer_payload(void) {
       "1. DOS Text Setup\n"
       "   Default boot entry: \"OS8 DOS Text Setup\"\n"
       "   Generated installer media mirrors the DOS loader at /OSINST.COM and /OSSYS.IMG.\n"
-      "\n"
-      "2. Graphical Installer\n"
-      "   Alternate boot entry: \"OS8 Graphical Installer\"\n"
-      "   Use this when you explicitly want the desktop installer workflow.\n";
+      "   A hybrid BIOS+UEFI DOS environment image is shipped as /DOSENV.IMG when available.\n"
+      "   The graphical installer path is disabled on this media.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"

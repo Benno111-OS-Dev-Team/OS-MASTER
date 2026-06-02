@@ -231,12 +231,6 @@ void boot_parse_cmdline(const char *cmdline) {
       boot_from_usb, boot_installer_mode, boot_xhci_enabled);
 }
 
-int boot_cmdline_contains(const char *token) {
-  if (!token || !token[0])
-    return 0;
-  return str_contains_token(boot_cfg.kernel_cmdline, token);
-}
-
 int boot_is_usb_boot(void) { return boot_from_usb ? 1 : 0; }
 
 int boot_is_live_media(void) { return boot_live_media ? 1 : 0; }

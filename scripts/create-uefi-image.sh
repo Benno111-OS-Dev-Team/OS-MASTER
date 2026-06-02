@@ -24,6 +24,8 @@ BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
 BOOT_PROFILE="${BOOT_PROFILE:-installed-system}"
 LIMINE_CFG_SOURCE="${LIMINE_CFG_SOURCE:-${ROOT_DIR}/os-x86_64/limine-installed.conf}"
 INCLUDE_INSTALL_PAYLOAD="${INCLUDE_INSTALL_PAYLOAD:-}"
+INCLUDE_DOS_ENV="${INCLUDE_DOS_ENV:-0}"
+DOS_INSTALLER_DIR="${DOS_INSTALLER_DIR:-${BUILD_DIR}/dos-installer}"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -125,6 +127,60 @@ if [ -z "$INCLUDE_INSTALL_PAYLOAD" ]; then
     fi
 fi
 
+seed_dos_environment() {
+    local root="$1"
+    local startup_path="${root}/startup.nsh"
+    local notes_path="${root}/DOSENV.TXT"
+
+    mkdir -p "${root}/dos"
+    if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+        cp "${DOS_INSTALLER_DIR}/OSINST.COM" "${root}/OSINST.COM"
+        cp "${DOS_INSTALLER_DIR}/OSINST.COM" "${root}/dos/OSINST.COM"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+        cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "${root}/OSSYS.IMG"
+        cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "${root}/dos/OSSYS.IMG"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+        cp "${DOS_INSTALLER_DIR}/README.TXT" "${root}/README.TXT"
+        cp "${DOS_INSTALLER_DIR}/README.TXT" "${root}/dos/README.TXT"
+    fi
+
+    cat > "${startup_path}" <<'EOF'
+echo -off
+cls
+echo OS8 DOS Environment
+echo ===================
+echo This hybrid BIOS+UEFI image boots directly into OS8 text setup.
+echo DOS payload files are available at:
+echo   \OSINST.COM
+echo   \OSSYS.IMG
+echo   \README.TXT
+echo.
+echo If you are in the UEFI shell, run:
+echo   fs0:\EFI\BOOT\BOOTX64.EFI
+echo.
+EOF
+
+    cat > "${notes_path}" <<'EOF'
+OS8 DOS Environment
+
+This image is compatible with:
+- BIOS / MBR boot through Limine BIOS stages
+- UEFI boot through /EFI/BOOT/BOOTX64.EFI
+
+Included DOS payload:
+- /OSINST.COM
+- /OSSYS.IMG
+- /README.TXT
+
+Usage:
+1. Boot the image directly on BIOS or UEFI hardware to enter OS8 text setup.
+2. Or copy OSINST.COM and OSSYS.IMG onto an existing DOS system and run OSINST.COM.
+3. In a UEFI shell, run fs0:\EFI\BOOT\BOOTX64.EFI to start text setup manually.
+EOF
+}
+
 log "Creating UEFI disk image: $IMAGE_PATH (${IMAGE_SIZE_MB}M, profile=${BOOT_PROFILE})"
 dd if=/dev/zero of="$IMAGE_PATH" bs=1M count="$IMAGE_SIZE_MB" status=none
 
@@ -154,6 +210,9 @@ if [ "$INCLUDE_INSTALL_PAYLOAD" = "1" ]; then
     if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
         cp "$BOOT_IMAGE_ARCHIVE" "$STAGING_ROOT/install/boot-files.zip"
     fi
+fi
+if [ "$INCLUDE_DOS_ENV" = "1" ]; then
+    seed_dos_environment "$STAGING_ROOT"
 fi
 LIMINE_TOOL="$(resolve_limine_tool)"
 

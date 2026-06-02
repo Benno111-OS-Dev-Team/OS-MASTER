@@ -30,7 +30,6 @@ struct boot_config *boot_get_config(void);
 void boot_set_timeout(uint32_t seconds);
 void boot_set_default(int target);
 void boot_parse_cmdline(const char *cmdline);
-int boot_cmdline_contains(const char *token);
 int boot_is_usb_boot(void);
 int boot_is_live_media(void);
 int boot_is_installer_mode(void);

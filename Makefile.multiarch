@@ -200,7 +200,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean kernel sdk image system-image install-boot-files installer-image dos-installer qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 
 all: kernel image
 	@echo "=========================================="
@@ -233,8 +233,9 @@ help:
 	@echo "  image    - Create bootable image/ISO"
 	@echo "  system-image - Build the staged x86_64 install image and zip"
 	@echo "  install-boot-files - Stage boot files into INSTALL_ROOT"
-	@echo "  installer-image - Create x86_64 installer ISO (defaults to DOS text setup)"
+	@echo "  installer-image - Create x86_64 text-setup installer ISO"
 	@echo "  dos-installer - Build the DOS textmode installer utility"
+	@echo "  dos-env-image - Create a hybrid BIOS+UEFI DOS environment image"
 	@echo "  sdk      - Export application headers into build/sdk/include"
 	@echo "  qemu     - Run in QEMU emulator"
 	@echo "  qemu-bios - Run via legacy BIOS (x86/x86_64)"
@@ -456,13 +457,27 @@ ifeq ($(ARCH),x86_64)
 	@echo "[IMAGE] Creating x86_64 installer ISO..."
 	@IMAGE_NAME=os8-x86_64-system.img bash ./scripts/create-uefi-image.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
-	@ISO_NAME=os8-x86_64-installer.iso LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@bash ./scripts/create-dos-env-image.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@ISO_NAME=os8-x86_64-installer.iso LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer-text.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-system.img" "$(IMAGE_DIR)/os-x86_64-system.img"
 	@cp "$(IMAGE_DIR)/os8-x86_64-installer.iso" "$(IMAGE_DIR)/os-x86_64-installer.iso"
 	@echo "[IMAGE] Created: $(IMAGE_DIR)/os8-x86_64-installer.iso"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.iso"
 else
 	@echo "[IMAGE] installer-image is currently supported only for ARCH=x86_64"
+	@exit 1
+endif
+
+dos-env-image: kernel system-image
+ifeq ($(ARCH),x86_64)
+	@echo "[IMAGE] Creating hybrid BIOS+UEFI DOS environment image..."
+	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@bash ./scripts/create-dos-env-image.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os-x86_64-dos-env.img"
+	@echo "[IMAGE] Created: $(IMAGE_DIR)/os8-x86_64-dos-env.img"
+	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-dos-env.img"
+else
+	@echo "[IMAGE] dos-env-image is currently supported only for ARCH=x86_64"
 	@exit 1
 endif
 

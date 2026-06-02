@@ -129,10 +129,8 @@ OS8 Installer Types
 1. DOS Text Setup
    Default boot entry: "OS8 DOS Text Setup"
    Generated installer media mirrors the DOS loader at /OSINST.COM and /OSSYS.IMG.
-
-2. Graphical Installer
-   Alternate boot entry: "OS8 Graphical Installer"
-   Use this when you explicitly want the desktop installer workflow.
+   A hybrid BIOS+UEFI DOS environment image is shipped as /DOSENV.IMG when available.
+   The graphical installer path is disabled on this media.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF

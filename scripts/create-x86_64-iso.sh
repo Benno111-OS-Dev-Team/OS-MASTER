@@ -27,6 +27,7 @@ SYSTEM_IMAGE_ARCHIVE="${SYSTEM_IMAGE_ARCHIVE:-${BUILD_DIR}/system-image.zip}"
 BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
 SYSTEM_DISK_IMAGE="${SYSTEM_DISK_IMAGE:-${IMAGE_DIR}/os8-x86_64-system.img}"
 DOS_INSTALLER_DIR="${DOS_INSTALLER_DIR:-${BUILD_DIR}/dos-installer}"
+DOS_ENV_IMAGE="${DOS_ENV_IMAGE:-${IMAGE_DIR}/os8-x86_64-dos-env.img}"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -211,6 +212,10 @@ if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
     cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/README.TXT"
     cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/dos/README.TXT"
 fi
+if [ -f "${DOS_ENV_IMAGE}" ]; then
+    cp "${DOS_ENV_IMAGE}" "$ISO_ROOT/DOSENV.IMG"
+    cp "${DOS_ENV_IMAGE}" "$ISO_ROOT/dos/DOSENV.IMG"
+fi
 LIMINE_TOOL="$(resolve_limine_tool)"
 
 if [ -d "${BUILD_DIR}/assets" ]; then
@@ -279,6 +284,10 @@ fi
 if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
     require_iso_path "/README.TXT"
     require_iso_path "/dos/README.TXT"
+fi
+if [ -f "${DOS_ENV_IMAGE}" ]; then
+    require_iso_path "/DOSENV.IMG"
+    require_iso_path "/dos/DOSENV.IMG"
 fi
 require_iso_path "/install/system-image/INSTALLERS.TXT"
 require_iso_path "/install/system-image/boot/main.sys"
