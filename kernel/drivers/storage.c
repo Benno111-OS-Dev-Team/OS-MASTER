@@ -34,10 +34,12 @@ typedef struct {
 typedef struct {
   int present;
   storage_partition_kind_t kind;
+  storage_filesystem_kind_t filesystem;
   uint32_t size_mib;
   uint32_t start_lba;
   uint32_t sector_count;
   char label[32];
+  char filesystem_label[32];
 } storage_partition_t;
 
 static storage_controller_t storage_controllers[STORAGE_MAX_CONTROLLERS];
@@ -67,6 +69,10 @@ static void storage_load_mbr_partitions(int disk_index);
 #define STORAGE_GPT_ENTRY_COUNT 128
 #define STORAGE_GPT_ENTRY_SECTOR_COUNT                                              \
   ((STORAGE_GPT_ENTRY_COUNT * STORAGE_GPT_ENTRY_SIZE) / STORAGE_SECTOR_SIZE)
+#define STORAGE_EXT4_SUPERBLOCK_OFFSET 1024
+#define STORAGE_EXT4_SUPERBLOCK_MAGIC_OFFSET 56
+#define STORAGE_EXT4_SUPERBLOCK_VOLUME_NAME_OFFSET 120
+#define STORAGE_SWAP_SIGNATURE_OFFSET 4086
 
 typedef struct __attribute__((packed)) {
   char signature[8];
@@ -93,6 +99,109 @@ typedef struct __attribute__((packed)) {
   uint64_t attributes;
   uint16_t name[36];
 } storage_gpt_entry_t;
+
+typedef struct __attribute__((packed)) {
+  uint32_t s_inodes_count;
+  uint32_t s_blocks_count_lo;
+  uint32_t s_r_blocks_count_lo;
+  uint32_t s_free_blocks_count_lo;
+  uint32_t s_free_inodes_count;
+  uint32_t s_first_data_block;
+  uint32_t s_log_block_size;
+  uint32_t s_log_cluster_size;
+  uint32_t s_blocks_per_group;
+  uint32_t s_clusters_per_group;
+  uint32_t s_inodes_per_group;
+  uint32_t s_mtime;
+  uint32_t s_wtime;
+  uint16_t s_mnt_count;
+  uint16_t s_max_mnt_count;
+  uint16_t s_magic;
+  uint16_t s_state;
+  uint16_t s_errors;
+  uint16_t s_minor_rev_level;
+  uint32_t s_lastcheck;
+  uint32_t s_checkinterval;
+  uint32_t s_creator_os;
+  uint32_t s_rev_level;
+  uint16_t s_def_resuid;
+  uint16_t s_def_resgid;
+  uint32_t s_first_ino;
+  uint16_t s_inode_size;
+  uint16_t s_block_group_nr;
+  uint32_t s_feature_compat;
+  uint32_t s_feature_incompat;
+  uint32_t s_feature_ro_compat;
+  uint8_t s_uuid[16];
+  char s_volume_name[16];
+  char s_last_mounted[64];
+  uint32_t s_algorithm_usage_bitmap;
+  uint8_t s_prealloc_blocks;
+  uint8_t s_prealloc_dir_blocks;
+  uint16_t s_reserved_gdt_blocks;
+  uint8_t s_journal_uuid[16];
+  uint32_t s_journal_inum;
+  uint32_t s_journal_dev;
+  uint32_t s_last_orphan;
+  uint32_t s_hash_seed[4];
+  uint8_t s_def_hash_version;
+  uint8_t s_jnl_backup_type;
+  uint16_t s_desc_size;
+  uint32_t s_default_mount_opts;
+  uint32_t s_first_meta_bg;
+  uint32_t s_mkfs_time;
+  uint32_t s_jnl_blocks[17];
+  uint32_t s_blocks_count_hi;
+  uint32_t s_r_blocks_count_hi;
+  uint32_t s_free_blocks_count_hi;
+  uint16_t s_min_extra_isize;
+  uint16_t s_want_extra_isize;
+  uint32_t s_flags;
+  uint16_t s_raid_stride;
+  uint16_t s_mmp_interval;
+  uint64_t s_mmp_block;
+  uint32_t s_raid_stripe_width;
+  uint8_t s_log_groups_per_flex;
+  uint8_t s_checksum_type;
+  uint16_t s_reserved_pad;
+  uint64_t s_kbytes_written;
+} storage_ext4_superblock_t;
+
+typedef struct __attribute__((packed)) {
+  uint32_t bg_block_bitmap_lo;
+  uint32_t bg_inode_bitmap_lo;
+  uint32_t bg_inode_table_lo;
+  uint16_t bg_free_blocks_count_lo;
+  uint16_t bg_free_inodes_count_lo;
+  uint16_t bg_used_dirs_count_lo;
+  uint16_t bg_flags;
+  uint32_t bg_exclude_bitmap_lo;
+  uint16_t bg_block_bitmap_csum_lo;
+  uint16_t bg_inode_bitmap_csum_lo;
+  uint16_t bg_itable_unused_lo;
+  uint16_t bg_checksum;
+} storage_ext4_group_desc_t;
+
+typedef struct __attribute__((packed)) {
+  uint16_t i_mode;
+  uint16_t i_uid;
+  uint32_t i_size_lo;
+  uint32_t i_atime;
+  uint32_t i_ctime;
+  uint32_t i_mtime;
+  uint32_t i_dtime;
+  uint16_t i_gid;
+  uint16_t i_links_count;
+  uint32_t i_blocks_lo;
+  uint32_t i_flags;
+  uint32_t i_osd1;
+  uint32_t i_block[15];
+  uint32_t i_generation;
+  uint32_t i_file_acl_lo;
+  uint32_t i_size_hi;
+  uint32_t i_obso_faddr;
+  uint8_t extra[12];
+} storage_ext4_inode_t;
 
 typedef struct {
   volatile uint32_t *abar;
@@ -429,6 +538,23 @@ static const uint8_t *storage_partition_type_guid(
   }
 }
 
+const char *storage_filesystem_kind_name(storage_filesystem_kind_t kind) {
+  switch (kind) {
+  case STORAGE_FILESYSTEM_FAT32:
+    return "FAT32";
+  case STORAGE_FILESYSTEM_EXT4:
+    return "ext4";
+  case STORAGE_FILESYSTEM_ISO9660:
+    return "ISO9660";
+  case STORAGE_FILESYSTEM_APFS:
+    return "APFS";
+  case STORAGE_FILESYSTEM_SWAP:
+    return "swap";
+  default:
+    return "Unknown";
+  }
+}
+
 static void storage_make_guid(uint8_t *guid, uint32_t seed0, uint32_t seed1,
                               uint32_t seed2, uint32_t seed3) {
   if (!guid)
@@ -491,10 +617,72 @@ static void storage_clear_partitions(int disk_index) {
   for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
     storage_partitions[disk_index][i].present = 0;
     storage_partitions[disk_index][i].kind = STORAGE_PARTITION_UNKNOWN;
+    storage_partitions[disk_index][i].filesystem = STORAGE_FILESYSTEM_UNKNOWN;
     storage_partitions[disk_index][i].size_mib = 0;
     storage_partitions[disk_index][i].start_lba = 0;
     storage_partitions[disk_index][i].sector_count = 0;
     storage_partitions[disk_index][i].label[0] = '\0';
+    storage_partitions[disk_index][i].filesystem_label[0] = '\0';
+  }
+}
+
+static void storage_zero_bytes(void *dst, size_t size) {
+  uint8_t *p = (uint8_t *)dst;
+
+  if (!p)
+    return;
+  for (size_t i = 0; i < size; i++)
+    p[i] = 0;
+}
+
+static void storage_copy_bytes(void *dst, const void *src, size_t size) {
+  uint8_t *d = (uint8_t *)dst;
+  const uint8_t *s = (const uint8_t *)src;
+
+  if (!d || !s)
+    return;
+  for (size_t i = 0; i < size; i++)
+    d[i] = s[i];
+}
+
+static void storage_trim_ascii_field(char *dst, int max, const uint8_t *src,
+                                     int src_len) {
+  int end;
+
+  if (!dst || max <= 0) {
+    return;
+  }
+
+  dst[0] = '\0';
+  if (!src || src_len <= 0)
+    return;
+
+  end = src_len;
+  while (end > 0 && (src[end - 1] == ' ' || src[end - 1] == '\0'))
+    end--;
+
+  for (int i = 0; i < end && i < max - 1; i++) {
+    uint8_t ch = src[i];
+    dst[i] = (ch >= 32 && ch < 127) ? (char)ch : '_';
+    dst[i + 1] = '\0';
+  }
+}
+
+static void storage_copy_ascii_padded(uint8_t *dst, int len, const char *src) {
+  int i;
+
+  if (!dst || len <= 0)
+    return;
+
+  for (i = 0; i < len; i++)
+    dst[i] = ' ';
+  if (!src)
+    return;
+  for (i = 0; src[i] && i < len; i++) {
+    char ch = src[i];
+    if (ch >= 'a' && ch <= 'z')
+      ch = (char)(ch - 'a' + 'A');
+    dst[i] = (uint8_t)ch;
   }
 }
 
@@ -1869,6 +2057,219 @@ static void storage_recompute_partition_layout(int disk_index) {
   }
 }
 
+static int storage_read_sectors(int disk_index, uint32_t lba, uint32_t count,
+                                void *buffer) {
+  uint8_t *dst = (uint8_t *)buffer;
+
+  if (!dst || count == 0)
+    return -1;
+  for (uint32_t i = 0; i < count; i++) {
+    if (storage_disk_read_sector(disk_index, lba + i,
+                                 &dst[i * STORAGE_SECTOR_SIZE]) != 0)
+      return -1;
+  }
+  return 0;
+}
+
+static int storage_write_sectors(int disk_index, uint32_t lba, uint32_t count,
+                                 const void *buffer) {
+  const uint8_t *src = (const uint8_t *)buffer;
+
+  if (!src || count == 0)
+    return -1;
+  for (uint32_t i = 0; i < count; i++) {
+    if (storage_disk_write_sector(disk_index, lba + i,
+                                  &src[i * STORAGE_SECTOR_SIZE]) != 0)
+      return -1;
+  }
+  return 0;
+}
+
+static int storage_partition_read_sectors(int disk_index,
+                                          const storage_partition_t *part,
+                                          uint32_t relative_lba,
+                                          uint32_t count, void *buffer) {
+  if (!part || !part->present)
+    return -1;
+  if (relative_lba > part->sector_count || count > part->sector_count ||
+      relative_lba + count > part->sector_count)
+    return -1;
+  return storage_read_sectors(disk_index, part->start_lba + relative_lba, count,
+                              buffer);
+}
+
+static int storage_partition_write_sectors(int disk_index,
+                                           const storage_partition_t *part,
+                                           uint32_t relative_lba,
+                                           uint32_t count,
+                                           const void *buffer) {
+  if (!part || !part->present)
+    return -1;
+  if (relative_lba > part->sector_count || count > part->sector_count ||
+      relative_lba + count > part->sector_count)
+    return -1;
+  return storage_write_sectors(disk_index, part->start_lba + relative_lba, count,
+                               buffer);
+}
+
+static int storage_detect_fat32(int disk_index, const storage_partition_t *part,
+                                char *label, int label_max) {
+  uint8_t sector[STORAGE_SECTOR_SIZE];
+  uint16_t bytes_per_sector;
+  uint16_t reserved_sectors;
+  uint8_t sectors_per_cluster;
+  uint8_t num_fats;
+  uint32_t fat_size_32;
+  uint32_t root_cluster;
+  char fs_type[9];
+
+  if (storage_partition_read_sectors(disk_index, part, 0, 1, sector) != 0)
+    return 0;
+  if (sector[510] != 0x55 || sector[511] != 0xAA)
+    return 0;
+
+  bytes_per_sector = (uint16_t)storage_read_le32(&sector[11]) & 0xFFFFU;
+  reserved_sectors = (uint16_t)storage_read_le32(&sector[14]) & 0xFFFFU;
+  sectors_per_cluster = sector[13];
+  num_fats = sector[16];
+  fat_size_32 = storage_read_le32(&sector[36]);
+  root_cluster = storage_read_le32(&sector[44]);
+  for (int i = 0; i < 8; i++)
+    fs_type[i] = (char)sector[82 + i];
+  fs_type[8] = '\0';
+
+  if (bytes_per_sector != STORAGE_SECTOR_SIZE || reserved_sectors == 0 ||
+      sectors_per_cluster == 0 || num_fats == 0 || fat_size_32 == 0 ||
+      root_cluster < 2)
+    return 0;
+  if (!(fs_type[0] == 'F' && fs_type[1] == 'A' && fs_type[2] == 'T' &&
+        fs_type[3] == '3' && fs_type[4] == '2'))
+    return 0;
+
+  if (label && label_max > 0)
+    storage_trim_ascii_field(label, label_max, &sector[71], 11);
+  return 1;
+}
+
+static int storage_detect_ext4(int disk_index, const storage_partition_t *part,
+                               char *label, int label_max) {
+  uint8_t sector[STORAGE_SECTOR_SIZE];
+
+  if (part->sector_count < 4)
+    return 0;
+  if (storage_partition_read_sectors(disk_index, part, 2, 1, sector) != 0)
+    return 0;
+  if (sector[STORAGE_EXT4_SUPERBLOCK_MAGIC_OFFSET] != 0x53 ||
+      sector[STORAGE_EXT4_SUPERBLOCK_MAGIC_OFFSET + 1] != 0xEF)
+    return 0;
+
+  if (label && label_max > 0)
+    storage_trim_ascii_field(
+        label, label_max,
+        &sector[STORAGE_EXT4_SUPERBLOCK_VOLUME_NAME_OFFSET], 16);
+  return 1;
+}
+
+static int storage_detect_iso9660(int disk_index, const storage_partition_t *part,
+                                  char *label, int label_max) {
+  uint8_t sector[2048];
+
+  if (part->sector_count < 68)
+    return 0;
+  if (storage_partition_read_sectors(disk_index, part, 64, 4, sector) != 0)
+    return 0;
+  if (sector[0] != 0x01 && sector[0] != 0x02)
+    return 0;
+  if (!(sector[1] == 'C' && sector[2] == 'D' && sector[3] == '0' &&
+        sector[4] == '0' && sector[5] == '1'))
+    return 0;
+  if (label && label_max > 0)
+    storage_trim_ascii_field(label, label_max, &sector[40], 32);
+  return 1;
+}
+
+static int storage_detect_apfs(int disk_index, const storage_partition_t *part,
+                               char *label, int label_max) {
+  uint8_t block[4096];
+  uint32_t magic;
+
+  (void)label;
+  (void)label_max;
+
+  if (part->sector_count < 8)
+    return 0;
+  if (storage_partition_read_sectors(disk_index, part, 0, 8, block) != 0)
+    return 0;
+  magic = storage_read_le32(&block[32]);
+  return magic == 0x4253584E;
+}
+
+static int storage_detect_swap(int disk_index, const storage_partition_t *part) {
+  uint8_t page[4096];
+  const char *sig_new = "SWAPSPACE2";
+  const char *sig_old = "SWAP-SPACE";
+
+  if (part->sector_count < 8)
+    return 0;
+  if (storage_partition_read_sectors(disk_index, part, 0, 8, page) != 0)
+    return 0;
+
+  for (int i = 0; i < 10; i++) {
+    if (page[STORAGE_SWAP_SIGNATURE_OFFSET + i] != (uint8_t)sig_new[i])
+      goto check_old;
+  }
+  return 1;
+
+check_old:
+  for (int i = 0; i < 10; i++) {
+    if (page[STORAGE_SWAP_SIGNATURE_OFFSET + i] != (uint8_t)sig_old[i])
+      return 0;
+  }
+  return 1;
+}
+
+static void storage_detect_partition_filesystem(int disk_index,
+                                                storage_partition_t *part) {
+  char label[32];
+
+  if (!part || !part->present)
+    return;
+
+  part->filesystem = STORAGE_FILESYSTEM_UNKNOWN;
+  part->filesystem_label[0] = '\0';
+  label[0] = '\0';
+
+  if (storage_detect_iso9660(disk_index, part, label, sizeof(label))) {
+    part->filesystem = STORAGE_FILESYSTEM_ISO9660;
+  } else if (storage_detect_apfs(disk_index, part, label, sizeof(label))) {
+    part->filesystem = STORAGE_FILESYSTEM_APFS;
+  } else if (storage_detect_ext4(disk_index, part, label, sizeof(label))) {
+    part->filesystem = STORAGE_FILESYSTEM_EXT4;
+  } else if (storage_detect_fat32(disk_index, part, label, sizeof(label))) {
+    part->filesystem = STORAGE_FILESYSTEM_FAT32;
+  } else if (storage_detect_swap(disk_index, part)) {
+    part->filesystem = STORAGE_FILESYSTEM_SWAP;
+  }
+
+  if (label[0])
+    storage_copy_string(part->filesystem_label, label,
+                        sizeof(part->filesystem_label));
+}
+
+static void storage_refresh_partition_filesystems(int disk_index) {
+  if (disk_index < 0 || disk_index >= storage_disk_count)
+    return;
+
+  for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
+    if (!storage_partitions[disk_index][i].present) {
+      storage_partitions[disk_index][i].filesystem = STORAGE_FILESYSTEM_UNKNOWN;
+      storage_partitions[disk_index][i].filesystem_label[0] = '\0';
+      continue;
+    }
+    storage_detect_partition_filesystem(disk_index, &storage_partitions[disk_index][i]);
+  }
+}
+
 static int storage_commit_gpt_partitions(int disk_index) {
   static uint8_t partition_entries[STORAGE_GPT_ENTRY_SECTOR_COUNT *
                                    STORAGE_SECTOR_SIZE];
@@ -2258,8 +2659,11 @@ static void storage_load_mbr_partitions(int disk_index) {
 
 static void storage_load_partitions(int disk_index) {
   if (storage_load_gpt_partitions(disk_index) == 0)
-    return;
-  storage_load_mbr_partitions(disk_index);
+    storage_refresh_partition_filesystems(disk_index);
+  else {
+    storage_load_mbr_partitions(disk_index);
+    storage_refresh_partition_filesystems(disk_index);
+  }
 }
 
 static void storage_load_pci_driver(storage_kind_t kind, int controller_index,
@@ -2669,7 +3073,13 @@ int storage_describe_partition(int disk_index, int partition_index, char *buf,
   storage_append_string(buf, max, storage_partition_kind_name(part->kind));
   storage_append_string(buf, max, ", ");
   storage_append_decimal(buf, max, (int)part->size_mib);
-  storage_append_string(buf, max, " MiB)");
+  storage_append_string(buf, max, " MiB, ");
+  storage_append_string(buf, max, storage_filesystem_kind_name(part->filesystem));
+  if (part->filesystem_label[0]) {
+    storage_append_string(buf, max, " ");
+    storage_append_string(buf, max, part->filesystem_label);
+  }
+  storage_append_string(buf, max, ")");
   return 0;
 }
 
@@ -2705,6 +3115,430 @@ int storage_get_partition_info(int disk_index, int partition_index,
   if (sector_count)
     *sector_count = part->sector_count;
   return 0;
+}
+
+int storage_get_partition_filesystem_info(int disk_index, int partition_index,
+                                          storage_filesystem_kind_t *kind,
+                                          char *label, int label_max) {
+  storage_partition_t *part = NULL;
+  int visible_index = 0;
+
+  if (disk_index < 0 || disk_index >= storage_disk_count)
+    return -1;
+
+  for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
+    if (!storage_partitions[disk_index][i].present)
+      continue;
+    if (visible_index == partition_index) {
+      part = &storage_partitions[disk_index][i];
+      break;
+    }
+    visible_index++;
+  }
+
+  if (!part)
+    return -1;
+
+  if (kind)
+    *kind = part->filesystem;
+  if (label && label_max > 0)
+    storage_copy_string(label, part->filesystem_label, label_max);
+  return 0;
+}
+
+static int storage_format_swap_partition(int disk_index,
+                                         const storage_partition_t *part) {
+  uint8_t page[4096];
+  const char *sig = "SWAPSPACE2";
+
+  if (!part || part->sector_count < 8)
+    return -1;
+
+  storage_zero_bytes(page, sizeof(page));
+  for (int i = 0; i < 10; i++)
+    page[STORAGE_SWAP_SIGNATURE_OFFSET + i] = (uint8_t)sig[i];
+  return storage_partition_write_sectors(disk_index, part, 0, 8, page);
+}
+
+static int storage_choose_fat32_spc(uint32_t total_sectors) {
+  uint32_t size_mib = total_sectors / 2048U;
+
+  if (size_mib < 260)
+    return 1;
+  if (size_mib < 8192)
+    return 4;
+  if (size_mib < 16384)
+    return 8;
+  if (size_mib < 32768)
+    return 16;
+  return 32;
+}
+
+static int storage_format_fat32_partition(int disk_index,
+                                          const storage_partition_t *part,
+                                          const char *label) {
+  uint8_t sector[STORAGE_SECTOR_SIZE];
+  uint8_t fat_sector[STORAGE_SECTOR_SIZE];
+  uint32_t total_sectors;
+  uint32_t reserved_sectors = 32;
+  uint32_t fat_size = 1;
+  uint32_t cluster_count = 0;
+  uint32_t data_sectors;
+  uint32_t root_cluster = 2;
+  uint32_t sectors_per_cluster;
+  uint32_t root_dir_first_sector;
+  uint32_t fats_start;
+
+  if (!part || part->sector_count < 65536)
+    return -1;
+
+  total_sectors = part->sector_count;
+  sectors_per_cluster = (uint32_t)storage_choose_fat32_spc(total_sectors);
+  for (int iter = 0; iter < 8; iter++) {
+    data_sectors = total_sectors - reserved_sectors - fat_size * 2;
+    cluster_count = data_sectors / sectors_per_cluster;
+    fat_size = ((cluster_count + 2) * 4 + (STORAGE_SECTOR_SIZE - 1)) /
+               STORAGE_SECTOR_SIZE;
+  }
+  data_sectors = total_sectors - reserved_sectors - fat_size * 2;
+  cluster_count = data_sectors / sectors_per_cluster;
+  if (cluster_count < 65525)
+    return -1;
+
+  storage_zero_bytes(sector, sizeof(sector));
+  sector[0] = 0xEB;
+  sector[1] = 0x58;
+  sector[2] = 0x90;
+  sector[510] = 0x55;
+  sector[511] = 0xAA;
+  storage_copy_bytes(&sector[3], "OS8FAT32", 8);
+  sector[11] = 0x00;
+  sector[12] = 0x02;
+  sector[13] = (uint8_t)sectors_per_cluster;
+  sector[14] = (uint8_t)(reserved_sectors & 0xFF);
+  sector[15] = (uint8_t)((reserved_sectors >> 8) & 0xFF);
+  sector[16] = 2;
+  sector[21] = 0xF8;
+  sector[24] = 0x3F;
+  sector[26] = 0xFF;
+  storage_write_le32(&sector[32], total_sectors);
+  storage_write_le32(&sector[36], fat_size);
+  storage_write_le32(&sector[44], root_cluster);
+  sector[48] = 1;
+  sector[50] = 6;
+  sector[64] = 0x80;
+  sector[66] = 0x29;
+  storage_write_le32(&sector[67],
+                     0x4F533846U ^ total_sectors ^ part->start_lba);
+  storage_copy_ascii_padded(&sector[71], 11, label ? label : part->label);
+  storage_copy_bytes(&sector[82], "FAT32   ", 8);
+
+  if (storage_partition_write_sectors(disk_index, part, 0, 1, sector) != 0)
+    return -1;
+  if (storage_partition_write_sectors(disk_index, part, 6, 1, sector) != 0)
+    return -1;
+
+  storage_zero_bytes(sector, sizeof(sector));
+  storage_write_le32(&sector[0], 0x41615252U);
+  storage_write_le32(&sector[484], 0x61417272U);
+  storage_write_le32(&sector[488], 0xFFFFFFFFU);
+  storage_write_le32(&sector[492], 0xFFFFFFFFU);
+  storage_write_le32(&sector[508], 0xAA550000U);
+  if (storage_partition_write_sectors(disk_index, part, 1, 1, sector) != 0)
+    return -1;
+  if (storage_partition_write_sectors(disk_index, part, 7, 1, sector) != 0)
+    return -1;
+
+  storage_zero_bytes(fat_sector, sizeof(fat_sector));
+  storage_write_le32(&fat_sector[0], 0x0FFFFFF8U);
+  storage_write_le32(&fat_sector[4], 0xFFFFFFFFU);
+  storage_write_le32(&fat_sector[8], 0x0FFFFFFFU);
+  fats_start = reserved_sectors;
+  if (storage_partition_write_sectors(disk_index, part, fats_start, 1,
+                                      fat_sector) != 0)
+    return -1;
+  if (storage_partition_write_sectors(disk_index, part, fats_start + fat_size, 1,
+                                      fat_sector) != 0)
+    return -1;
+
+  storage_zero_bytes(sector, sizeof(sector));
+  for (uint32_t i = 1; i < fat_size; i++) {
+    if (storage_partition_write_sectors(disk_index, part, fats_start + i, 1,
+                                        sector) != 0)
+      return -1;
+    if (storage_partition_write_sectors(disk_index, part,
+                                        fats_start + fat_size + i, 1,
+                                        sector) != 0)
+      return -1;
+  }
+
+  root_dir_first_sector = reserved_sectors + fat_size * 2;
+  for (uint32_t i = 0; i < sectors_per_cluster; i++) {
+    if (storage_partition_write_sectors(disk_index, part, root_dir_first_sector + i,
+                                        1, sector) != 0)
+      return -1;
+  }
+
+  return 0;
+}
+
+static int storage_format_ext4_partition(int disk_index,
+                                         const storage_partition_t *part,
+                                         const char *label) {
+  enum {
+    block_size = 4096,
+    sectors_per_block = block_size / STORAGE_SECTOR_SIZE,
+    blocks_per_group = block_size * 8,
+    inode_size = 128,
+    inodes_per_group = 2048
+  };
+  uint8_t block[block_size];
+  uint32_t total_blocks;
+  uint32_t group_count;
+  uint32_t desc_blocks;
+  uint32_t inode_table_blocks;
+  uint32_t total_inodes;
+  uint32_t total_free_blocks = 0;
+  uint32_t total_free_inodes = 0;
+  storage_ext4_superblock_t sb;
+
+  if (!part || part->sector_count < sectors_per_block * 256U)
+    return -1;
+
+  total_blocks = part->sector_count / sectors_per_block;
+  group_count = (total_blocks + blocks_per_group - 1) / blocks_per_group;
+  desc_blocks =
+      (group_count * (uint32_t)sizeof(storage_ext4_group_desc_t) + block_size - 1) /
+      block_size;
+  inode_table_blocks =
+      (inodes_per_group * inode_size + block_size - 1) / block_size;
+  total_inodes = group_count * inodes_per_group;
+
+  storage_zero_bytes(&sb, sizeof(sb));
+  sb.s_inodes_count = total_inodes;
+  sb.s_blocks_count_lo = total_blocks;
+  sb.s_first_data_block = 0;
+  sb.s_log_block_size = 2;
+  sb.s_log_cluster_size = 2;
+  sb.s_blocks_per_group = blocks_per_group;
+  sb.s_clusters_per_group = blocks_per_group;
+  sb.s_inodes_per_group = inodes_per_group;
+  sb.s_magic = 0xEF53;
+  sb.s_state = 1;
+  sb.s_errors = 1;
+  sb.s_rev_level = 1;
+  sb.s_first_ino = 11;
+  sb.s_inode_size = inode_size;
+  sb.s_desc_size = sizeof(storage_ext4_group_desc_t);
+  storage_make_guid(sb.s_uuid, 0x45585434U ^ part->start_lba, total_blocks,
+                    part->sector_count, disk_index + 1);
+  storage_zero_bytes(sb.s_volume_name, sizeof(sb.s_volume_name));
+  storage_copy_ascii_padded((uint8_t *)sb.s_volume_name, 16,
+                            label ? label : part->label);
+
+  for (uint32_t group = 0; group < group_count; group++) {
+    uint32_t group_first_block = group * blocks_per_group;
+    uint32_t group_blocks = total_blocks - group_first_block;
+    uint32_t local_block_bitmap;
+    uint32_t local_inode_bitmap;
+    uint32_t local_inode_table;
+    uint32_t used_inodes;
+    uint32_t used_blocks;
+
+    if (group_blocks > blocks_per_group)
+      group_blocks = blocks_per_group;
+    local_block_bitmap = (group == 0) ? 1 + desc_blocks : 0;
+    local_inode_bitmap = local_block_bitmap + 1;
+    local_inode_table = local_inode_bitmap + 1;
+    used_blocks = local_inode_table + inode_table_blocks;
+    if (group == 0)
+      used_blocks++;
+    if (group_blocks <= used_blocks)
+      return -1;
+
+    used_inodes = (group == 0) ? 11 : 0;
+    total_free_blocks += group_blocks - used_blocks;
+    total_free_inodes += inodes_per_group - used_inodes;
+
+    storage_zero_bytes(block, sizeof(block));
+    for (uint32_t i = 0; i < used_blocks; i++)
+      block[i / 8] |= (uint8_t)(1U << (i % 8));
+    for (uint32_t i = group_blocks; i < blocks_per_group; i++)
+      block[i / 8] |= (uint8_t)(1U << (i % 8));
+    if (storage_partition_write_sectors(disk_index, part,
+                                        (group_first_block + local_block_bitmap) *
+                                            sectors_per_block,
+                                        sectors_per_block, block) != 0)
+      return -1;
+
+    storage_zero_bytes(block, sizeof(block));
+    for (uint32_t i = 0; i < used_inodes; i++)
+      block[i / 8] |= (uint8_t)(1U << (i % 8));
+    if (storage_partition_write_sectors(disk_index, part,
+                                        (group_first_block + local_inode_bitmap) *
+                                            sectors_per_block,
+                                        sectors_per_block, block) != 0)
+      return -1;
+
+    storage_zero_bytes(block, sizeof(block));
+    for (uint32_t i = 0; i < inode_table_blocks; i++) {
+      if (storage_partition_write_sectors(disk_index, part,
+                                          (group_first_block + local_inode_table +
+                                           i) *
+                                              sectors_per_block,
+                                          sectors_per_block, block) != 0)
+        return -1;
+    }
+
+    if (group == 0) {
+      uint32_t root_dir_block = group_first_block + used_blocks - 1;
+      uint32_t root_inode_offset = inode_size;
+      storage_ext4_inode_t root_inode;
+
+      storage_zero_bytes(block, sizeof(block));
+      for (uint32_t i = 0; i < group_count; i++) {
+        storage_ext4_group_desc_t write_gd;
+        uint32_t gd_group_blocks = total_blocks - i * blocks_per_group;
+        uint32_t gd_local_block_bitmap;
+        uint32_t gd_local_inode_bitmap;
+        uint32_t gd_local_inode_table;
+        uint32_t gd_used_blocks;
+        uint32_t gd_used_inodes = (i == 0) ? 11 : 0;
+
+        if (gd_group_blocks > blocks_per_group)
+          gd_group_blocks = blocks_per_group;
+        gd_local_block_bitmap = (i == 0) ? 1 + desc_blocks : 0;
+        gd_local_inode_bitmap = gd_local_block_bitmap + 1;
+        gd_local_inode_table = gd_local_inode_bitmap + 1;
+        gd_used_blocks = gd_local_inode_table + inode_table_blocks;
+        if (i == 0)
+          gd_used_blocks++;
+
+        storage_zero_bytes(&write_gd, sizeof(write_gd));
+        write_gd.bg_block_bitmap_lo = i * blocks_per_group + gd_local_block_bitmap;
+        write_gd.bg_inode_bitmap_lo = i * blocks_per_group + gd_local_inode_bitmap;
+        write_gd.bg_inode_table_lo = i * blocks_per_group + gd_local_inode_table;
+        write_gd.bg_free_blocks_count_lo =
+            (uint16_t)(gd_group_blocks - gd_used_blocks);
+        write_gd.bg_free_inodes_count_lo =
+            (uint16_t)(inodes_per_group - gd_used_inodes);
+        write_gd.bg_used_dirs_count_lo = (uint16_t)((i == 0) ? 1 : 0);
+        storage_copy_bytes(&block[(i * sizeof(write_gd)) % block_size], &write_gd,
+                           sizeof(write_gd));
+        if (((i + 1) * sizeof(write_gd)) % block_size == 0 ||
+            i == group_count - 1) {
+          uint32_t desc_block_index = (i * sizeof(write_gd)) / block_size;
+          if (storage_partition_write_sectors(
+                  disk_index, part, (1 + desc_block_index) * sectors_per_block,
+                  sectors_per_block, block) != 0)
+            return -1;
+          storage_zero_bytes(block, sizeof(block));
+        }
+      }
+
+      storage_zero_bytes(block, sizeof(block));
+      storage_copy_bytes(&block[1024], &sb, sizeof(sb));
+      if (storage_partition_write_sectors(disk_index, part, 0, sectors_per_block,
+                                          block) != 0)
+        return -1;
+
+      storage_zero_bytes(&root_inode, sizeof(root_inode));
+      root_inode.i_mode = 0x4000 | 0755;
+      root_inode.i_size_lo = block_size;
+      root_inode.i_links_count = 2;
+      root_inode.i_blocks_lo = sectors_per_block;
+      root_inode.i_block[0] = root_dir_block;
+
+      storage_zero_bytes(block, sizeof(block));
+      if (storage_partition_read_sectors(
+              disk_index, part, (group_first_block + local_inode_table) *
+                                    sectors_per_block,
+              sectors_per_block, block) != 0)
+        return -1;
+      storage_copy_bytes(&block[root_inode_offset], &root_inode,
+                         sizeof(root_inode));
+      if (storage_partition_write_sectors(
+              disk_index, part, (group_first_block + local_inode_table) *
+                                    sectors_per_block,
+              sectors_per_block, block) != 0)
+        return -1;
+
+      storage_zero_bytes(block, sizeof(block));
+      storage_write_le32(&block[0], 2);
+      block[4] = 12;
+      block[5] = 0;
+      block[6] = 1;
+      block[7] = 2;
+      block[8] = '.';
+      storage_write_le32(&block[12], 2);
+      block[16] = (uint8_t)((block_size - 12) & 0xFF);
+      block[17] = (uint8_t)(((block_size - 12) >> 8) & 0xFF);
+      block[20] = 2;
+      block[21] = 0;
+      block[22] = 2;
+      block[23] = 2;
+      block[24] = '.';
+      block[25] = '.';
+      if (storage_partition_write_sectors(disk_index, part,
+                                          root_dir_block * sectors_per_block,
+                                          sectors_per_block, block) != 0)
+        return -1;
+    }
+  }
+
+  sb.s_free_blocks_count_lo = total_free_blocks;
+  sb.s_free_inodes_count = total_free_inodes;
+  storage_zero_bytes(block, sizeof(block));
+  storage_copy_bytes(&block[1024], &sb, sizeof(sb));
+  if (storage_partition_write_sectors(disk_index, part, 0, sectors_per_block,
+                                      block) != 0)
+    return -1;
+  return 0;
+}
+
+int storage_format_partition(int disk_index, int partition_index,
+                             storage_filesystem_kind_t fs_kind) {
+  storage_partition_t *part = NULL;
+  int visible_index = 0;
+  int result = -1;
+
+  if (disk_index < 0 || disk_index >= storage_disk_count)
+    return -1;
+
+  for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
+    if (!storage_partitions[disk_index][i].present)
+      continue;
+    if (visible_index == partition_index) {
+      part = &storage_partitions[disk_index][i];
+      break;
+    }
+    visible_index++;
+  }
+
+  if (!part)
+    return -1;
+
+  switch (fs_kind) {
+  case STORAGE_FILESYSTEM_FAT32:
+    result = storage_format_fat32_partition(disk_index, part, part->label);
+    break;
+  case STORAGE_FILESYSTEM_EXT4:
+    result = storage_format_ext4_partition(disk_index, part, part->label);
+    break;
+  case STORAGE_FILESYSTEM_SWAP:
+    result = storage_format_swap_partition(disk_index, part);
+    break;
+  default:
+    return -1;
+  }
+
+  if (result == 0) {
+    storage_refresh_partition_filesystems(disk_index);
+    printk(KERN_INFO "STORAGE: Formatted partition %d on disk %s as %s\n",
+           partition_index, storage_disks[disk_index].location,
+           storage_filesystem_kind_name(fs_kind));
+  }
+  return result;
 }
 
 int storage_create_partition(int disk_index, storage_partition_kind_t kind,
@@ -2747,6 +3581,7 @@ int storage_create_partition(int disk_index, storage_partition_kind_t kind,
       storage_partitions[disk_index][i] = old_parts[i];
     return -1;
   }
+  storage_refresh_partition_filesystems(disk_index);
   printk(KERN_INFO "STORAGE: Created %s partition on disk %s (%u MiB)\n",
          storage_partition_kind_name(kind), storage_disks[disk_index].location,
          size_mib);
@@ -2792,6 +3627,7 @@ int storage_update_partition(int disk_index, int partition_index,
       storage_partitions[disk_index][i] = old_parts[i];
     return -1;
   }
+  storage_refresh_partition_filesystems(disk_index);
   printk(KERN_INFO "STORAGE: Updated partition %d on disk %s\n", partition_index,
          storage_disks[disk_index].location);
   return 0;
@@ -2822,6 +3658,7 @@ int storage_delete_partition(int disk_index, int partition_index) {
           storage_partitions[disk_index][j] = old_parts[j];
         return -1;
       }
+      storage_refresh_partition_filesystems(disk_index);
       printk(KERN_INFO "STORAGE: Deleted partition %d on disk %s\n",
              partition_index, storage_disks[disk_index].location);
       return 0;

@@ -11137,7 +11137,7 @@ static void draw_partition_manager_window(int content_x, int content_y,
   gui_draw_string(content_x + 24, content_y + 22, "Partition Manager",
                   theme->app_fg, theme->card);
   gui_draw_string(content_x + 24, content_y + 44,
-                  "Create, edit, delete, and auto-layout partitions.",
+                  "Detect, create, delete, auto-layout, and format partitions.",
                   theme->app_muted, theme->card);
   gui_draw_string(content_x + 24, content_y + 58,
                   (selected_disk_index >= 0 &&
@@ -11194,17 +11194,20 @@ static void draw_partition_manager_window(int content_x, int content_y,
   gui_draw_string(content_x + 450, content_y + 307, "Delete", 0xFFFFFF,
                   0x7C2D12);
 
-  gui_draw_rect(content_x + 24, content_y + 332, 100, 30, 0x6D28D9);
-  gui_draw_string(content_x + 40, content_y + 341, "Edit Sel.", 0xFFFFFF,
-                  0x6D28D9);
-  gui_draw_rect(content_x + 132, content_y + 332, 110, 30, 0x3B82F6);
-  gui_draw_string(content_x + 154, content_y + 341, "Auto Layout", 0xFFFFFF,
+  gui_draw_rect(content_x + 24, content_y + 332, 100, 30, 0x166534);
+  gui_draw_string(content_x + 40, content_y + 341, "Fmt ext4", 0xFFFFFF,
+                  0x166534);
+  gui_draw_rect(content_x + 132, content_y + 332, 110, 30, 0x0F766E);
+  gui_draw_string(content_x + 148, content_y + 341, "Fmt FAT32", 0xFFFFFF,
+                  0x0F766E);
+  gui_draw_rect(content_x + 250, content_y + 332, 90, 30, 0x7C3AED);
+  gui_draw_string(content_x + 268, content_y + 341, "Fmt Swap", 0xFFFFFF,
+                  0x7C3AED);
+  gui_draw_rect(content_x + 348, content_y + 332, 110, 30, 0x3B82F6);
+  gui_draw_string(content_x + 370, content_y + 341, "Auto Layout", 0xFFFFFF,
                   0x3B82F6);
-  gui_draw_rect(content_x + 250, content_y + 332, 90, 30, 0x3B82F6);
-  gui_draw_string(content_x + 276, content_y + 341, "Refresh", 0xFFFFFF,
-                  0x3B82F6);
-  gui_draw_rect(content_x + 348, content_y + 332, 110, 30, 0x4B5563);
-  gui_draw_string(content_x + 371, content_y + 341, "Open Files", 0xFFFFFF,
+  gui_draw_rect(content_x + 466, content_y + 332, 62, 30, 0x4B5563);
+  gui_draw_string(content_x + 474, content_y + 341, "Refresh", 0xFFFFFF,
                   0x4B5563);
 
   gui_draw_string(content_x + 24, content_y + content_h - 52,
@@ -17969,6 +17972,8 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
                                             storage_partition_kind_t kind,
                                             uint32_t size_mib);
         extern int storage_delete_partition(int disk_index, int partition_index);
+        extern int storage_format_partition(int disk_index, int partition_index,
+                                            storage_filesystem_kind_t fs_kind);
         extern int storage_ensure_install_partitions(int disk_index);
 
         installer_refresh_disk_inventory();
@@ -18077,21 +18082,57 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
             y >= content_y + 332 && y < content_y + 362) {
           if (partition_manager_partition_count > 0 &&
               selected_disk_index >= 0 &&
-              storage_update_partition(selected_disk_index,
+              storage_format_partition(selected_disk_index,
                                        partition_manager_selected_partition,
-                                       STORAGE_PARTITION_DATA, 6144) == 0) {
+                                       STORAGE_FILESYSTEM_EXT4) == 0) {
             partition_manager_refresh_partitions();
             str_copy_safe(partition_manager_status,
-                          "Selected partition edited to Data 6144 MiB.",
+                          "Selected partition formatted as ext4.",
                           sizeof(partition_manager_status));
           } else {
-            str_copy_safe(partition_manager_status, "Partition edit failed.",
+            str_copy_safe(partition_manager_status, "ext4 format failed.",
                           sizeof(partition_manager_status));
           }
           return;
         }
 
         if (x >= content_x + 132 && x < content_x + 242 &&
+            y >= content_y + 332 && y < content_y + 362) {
+          if (partition_manager_partition_count > 0 &&
+              selected_disk_index >= 0 &&
+              storage_format_partition(selected_disk_index,
+                                       partition_manager_selected_partition,
+                                       STORAGE_FILESYSTEM_FAT32) == 0) {
+            partition_manager_refresh_partitions();
+            str_copy_safe(partition_manager_status,
+                          "Selected partition formatted as FAT32.",
+                          sizeof(partition_manager_status));
+          } else {
+            str_copy_safe(partition_manager_status, "FAT32 format failed.",
+                          sizeof(partition_manager_status));
+          }
+          return;
+        }
+
+        if (x >= content_x + 250 && x < content_x + 340 &&
+            y >= content_y + 332 && y < content_y + 362) {
+          if (partition_manager_partition_count > 0 &&
+              selected_disk_index >= 0 &&
+              storage_format_partition(selected_disk_index,
+                                       partition_manager_selected_partition,
+                                       STORAGE_FILESYSTEM_SWAP) == 0) {
+            partition_manager_refresh_partitions();
+            str_copy_safe(partition_manager_status,
+                          "Selected partition formatted as swap.",
+                          sizeof(partition_manager_status));
+          } else {
+            str_copy_safe(partition_manager_status, "Swap format failed.",
+                          sizeof(partition_manager_status));
+          }
+          return;
+        }
+
+        if (x >= content_x + 348 && x < content_x + 458 &&
             y >= content_y + 332 && y < content_y + 362) {
           if (selected_disk_index >= 0 &&
               storage_ensure_install_partitions(selected_disk_index) >= 0) {
@@ -18106,20 +18147,11 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           return;
         }
 
-        if (x >= content_x + 250 && x < content_x + 340 &&
+        if (x >= content_x + 466 && x < content_x + 528 &&
             y >= content_y + 332 && y < content_y + 362) {
           installer_refresh_disk_inventory();
           partition_manager_refresh_partitions();
           str_copy_safe(partition_manager_status, "Disk list refreshed.",
-                        sizeof(partition_manager_status));
-          return;
-        }
-
-        if (x >= content_x + 348 && x < content_x + 458 &&
-            y >= content_y + 332 && y < content_y + 362) {
-          gui_create_file_manager_path(win->x + 24, win->y + 24, "/");
-          str_copy_safe(partition_manager_status,
-                        "Opened File Manager for disk-related files.",
                         sizeof(partition_manager_status));
           return;
         }

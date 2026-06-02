@@ -326,6 +326,7 @@ static int kapi_partition_count(int disk_index) {
 static int kapi_partition_info(int disk_index, int partition_index,
                                os8_partition_info_t *info) {
     storage_partition_kind_t kind;
+    storage_filesystem_kind_t filesystem;
     uint32_t start_lba;
     uint32_t sector_count;
 
@@ -342,6 +343,15 @@ static int kapi_partition_info(int disk_index, int partition_index,
     info->size_mib = sector_count / 2048U;
     if (info->size_mib == 0 && sector_count > 0)
         info->size_mib = 1;
+    info->filesystem = OS8_FS_UNKNOWN;
+    info->filesystem_label[0] = '\0';
+    if (storage_get_partition_filesystem_info(disk_index, partition_index,
+                                              &filesystem,
+                                              info->filesystem_label,
+                                              (int)sizeof(info->filesystem_label)) ==
+        0) {
+        info->filesystem = (uint32_t)filesystem;
+    }
     return 0;
 }
 
@@ -363,6 +373,14 @@ static int kapi_partition_update(int disk_index, int partition_index,
 
 static int kapi_partition_delete(int disk_index, int partition_index) {
     return storage_delete_partition(disk_index, partition_index);
+}
+
+static int kapi_partition_format(int disk_index, int partition_index,
+                                 uint32_t filesystem) {
+    if (filesystem < OS8_FS_FAT32 || filesystem > OS8_FS_SWAP)
+        return -1;
+    return storage_format_partition(disk_index, partition_index,
+                                    (storage_filesystem_kind_t)filesystem);
 }
 
 static void kapi_exit(int status) {
@@ -675,6 +693,7 @@ void kapi_init(kapi_t *api) {
     api->partition_create = kapi_partition_create;
     api->partition_update = kapi_partition_update;
     api->partition_delete = kapi_partition_delete;
+    api->partition_format = kapi_partition_format;
 
     printk(KERN_INFO "[KAPI] Kernel API initialized (fb=%dx%d)\\n", api->fb_width, api->fb_height);
     printk(KERN_INFO "[KAPI] fb_base = 0x%lx\\n", (unsigned long)(uintptr_t)api->fb_base);

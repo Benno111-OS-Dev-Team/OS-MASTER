@@ -17,6 +17,13 @@
 #define OS8_PARTITION_DATA    3u
 #define OS8_PARTITION_SWAP    4u
 
+#define OS8_FS_UNKNOWN 0u
+#define OS8_FS_FAT32   1u
+#define OS8_FS_EXT4    2u
+#define OS8_FS_ISO9660 3u
+#define OS8_FS_APFS    4u
+#define OS8_FS_SWAP    5u
+
 typedef struct os8_disk_info {
     char location[24];
     uint32_t capacity_mib;
@@ -30,6 +37,8 @@ typedef struct os8_partition_info {
     uint32_t start_lba;
     uint32_t sector_count;
     uint32_t size_mib;
+    uint32_t filesystem;
+    char filesystem_label[32];
 } os8_partition_info_t;
 
 typedef struct kapi {
@@ -247,6 +256,8 @@ typedef struct kapi {
     int (*partition_update)(int disk_index, int partition_index,
                             uint32_t kind, uint32_t size_mib);
     int (*partition_delete)(int disk_index, int partition_index);
+    int (*partition_format)(int disk_index, int partition_index,
+                            uint32_t filesystem);
 } kapi_t;
 
 typedef int (*app_main_fn)(kapi_t *api, int argc, char **argv);
