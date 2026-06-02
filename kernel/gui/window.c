@@ -640,6 +640,7 @@ static char installer_progress_detail[160] =
     "The installer is waiting to start.";
 static char installer_progress_current_item[160] = "";
 static char installer_system_image_payload_path[96] = "";
+static char installer_boot_payload_path[96] = "";
 static char partition_manager_status[96] = "Select a real disk to manage.";
 static int installer_disk_count = 0;
 static int installer_selected_disk = 0;
@@ -666,8 +667,8 @@ static int secure_attention_selection = 0;
 /* ===================================================================== */
 /* Wallpaper Manager                                                     */
 /* ===================================================================== */
-#define NUM_WALLPAPERS 10
-#define DEFAULT_WALLPAPER_INDEX 4
+#define NUM_WALLPAPERS 11
+#define DEFAULT_WALLPAPER_INDEX 5
 static int current_wallpaper = DEFAULT_WALLPAPER_INDEX;
 
 /* Wallpaper types: 0 = gradient, 1 = image */
@@ -686,6 +687,7 @@ static struct {
     {1, 26, 92, 82, 9, 37, 48, WALLPAPER_FIT_COVER, "Nature", "/assets/wallpapers/nature.jpg"},
     {1, 84, 108, 148, 26, 33, 52, WALLPAPER_FIT_COVER, "City", "/assets/wallpapers/city.jpg"},
     {1, 124, 82, 126, 48, 28, 64, WALLPAPER_FIT_COVER, "Portrait", "/assets/wallpapers/portrait.jpg"},
+    {1, 58, 88, 118, 22, 28, 46, WALLPAPER_FIT_STRETCH, "Ducks", "/assets/wallpapers/ducks.png"},
     {1, 58, 88, 118, 22, 28, 46, WALLPAPER_FIT_STRETCH, "Default", "/assets/wallpapers/default.jpg"},
     {0, 30, 27, 75, 15, 27, 62, WALLPAPER_FIT_COVER, "Indigo Night", NULL},
     {0, 20, 60, 100, 10, 30, 60, WALLPAPER_FIT_COVER, "Ocean Blue", NULL},
@@ -8373,6 +8375,19 @@ static int installer_build_boot_fallback(const char *src_path, char *alt,
   return 0;
 }
 
+static int installer_str_equal(const char *a, const char *b) {
+  int i = 0;
+
+  if (!a || !b)
+    return 0;
+  while (a[i] && b[i]) {
+    if (a[i] != b[i])
+      return 0;
+    i++;
+  }
+  return a[i] == '\0' && b[i] == '\0';
+}
+
 static int installer_copy_file(const char *src_path, const char *dst_path) {
   uint8_t *data = NULL;
   size_t size = 0;
@@ -8510,10 +8525,14 @@ static int installer_copy_tree_callback(void *ctx, const char *name, int len,
 }
 
 static const char *installer_system_image_root_path(void);
+static const char *installer_boot_payload_root_path(void);
 static int installer_system_image_is_archive(const char *path);
 static int installer_copy_tree_to_root(const char *src_root, const char *dst_root,
                                        int *copied_files, int *failed_files,
                                        const char *log_label);
+static int installer_copy_boot_payload_to_root(const char *target_root,
+                                               int *copied_files,
+                                               int *failed_files);
 static int installer_copy_boot_aliases(const char *target_root, int *copied_files,
                                        int *failed_files);
 static int installer_payload_file_exists(const char *path);
@@ -8533,7 +8552,7 @@ static int installer_copy_system_image_to_root(const char *target_root,
                                          failed_files, "system image") != 0) {
     return -1;
   }
-  return installer_copy_boot_aliases(target_root, copied_files, failed_files);
+  return 0;
 }
 
 static int installer_payload_file_exists(const char *path) {
@@ -8656,6 +8675,28 @@ static void installer_select_system_image_payload(const char *path) {
                 sizeof(installer_system_image_payload_path));
 }
 
+static const char *installer_boot_payload_root_path(void) {
+  if (installer_boot_payload_path[0] &&
+      installer_payload_file_exists(installer_boot_payload_path))
+    return installer_boot_payload_path;
+  if (installer_payload_file_exists("/install/boot-files.zip"))
+    return "/install/boot-files.zip";
+  if (installer_payload_file_exists("/setup/bootimage.zip"))
+    return "/setup/bootimage.zip";
+  if (installer_payload_file_exists("/setup/bootimage"))
+    return "/setup/bootimage";
+  return installer_system_image_root_path();
+}
+
+static void installer_select_boot_payload(const char *path) {
+  if (!path || !path[0]) {
+    installer_boot_payload_path[0] = '\0';
+    return;
+  }
+  str_copy_safe(installer_boot_payload_path, path,
+                sizeof(installer_boot_payload_path));
+}
+
 static int installer_validate_system_image_candidate(const char *payload_root) {
   static const char *required_suffixes[] = {
       "/boot/main.sys",
@@ -8696,6 +8737,7 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
       return -1;
     }
 
+  if (installer_system_image_is_archive(payload_root)) {
     for (int i = 0;
          i < (int)(sizeof(limine_cfg_suffixes) / sizeof(limine_cfg_suffixes[0]));
          i++) {
@@ -8764,6 +8806,132 @@ static int installer_validate_system_image_payload(void) {
   return -1;
 }
 
+static int installer_validate_boot_payload_candidate(const char *payload_root) {
+  static const char *required_suffixes[] = {
+      "/boot/main.sys",
+      "/boot/bootloader.sys",
+      "/boot/limine-bios.sys",
+      "/boot/limine-bios-cd.bin",
+      "/boot/limine-uefi-cd.bin",
+      "/BOOTABLE.CFG",
+      "/boot/BOOTABLE.CFG",
+      "/EFI/BOOT/BOOTX64.EFI",
+      "/EFI/BOOT/BOOTABLE.CFG",
+      "/System/installer-state.txt",
+      "/System/efi-boot.cfg",
+      "/System/mbr-boot.cfg",
+  };
+  static const char *limine_cfg_suffixes[] = {
+      "/limine.conf",
+      "/boot/limine.conf",
+      "/limine/limine.conf",
+      "/EFI/BOOT/limine.conf",
+  };
+  char full_path[192];
+  char msg[320];
+
+  if (!payload_root || !payload_root[0])
+    return -1;
+
+  if (installer_system_image_is_archive(payload_root)) {
+    for (int i = 0;
+         i < (int)(sizeof(required_suffixes) / sizeof(required_suffixes[0]));
+         i++) {
+      if (media_zip_file_has_entry(payload_root, required_suffixes[i]))
+        continue;
+      str_copy_safe(msg, "install archive unusable: ", sizeof(msg));
+      str_copy_safe(msg, "boot archive unusable: ", sizeof(msg));
+      installer_append_to_buf(msg, sizeof(msg), payload_root);
+      installer_append_to_buf(msg, sizeof(msg), required_suffixes[i]);
+      installer_log(msg);
+      return -1;
+    }
+
+    for (int i = 0;
+         i < (int)(sizeof(limine_cfg_suffixes) / sizeof(limine_cfg_suffixes[0]));
+         i++) {
+      if (media_zip_file_has_entry(payload_root, limine_cfg_suffixes[i]))
+        return 0;
+    }
+
+    str_copy_safe(msg, "install archive unusable: no Limine config in ",
+    str_copy_safe(msg, "boot archive unusable: no Limine config in ",
+                  sizeof(msg));
+    installer_append_to_buf(msg, sizeof(msg), payload_root);
+    installer_log(msg);
+    return -1;
+  }
+
+  for (int i = 0;
+       i < (int)(sizeof(required_suffixes) / sizeof(required_suffixes[0]));
+       i++) {
+    str_copy_safe(full_path, payload_root, sizeof(full_path));
+    installer_append_to_buf(full_path, sizeof(full_path), required_suffixes[i]);
+    if (installer_payload_file_exists(full_path))
+      continue;
+    str_copy_safe(msg, "boot payload missing: ", sizeof(msg));
+    installer_append_to_buf(msg, sizeof(msg), full_path);
+    installer_log(msg);
+    return -1;
+  }
+
+  for (int i = 0;
+       i < (int)(sizeof(limine_cfg_suffixes) / sizeof(limine_cfg_suffixes[0]));
+       i++) {
+    str_copy_safe(full_path, payload_root, sizeof(full_path));
+    installer_append_to_buf(full_path, sizeof(full_path),
+                            limine_cfg_suffixes[i]);
+    if (installer_payload_file_exists(full_path))
+      return 0;
+  }
+
+  str_copy_safe(msg, "install payload missing: no Limine config in ",
+  str_copy_safe(msg, "boot payload missing: no Limine config in ",
+                sizeof(msg));
+  installer_append_to_buf(msg, sizeof(msg), payload_root);
+  installer_log(msg);
+  return -1;
+}
+
+static int installer_validate_system_image_payload(void) {
+  static const char *payload_candidates[] = {
+      "/install/system-image",
+      "/setup/install/system-image",
+      "/install/system-image.zip",
+      "/setup/install/system-image.zip",
+  };
+
+  installer_select_system_image_payload(NULL);
+static int installer_validate_boot_payload(void) {
+  static const char *payload_candidates[] = {
+      "/install/boot-files.zip",
+      "/setup/bootimage.zip",
+      "/setup/bootimage",
+      "/install/system-image.zip",
+      "/setup/install/system-image.zip",
+      "/install/system-image",
+      "/setup/install/system-image",
+  };
+
+  installer_select_boot_payload(NULL);
+  for (int i = 0;
+       i < (int)(sizeof(payload_candidates) / sizeof(payload_candidates[0]));
+       i++) {
+    if (!installer_payload_file_exists(payload_candidates[i]))
+      continue;
+    if (installer_validate_system_image_candidate(payload_candidates[i]) == 0) {
+      installer_select_system_image_payload(payload_candidates[i]);
+    if (installer_validate_boot_payload_candidate(payload_candidates[i]) == 0) {
+      installer_select_boot_payload(payload_candidates[i]);
+      return 0;
+    }
+  }
+
+  installer_log("install payload missing: no usable system image payload found");
+  installer_log("install payload missing: no usable boot payload found");
+  return -1;
+}
+
 static int installer_validate_raw_system_disk_image_payload(void) {
   const char *image_path = installer_system_disk_image_path();
   char msg[320];
@@ -8822,6 +8990,27 @@ static int installer_copy_tree_to_root(const char *src_root, const char *dst_roo
   if (failed_files)
     *failed_files += ctx.failed_files;
   return (ctx.copied_files > 0 && ctx.failed_files == 0) ? 0 : -1;
+}
+
+static int installer_copy_boot_payload_to_root(const char *target_root,
+                                               int *copied_files,
+                                               int *failed_files) {
+  const char *boot_payload_root = installer_boot_payload_root_path();
+
+  if (!boot_payload_root || !boot_payload_root[0])
+    return installer_copy_boot_aliases(target_root, copied_files, failed_files);
+
+  if (installer_system_image_is_archive(boot_payload_root)) {
+    if (media_zip_extract_file_to_root(boot_payload_root, target_root,
+                                       copied_files, failed_files) != 0)
+      return -1;
+  } else if (installer_copy_tree_to_root(boot_payload_root, target_root,
+                                         copied_files, failed_files,
+                                         "boot payload") != 0) {
+    return -1;
+  }
+
+  return installer_copy_boot_aliases(target_root, copied_files, failed_files);
 }
 
 static int installer_copy_boot_aliases(const char *target_root, int *copied_files,
@@ -8926,9 +9115,21 @@ static int installer_apply_system_image_payload(const char *target_root) {
   int failed = 0;
   char msg[160];
   int idx = 0;
+  const char *system_payload_root = installer_system_image_root_path();
+  const char *boot_payload_root = installer_boot_payload_root_path();
 
   if (installer_copy_system_image_to_root(target_root, &copied, &failed) != 0) {
     installer_log("install failed: extracted system image copy failed");
+    return -1;
+  }
+  if (!installer_str_equal(boot_payload_root, system_payload_root) &&
+      installer_copy_boot_payload_to_root(target_root, &copied, &failed) != 0) {
+    installer_log("install failed: boot payload copy failed");
+    return -1;
+  }
+  if (installer_str_equal(boot_payload_root, system_payload_root) &&
+      installer_copy_boot_aliases(target_root, &copied, &failed) != 0) {
+    installer_log("install failed: boot alias copy failed");
     return -1;
   }
 
@@ -9090,6 +9291,7 @@ static void installer_start_background_install(void) {
   installer_update_root[0] = '\0';
   installer_progress_current_item[0] = '\0';
   installer_select_system_image_payload(NULL);
+  installer_select_boot_payload(NULL);
   installer_set_progress_state(2, "Preparing", "Preparing install...",
                                "Loading installer context and refreshing storage.");
   installer_log("starting system image install");
@@ -9168,13 +9370,19 @@ static void installer_process_background_install(void) {
           18, "Validating Payload", "Preparing raw system disk image...",
           "Bootable disk image found. The installer will write it directly to the target disk.");
     } else {
-      if (installer_validate_system_image_payload() != 0) {
+      if (installer_validate_system_image_payload() != 0 ||
+          installer_validate_boot_payload() != 0) {
         installer_fail_background("Install blocked. Boot files are missing from the installer image.",
                                   "install blocked: boot payload incomplete");
         return;
       }
       installer_progress_total_files =
           installer_count_tree_files(installer_system_image_root_path());
+      if (!installer_str_equal(installer_boot_payload_root_path(),
+                               installer_system_image_root_path())) {
+        installer_progress_total_files +=
+            installer_count_tree_files(installer_boot_payload_root_path());
+      }
       installer_progress_total_files +=
           installer_boot_alias_copy_count(installer_target_root);
       if (installer_progress_total_files <= 0)
@@ -10510,6 +10718,49 @@ static void disk_imager_set_status(const char *msg) {
   str_copy_safe(disk_imager_status, msg ? msg : "", sizeof(disk_imager_status));
 }
 
+static int disk_imager_capacity_sectors(int disk_index, uint32_t *out_sectors) {
+  uint64_t sectors;
+
+  if (!out_sectors)
+    return -1;
+  if (disk_index < 0)
+    return -1;
+
+  sectors = (uint64_t)storage_get_disk_capacity_mib(disk_index) * 2048ULL;
+  if (sectors == 0 || sectors > 0xFFFFFFFFULL)
+    return -1;
+
+  *out_sectors = (uint32_t)sectors;
+  return 0;
+}
+
+static int disk_imager_image_sector_count(const char *path, loff_t *out_file_size,
+                                          uint32_t *out_sector_count) {
+  struct file *file;
+  loff_t file_size;
+  uint64_t sectors;
+
+  if (!path || !path[0] || !out_file_size || !out_sector_count)
+    return -1;
+
+  file = vfs_open(path, O_RDONLY, 0);
+  if (!file)
+    return -1;
+
+  file_size = vfs_lseek(file, 0, SEEK_END);
+  vfs_close(file);
+  if (file_size <= 0)
+    return -1;
+
+  sectors = ((uint64_t)file_size + 511ULL) / 512ULL;
+  if (sectors == 0 || sectors > 0xFFFFFFFFULL)
+    return -1;
+
+  *out_file_size = file_size;
+  *out_sector_count = (uint32_t)sectors;
+  return 0;
+}
+
 static void disk_imager_sanitize_component(const char *src, char *dst, int max) {
   int idx = 0;
 
@@ -10653,6 +10904,7 @@ static int disk_imager_write_range(int disk_index, uint32_t start_lba,
   uint8_t sector[512];
   struct file *file;
   uint32_t disk_capacity;
+  extern void process_yield(void);
 
   if (disk_index < 0 || !path || path[0] == '\0' || sector_count == 0)
     return -1;
@@ -10661,9 +10913,14 @@ static int disk_imager_write_range(int disk_index, uint32_t start_lba,
     return -1;
   }
 
-  disk_capacity = storage_get_disk_capacity_mib(disk_index) * 2048U;
-  if ((uint64_t)start_lba + (uint64_t)sector_count > disk_capacity)
+  if (disk_imager_capacity_sectors(disk_index, &disk_capacity) != 0) {
+    disk_imager_set_status("Selected disk capacity is invalid for imaging.");
     return -1;
+  }
+  if ((uint64_t)start_lba + (uint64_t)sector_count > (uint64_t)disk_capacity) {
+    disk_imager_set_status("Requested backup range exceeds disk capacity.");
+    return -1;
+  }
 
   installer_ensure_parent_dirs(path);
   file = vfs_open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
@@ -10681,6 +10938,8 @@ static int disk_imager_write_range(int disk_index, uint32_t start_lba,
       vfs_close(file);
       return -1;
     }
+    if ((i & 127U) == 127U)
+      process_yield();
   }
 
   vfs_close(file);
@@ -10692,6 +10951,9 @@ static int disk_imager_read_range(int disk_index, uint32_t start_lba,
   uint8_t sector[512];
   struct file *file;
   uint32_t disk_capacity;
+  uint32_t image_sectors;
+  loff_t file_size;
+  extern void process_yield(void);
 
   if (disk_index < 0 || !path || path[0] == '\0' || sector_count == 0)
     return -1;
@@ -10700,9 +10962,26 @@ static int disk_imager_read_range(int disk_index, uint32_t start_lba,
     return -1;
   }
 
-  disk_capacity = storage_get_disk_capacity_mib(disk_index) * 2048U;
-  if ((uint64_t)start_lba + (uint64_t)sector_count > disk_capacity)
+  if (storage_get_disk_kind(disk_index) == STORAGE_KIND_CDROM) {
+    disk_imager_set_status("Optical media cannot be restored as block targets.");
     return -1;
+  }
+  if (disk_imager_capacity_sectors(disk_index, &disk_capacity) != 0) {
+    disk_imager_set_status("Selected disk capacity is invalid for imaging.");
+    return -1;
+  }
+  if ((uint64_t)start_lba + (uint64_t)sector_count > (uint64_t)disk_capacity) {
+    disk_imager_set_status("Requested restore range exceeds disk capacity.");
+    return -1;
+  }
+  if (disk_imager_image_sector_count(path, &file_size, &image_sectors) != 0) {
+    disk_imager_set_status("Disk image file is missing or invalid.");
+    return -1;
+  }
+  if (image_sectors > sector_count) {
+    disk_imager_set_status("Disk image is larger than the selected target range.");
+    return -1;
+  }
 
   file = vfs_open(path, O_RDONLY, 0);
   if (!file)
@@ -10735,6 +11014,8 @@ static int disk_imager_read_range(int disk_index, uint32_t start_lba,
       }
       break;
     }
+    if ((i & 127U) == 127U)
+      process_yield();
   }
 
   vfs_close(file);
@@ -10746,9 +11027,10 @@ static int disk_imager_backup_disk(void) {
 
   if (disk_imager_selected_disk < 0)
     return -1;
-  sectors = storage_get_disk_capacity_mib(disk_imager_selected_disk) * 2048U;
-  if (sectors == 0)
+  if (disk_imager_capacity_sectors(disk_imager_selected_disk, &sectors) != 0) {
+    disk_imager_set_status("Selected disk is too large or unavailable.");
     return -1;
+  }
   return disk_imager_write_range(disk_imager_selected_disk, 0, sectors,
                                  disk_imager_disk_path);
 }
@@ -10758,9 +11040,10 @@ static int disk_imager_restore_disk(void) {
 
   if (disk_imager_selected_disk < 0)
     return -1;
-  sectors = storage_get_disk_capacity_mib(disk_imager_selected_disk) * 2048U;
-  if (sectors == 0)
+  if (disk_imager_capacity_sectors(disk_imager_selected_disk, &sectors) != 0) {
+    disk_imager_set_status("Selected disk is too large or unavailable.");
     return -1;
+  }
   return disk_imager_read_range(disk_imager_selected_disk, 0, sectors,
                                 disk_imager_disk_path);
 }
@@ -10915,7 +11198,7 @@ static void draw_partition_manager_window(int content_x, int content_y,
   gui_draw_string(content_x + 24, content_y + 22, "Partition Manager",
                   theme->app_fg, theme->card);
   gui_draw_string(content_x + 24, content_y + 44,
-                  "Create, edit, delete, and auto-layout partitions.",
+                  "Detect, create, delete, auto-layout, and format partitions.",
                   theme->app_muted, theme->card);
   gui_draw_string(content_x + 24, content_y + 58,
                   (selected_disk_index >= 0 &&
@@ -10972,17 +11255,20 @@ static void draw_partition_manager_window(int content_x, int content_y,
   gui_draw_string(content_x + 450, content_y + 307, "Delete", 0xFFFFFF,
                   0x7C2D12);
 
-  gui_draw_rect(content_x + 24, content_y + 332, 100, 30, 0x6D28D9);
-  gui_draw_string(content_x + 40, content_y + 341, "Edit Sel.", 0xFFFFFF,
-                  0x6D28D9);
-  gui_draw_rect(content_x + 132, content_y + 332, 110, 30, 0x3B82F6);
-  gui_draw_string(content_x + 154, content_y + 341, "Auto Layout", 0xFFFFFF,
+  gui_draw_rect(content_x + 24, content_y + 332, 100, 30, 0x166534);
+  gui_draw_string(content_x + 40, content_y + 341, "Fmt ext4", 0xFFFFFF,
+                  0x166534);
+  gui_draw_rect(content_x + 132, content_y + 332, 110, 30, 0x0F766E);
+  gui_draw_string(content_x + 148, content_y + 341, "Fmt FAT32", 0xFFFFFF,
+                  0x0F766E);
+  gui_draw_rect(content_x + 250, content_y + 332, 90, 30, 0x7C3AED);
+  gui_draw_string(content_x + 268, content_y + 341, "Fmt Swap", 0xFFFFFF,
+                  0x7C3AED);
+  gui_draw_rect(content_x + 348, content_y + 332, 110, 30, 0x3B82F6);
+  gui_draw_string(content_x + 370, content_y + 341, "Auto Layout", 0xFFFFFF,
                   0x3B82F6);
-  gui_draw_rect(content_x + 250, content_y + 332, 90, 30, 0x3B82F6);
-  gui_draw_string(content_x + 276, content_y + 341, "Refresh", 0xFFFFFF,
-                  0x3B82F6);
-  gui_draw_rect(content_x + 348, content_y + 332, 110, 30, 0x4B5563);
-  gui_draw_string(content_x + 371, content_y + 341, "Open Files", 0xFFFFFF,
+  gui_draw_rect(content_x + 466, content_y + 332, 62, 30, 0x4B5563);
+  gui_draw_string(content_x + 474, content_y + 341, "Refresh", 0xFFFFFF,
                   0x4B5563);
 
   gui_draw_string(content_x + 24, content_y + content_h - 52,
@@ -12119,9 +12405,9 @@ static void draw_window(struct window *win) {
                     theme->about_card);
     gui_draw_string(left_col_x + 90, col_y + 98, gpu_status, theme->accent,
                     theme->about_card);
-    gui_draw_string(left_col_x + 14, col_y + 118, "Build #:",
+    gui_draw_string(left_col_x + 14, col_y + 118, "Build:",
                     theme->about_subtext, theme->about_card);
-    gui_draw_string(left_col_x + 90, col_y + 118, BUILD_NUMBER, theme->accent,
+    gui_draw_string(left_col_x + 90, col_y + 118, BUILD_STRING, theme->accent,
                     theme->about_card);
     gui_draw_string(left_col_x + 14, col_y + 138, "Branch:", theme->about_subtext,
                     theme->about_card);
@@ -14877,11 +15163,11 @@ static void draw_desktop(void) {
   /* Draw build info in the bottom-right corner above the dock. */
   {
 #ifdef ARCH_X86_64
-    const char *build_info = "OS 8 x86_64";
+    const char *build_info = "OS 8 x86_64 - TESTING ONLY";
 #elif defined(ARCH_X86)
-    const char *build_info = "OS 8 x86";
+    const char *build_info = "OS 8 x86 - TESTING ONLY";
 #else
-    const char *build_info = "OS 8 ARM64";
+    const char *build_info = "OS 8 ARM64 - TESTING ONLY";
 #endif
     int build_len = 0;
     int uuid_len = 0;
@@ -17747,6 +18033,8 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
                                             storage_partition_kind_t kind,
                                             uint32_t size_mib);
         extern int storage_delete_partition(int disk_index, int partition_index);
+        extern int storage_format_partition(int disk_index, int partition_index,
+                                            storage_filesystem_kind_t fs_kind);
         extern int storage_ensure_install_partitions(int disk_index);
 
         installer_refresh_disk_inventory();
@@ -17855,21 +18143,57 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
             y >= content_y + 332 && y < content_y + 362) {
           if (partition_manager_partition_count > 0 &&
               selected_disk_index >= 0 &&
-              storage_update_partition(selected_disk_index,
+              storage_format_partition(selected_disk_index,
                                        partition_manager_selected_partition,
-                                       STORAGE_PARTITION_DATA, 6144) == 0) {
+                                       STORAGE_FILESYSTEM_EXT4) == 0) {
             partition_manager_refresh_partitions();
             str_copy_safe(partition_manager_status,
-                          "Selected partition edited to Data 6144 MiB.",
+                          "Selected partition formatted as ext4.",
                           sizeof(partition_manager_status));
           } else {
-            str_copy_safe(partition_manager_status, "Partition edit failed.",
+            str_copy_safe(partition_manager_status, "ext4 format failed.",
                           sizeof(partition_manager_status));
           }
           return;
         }
 
         if (x >= content_x + 132 && x < content_x + 242 &&
+            y >= content_y + 332 && y < content_y + 362) {
+          if (partition_manager_partition_count > 0 &&
+              selected_disk_index >= 0 &&
+              storage_format_partition(selected_disk_index,
+                                       partition_manager_selected_partition,
+                                       STORAGE_FILESYSTEM_FAT32) == 0) {
+            partition_manager_refresh_partitions();
+            str_copy_safe(partition_manager_status,
+                          "Selected partition formatted as FAT32.",
+                          sizeof(partition_manager_status));
+          } else {
+            str_copy_safe(partition_manager_status, "FAT32 format failed.",
+                          sizeof(partition_manager_status));
+          }
+          return;
+        }
+
+        if (x >= content_x + 250 && x < content_x + 340 &&
+            y >= content_y + 332 && y < content_y + 362) {
+          if (partition_manager_partition_count > 0 &&
+              selected_disk_index >= 0 &&
+              storage_format_partition(selected_disk_index,
+                                       partition_manager_selected_partition,
+                                       STORAGE_FILESYSTEM_SWAP) == 0) {
+            partition_manager_refresh_partitions();
+            str_copy_safe(partition_manager_status,
+                          "Selected partition formatted as swap.",
+                          sizeof(partition_manager_status));
+          } else {
+            str_copy_safe(partition_manager_status, "Swap format failed.",
+                          sizeof(partition_manager_status));
+          }
+          return;
+        }
+
+        if (x >= content_x + 348 && x < content_x + 458 &&
             y >= content_y + 332 && y < content_y + 362) {
           if (selected_disk_index >= 0 &&
               storage_ensure_install_partitions(selected_disk_index) >= 0) {
@@ -17884,20 +18208,11 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           return;
         }
 
-        if (x >= content_x + 250 && x < content_x + 340 &&
+        if (x >= content_x + 466 && x < content_x + 528 &&
             y >= content_y + 332 && y < content_y + 362) {
           installer_refresh_disk_inventory();
           partition_manager_refresh_partitions();
           str_copy_safe(partition_manager_status, "Disk list refreshed.",
-                        sizeof(partition_manager_status));
-          return;
-        }
-
-        if (x >= content_x + 348 && x < content_x + 458 &&
-            y >= content_y + 332 && y < content_y + 362) {
-          gui_create_file_manager_path(win->x + 24, win->y + 24, "/");
-          str_copy_safe(partition_manager_status,
-                        "Opened File Manager for disk-related files.",
                         sizeof(partition_manager_status));
           return;
         }
@@ -18386,7 +18701,7 @@ void gui_open_rename(const char *path) {
 
 /* g_imgview is already defined as extern earlier in the file */
 
-#define NUM_BOOTSTRAP_IMAGES 6
+#define NUM_BOOTSTRAP_IMAGES 7
 
 static const char *get_bootstrap_image_path(int index) {
   static const char *paths[] = {
@@ -18395,6 +18710,7 @@ static const char *get_bootstrap_image_path(int index) {
       "/assets/wallpapers/city.jpg",
       "/assets/wallpapers/portrait.jpg",
       "/assets/wallpapers/square.jpg",
+      "/assets/wallpapers/ducks.png",
       "/assets/wallpapers/default.jpg",
   };
   if (index >= 0 && index < NUM_BOOTSTRAP_IMAGES)
@@ -18404,7 +18720,7 @@ static const char *get_bootstrap_image_path(int index) {
 
 static const char *get_bootstrap_image_name(int index) {
   static const char *names[] = {"Landscape", "Nature", "City",
-                                "Portrait",  "Square", "Default"};
+                                "Portrait",  "Square", "Ducks", "Default"};
   if (index >= 0 && index < NUM_BOOTSTRAP_IMAGES)
     return names[index];
   return "Unknown";

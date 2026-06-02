@@ -22,6 +22,9 @@ extern const unsigned int bootstrap_portrait_jpg_len;
 extern const unsigned char bootstrap_square_jpg[];
 extern const unsigned int bootstrap_square_jpg_len;
 
+extern const unsigned char bootstrap_ducks_png[];
+extern const unsigned int bootstrap_ducks_png_len;
+
 extern const unsigned char bootstrap_default_jpg[];
 extern const unsigned int bootstrap_default_jpg_len;
 

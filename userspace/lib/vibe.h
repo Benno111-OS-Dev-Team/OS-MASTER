@@ -350,4 +350,11 @@ static inline int vibe_partition_delete(kapi_t *k, int disk_index,
     return k->partition_delete(disk_index, partition_index);
 }
 
+static inline int vibe_partition_format(kapi_t *k, int disk_index,
+                                        int partition_index,
+                                        uint32_t filesystem) {
+    if (!k || !k->partition_format) return -1;
+    return k->partition_format(disk_index, partition_index, filesystem);
+}
+
 #endif

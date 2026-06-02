@@ -26,21 +26,20 @@ def generate_header(input_file, output_file, var_name):
     print(f"Generated {output_file} ({len(data)} bytes)")
 
 def main():
-    images_dir = "kernel/media/bootstrap_images"
     output_dir = "kernel/media"
     
     images = [
-        ("landscape.png", "bootstrap_landscape_png"),
-        ("portrait.jpg", "bootstrap_portrait_jpg"),
-        ("square.jpg", "bootstrap_square_jpg"),
-        ("default.jpg", "bootstrap_default_jpg"),
-        ("nature.jpg", "bootstrap_nature_jpg"),
-        ("city.jpg", "bootstrap_city_jpg"),
-        ("httpbin.jpg", "bootstrap_httpbin_jpg"),
+        ("kernel/media/bootstrap_images/landscape.png", "bootstrap_landscape_png"),
+        ("kernel/media/bootstrap_images/portrait.jpg", "bootstrap_portrait_jpg"),
+        ("kernel/media/bootstrap_images/square.jpg", "bootstrap_square_jpg"),
+        ("assets/Wallpapers/ducks.png", "bootstrap_ducks_png"),
+        ("kernel/media/bootstrap_images/default.jpg", "bootstrap_default_jpg"),
+        ("kernel/media/bootstrap_images/nature.jpg", "bootstrap_nature_jpg"),
+        ("kernel/media/bootstrap_images/city.jpg", "bootstrap_city_jpg"),
+        ("kernel/media/bootstrap_images/httpbin.jpg", "bootstrap_httpbin_jpg"),
     ]
     
-    for img_file, var_name in images:
-        input_path = os.path.join(images_dir, img_file)
+    for input_path, var_name in images:
         output_path = os.path.join(output_dir, f"{var_name}.c")
         
         if os.path.exists(input_path):

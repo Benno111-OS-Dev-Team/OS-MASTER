@@ -190,6 +190,7 @@ DRIVER_OBJECTS := $(patsubst $(DRIVERS_DIR)/%.c,$(BUILD_DIR)/drivers/%.o,$(DRIVE
 CODE_HASH_INPUTS := $(sort $(KERNEL_SOURCES_C) $(BOOTMANAGER_SOURCES_C) $(KERNEL_SOURCES_ASM) $(DRIVER_SOURCES) $(ROOT_DIR)/Makefile.multiarch)
 BUILD_METADATA_HEADER := $(GENERATED_DIR)/build_uuid.h
 BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
+BUILD_STRING ?= $(BUILD_NUMBER) OS8 DEVELOPER PREVIEW
 BUILD_BRANCH ?= $(shell git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 BUILD_COMPILE_TIME ?= $(shell date -u +'%Y-%m-%d %H:%M:%SZ')
 ALL_OBJECTS := $(KERNEL_OBJECTS) $(BOOTMANAGER_OBJECTS) $(DRIVER_OBJECTS)
@@ -199,7 +200,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean kernel sdk image system-image install-boot-files installer-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean kernel sdk image system-image install-boot-files installer-image dos-installer qemu qemu-bios qemu-uefi qemu-debug help assets
 
 all: kernel image
 	@echo "=========================================="
@@ -233,6 +234,7 @@ help:
 	@echo "  system-image - Build the staged x86_64 install image and zip"
 	@echo "  install-boot-files - Stage boot files into INSTALL_ROOT"
 	@echo "  installer-image - Create x86_64 graphical installer ISO"
+	@echo "  dos-installer - Build the DOS textmode installer utility"
 	@echo "  sdk      - Export application headers into build/sdk/include"
 	@echo "  qemu     - Run in QEMU emulator"
 	@echo "  qemu-bios - Run via legacy BIOS (x86/x86_64)"
@@ -316,6 +318,11 @@ assets: $(BUILD_DIR)
 		else \
 			echo "[ASSETS] Missing default wallpaper source and no fallback available"; \
 		fi; \
+		if [ -f "$(ASSETS_DIR)/Wallpapers/ducks.png" ]; then \
+			cp "$(ASSETS_DIR)/Wallpapers/ducks.png" "$(BUILD_ASSETS_DIR)/wallpapers/ducks.png"; \
+		else \
+			echo "[ASSETS] Missing ducks wallpaper source"; \
+		fi; \
 	else \
 		echo "[ASSETS] No bootstrap wallpaper source directory found"; \
 	fi
@@ -352,6 +359,7 @@ $(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS)
 		printf '#define BUILD_CODE_HASH "%s"\n' "$$CODE_HASH"; \
 		printf '#define BUILD_UUID "%s"\n' "$$BUILD_UUID"; \
 		printf '#define BUILD_NUMBER "%s"\n' "$(BUILD_NUMBER)"; \
+		printf '#define BUILD_STRING "%s"\n' "$(BUILD_STRING)"; \
 		printf '#define BUILD_BRANCH "%s"\n' "$(BUILD_BRANCH)"; \
 		printf '#define BUILD_COMPILE_TIME "%s"\n' "$(BUILD_COMPILE_TIME)"; \
 		printf '%s\n' '#endif'; \
@@ -447,6 +455,7 @@ installer-image: kernel system-image
 ifeq ($(ARCH),x86_64)
 	@echo "[IMAGE] Creating x86_64 installer ISO..."
 	@IMAGE_NAME=os8-x86_64-system.img bash ./scripts/create-uefi-image.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@ISO_NAME=os8-x86_64-installer.iso LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-system.img" "$(IMAGE_DIR)/os-x86_64-system.img"
 	@cp "$(IMAGE_DIR)/os8-x86_64-installer.iso" "$(IMAGE_DIR)/os-x86_64-installer.iso"
@@ -454,6 +463,15 @@ ifeq ($(ARCH),x86_64)
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.iso"
 else
 	@echo "[IMAGE] installer-image is currently supported only for ARCH=x86_64"
+	@exit 1
+endif
+
+dos-installer: kernel
+ifeq ($(ARCH),x86_64)
+	@echo "[IMAGE] Building DOS textmode installer utility..."
+	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
+else
+	@echo "[IMAGE] dos-installer is currently supported only for ARCH=x86_64"
 	@exit 1
 endif
 

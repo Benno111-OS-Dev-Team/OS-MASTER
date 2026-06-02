@@ -444,6 +444,7 @@ int iso9660_copy_to_ramfs(const char *disk_location, const char *dst_root) {
 
 typedef struct iso9660_node {
   char name[NAME_MAX + 1];
+  int disk_index;
   uint32_t extent;
   uint32_t size;
   int is_dir;
@@ -527,47 +528,11 @@ static void iso9660_node_free(iso9660_node_t *node) {
 static int iso9660_copy_file_to_node(int disk_index, uint32_t extent,
                                      uint32_t file_size,
                                      iso9660_node_t *node) {
-  uint8_t *sector;
-  uint32_t remaining = file_size;
-  uint32_t lba = extent;
-  uint8_t *data = NULL;
-
   if (!node)
     return -1;
 
-  if (file_size > 0) {
-    data = kmalloc(file_size, GFP_KERNEL);
-    if (!data)
-      return -1;
-  }
-
-  sector = kmalloc(ISO_BLOCK_SIZE, GFP_KERNEL);
-  if (!sector) {
-    if (data)
-      kfree(data);
-    return -1;
-  }
-
-  while (remaining > 0) {
-    uint32_t chunk = remaining > ISO_BLOCK_SIZE ? ISO_BLOCK_SIZE : remaining;
-
-    if (storage_read_block(disk_index, lba++, sector, ISO_BLOCK_SIZE) != 0) {
-      kfree(sector);
-      if (data)
-        kfree(data);
-      return -1;
-    }
-
-    for (uint32_t i = 0; i < chunk; i++)
-      data[file_size - remaining + i] = sector[i];
-
-    remaining -= chunk;
-    if ((lba & 3U) == 0U)
-      iso_cooperative_yield();
-  }
-
-  kfree(sector);
-  node->data = data;
+  node->disk_index = disk_index;
+  node->extent = extent;
   node->size = file_size;
   return 0;
 }
@@ -656,6 +621,7 @@ static int iso9660_build_tree_recursive(int disk_index, uint32_t extent,
         kfree(dir_data);
         return -1;
       }
+      child->disk_index = disk_index;
       child->extent = child_extent;
       child->size = child_size;
       iso9660_node_add_child(parent, child);
@@ -714,8 +680,11 @@ static void iso9660_fill_inode(struct inode *inode, struct super_block *sb,
 static ssize_t iso9660_read(struct file *file, char *buf, size_t count,
                             loff_t *pos) {
   iso9660_node_t *node;
+  uint8_t *sector;
   size_t available;
   size_t to_copy;
+  size_t total_read = 0;
+  uint32_t file_offset;
 
   if (!file || !buf || !pos)
     return -EINVAL;
@@ -727,15 +696,43 @@ static ssize_t iso9660_read(struct file *file, char *buf, size_t count,
     return -EINVAL;
   if (node->size == 0)
     return 0;
-  if (!node->data)
+  if (node->disk_index < 0)
     return -EIO;
   if ((uint32_t)*pos >= node->size)
     return 0;
 
   available = (size_t)(node->size - (uint32_t)*pos);
   to_copy = count < available ? count : available;
-  for (size_t i = 0; i < to_copy; i++)
-    buf[i] = (char)node->data[(uint32_t)*pos + (uint32_t)i];
+
+  sector = kmalloc(ISO_BLOCK_SIZE, GFP_KERNEL);
+  if (!sector)
+    return -ENOMEM;
+
+  file_offset = (uint32_t)*pos;
+  while (total_read < to_copy) {
+    uint32_t block_index = file_offset / ISO_BLOCK_SIZE;
+    uint32_t block_offset = file_offset % ISO_BLOCK_SIZE;
+    uint32_t chunk = (uint32_t)(to_copy - total_read);
+
+    if (chunk > ISO_BLOCK_SIZE - block_offset)
+      chunk = ISO_BLOCK_SIZE - block_offset;
+
+    if (storage_read_block(node->disk_index, node->extent + block_index, sector,
+                           ISO_BLOCK_SIZE) != 0) {
+      kfree(sector);
+      return total_read > 0 ? (ssize_t)total_read : -EIO;
+    }
+
+    for (uint32_t i = 0; i < chunk; i++)
+      buf[total_read + i] = (char)sector[block_offset + i];
+
+    total_read += chunk;
+    file_offset += chunk;
+    if (((node->extent + block_index) & 3U) == 3U)
+      iso_cooperative_yield();
+  }
+
+  kfree(sector);
   *pos += (loff_t)to_copy;
   return (ssize_t)to_copy;
 }
@@ -817,6 +814,7 @@ static struct super_block *iso9660_mount(struct file_system_type *fs_type,
     root_node = iso9660_node_alloc("", 1);
   if (!root_node)
     return NULL;
+  root_node->disk_index = disk_index;
 
   if (volume_info.has_joliet) {
     if (iso9660_build_tree_recursive(disk_index, volume_info.joliet_root_extent,
@@ -828,6 +826,7 @@ static struct super_block *iso9660_mount(struct file_system_type *fs_type,
     root_node = iso9660_node_alloc("", 1);
     if (!root_node)
       return NULL;
+    root_node->disk_index = disk_index;
   }
 
   if (volume_info.has_primary) {

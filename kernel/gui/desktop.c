@@ -590,7 +590,6 @@ static void desktop_open_removable_disk(const desktop_icon_t *icon) {
   if (!icon || icon->storage_disk_index < 0)
     return;
 
-  refresh_external_storage_views();
   disk_kind = storage_get_disk_kind(icon->storage_disk_index);
 
   if (storage_get_disk_location(icon->storage_disk_index, location,
@@ -604,6 +603,19 @@ static void desktop_open_removable_disk(const desktop_icon_t *icon) {
                                        "");
     if (desktop_try_open_dir(path) == 0)
       return;
+
+    /* Avoid remounting and recopying optical media on every click unless the
+     * live media view is actually missing. */
+    refresh_external_storage_views();
+    desktop_append_disk_root_candidate(path, sizeof(path), "/Media/", location,
+                                       "");
+    if (desktop_try_open_dir(path) == 0)
+      return;
+
+    gui_create_file_manager_path(200, 100, "/");
+    return;
+  } else {
+    refresh_external_storage_views();
   }
 
   desktop_append_disk_root_candidate(path, sizeof(path), "/External/", location,

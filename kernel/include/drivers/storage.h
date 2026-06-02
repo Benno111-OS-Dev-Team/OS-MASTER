@@ -24,6 +24,15 @@ typedef enum {
   STORAGE_PARTITION_SWAP
 } storage_partition_kind_t;
 
+typedef enum {
+  STORAGE_FILESYSTEM_UNKNOWN = 0,
+  STORAGE_FILESYSTEM_FAT32,
+  STORAGE_FILESYSTEM_EXT4,
+  STORAGE_FILESYSTEM_ISO9660,
+  STORAGE_FILESYSTEM_APFS,
+  STORAGE_FILESYSTEM_SWAP
+} storage_filesystem_kind_t;
+
 typedef int (*storage_disk_read_fn_t)(uint64_t lba, uint32_t count,
                                       void *buffer, void *ctx);
 typedef int (*storage_disk_write_fn_t)(uint64_t lba, uint32_t count,
@@ -70,15 +79,21 @@ int storage_get_partition_info(int disk_index, int partition_index,
                                storage_partition_kind_t *kind, char *label,
                                int label_max, uint32_t *start_lba,
                                uint32_t *sector_count);
+int storage_get_partition_filesystem_info(int disk_index, int partition_index,
+                                          storage_filesystem_kind_t *kind,
+                                          char *label, int label_max);
 int storage_create_partition(int disk_index, storage_partition_kind_t kind,
                              uint32_t size_mib);
 int storage_update_partition(int disk_index, int partition_index,
                              storage_partition_kind_t kind,
                              uint32_t size_mib);
 int storage_delete_partition(int disk_index, int partition_index);
+int storage_format_partition(int disk_index, int partition_index,
+                             storage_filesystem_kind_t fs_kind);
 int storage_has_efi_partition(int disk_index);
 int storage_ensure_install_partitions(int disk_index);
 int storage_prepare_user_partition(int disk_index);
 const char *storage_partition_kind_name(storage_partition_kind_t kind);
+const char *storage_filesystem_kind_name(storage_filesystem_kind_t kind);
 
 #endif

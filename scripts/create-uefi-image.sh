@@ -20,6 +20,7 @@ LIMINE_SRC_DIR="${BOOT_MANAGER_DIR}"
 LIMINE_TOOL_PATH="${LIMINE_SRC_DIR}/limine"
 SYSTEM_IMAGE_ROOT="${SYSTEM_IMAGE_ROOT:-${BUILD_DIR}/system-image}"
 SYSTEM_IMAGE_ARCHIVE="${SYSTEM_IMAGE_ARCHIVE:-${BUILD_DIR}/system-image.zip}"
+BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
 BOOT_PROFILE="${BOOT_PROFILE:-installed-system}"
 LIMINE_CFG_SOURCE="${LIMINE_CFG_SOURCE:-${ROOT_DIR}/os-x86_64/limine-installed.conf}"
 INCLUDE_INSTALL_PAYLOAD="${INCLUDE_INSTALL_PAYLOAD:-}"
@@ -150,6 +151,9 @@ if [ "$INCLUDE_INSTALL_PAYLOAD" = "1" ]; then
     env BOOT_LIMINE_CFG="${ROOT_DIR}/os-x86_64/limine-installed.conf" \
         bash "$SYSTEM_IMAGE_SCRIPT" "$BUILD_DIR" "$SYSTEM_IMAGE_ROOT"
     cp "$SYSTEM_IMAGE_ARCHIVE" "$STAGING_ROOT/install/system-image.zip"
+    if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
+        cp "$BOOT_IMAGE_ARCHIVE" "$STAGING_ROOT/install/boot-files.zip"
+    fi
 fi
 LIMINE_TOOL="$(resolve_limine_tool)"
 

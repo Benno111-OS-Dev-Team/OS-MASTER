@@ -101,6 +101,7 @@ require_file "$ROOT_DIR/kernel/media/bootstrap_images/city.jpg"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/portrait.jpg"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/square.jpg"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/default.jpg"
+require_file "$ROOT_DIR/assets/Wallpapers/ducks.png"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/test_png.png"
 
 rm -rf "$OUTPUT_ROOT"
@@ -149,6 +150,7 @@ cp "$ROOT_DIR/kernel/media/bootstrap_images/nature.jpg" "$OUTPUT_ROOT/assets/wal
 cp "$ROOT_DIR/kernel/media/bootstrap_images/city.jpg" "$OUTPUT_ROOT/assets/wallpapers/city.jpg"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/portrait.jpg" "$OUTPUT_ROOT/assets/wallpapers/portrait.jpg"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/square.jpg" "$OUTPUT_ROOT/assets/wallpapers/square.jpg"
+cp "$ROOT_DIR/assets/Wallpapers/ducks.png" "$OUTPUT_ROOT/assets/wallpapers/ducks.png"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/default.jpg" "$OUTPUT_ROOT/assets/wallpapers/default.jpg"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/test_png.png" "$OUTPUT_ROOT/Pictures/test.png"
 

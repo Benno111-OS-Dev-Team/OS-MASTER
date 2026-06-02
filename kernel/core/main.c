@@ -484,7 +484,7 @@ static void print_banner(void) {
 #endif
   printk("Copyright (c) 2026 OS8 Project\n");
   printk("Build UUID: %s\n", BUILD_UUID);
-  printk("Build Number: %s\n", BUILD_NUMBER);
+  printk("Build: %s\n", BUILD_STRING);
   printk("Branch: %s\n", BUILD_BRANCH);
   printk("Compiled: %s\n", BUILD_COMPILE_TIME);
   printk("\n");
@@ -628,6 +628,8 @@ static void populate_seed_tree_at(const char *prefix) {
                    bootstrap_portrait_jpg, bootstrap_portrait_jpg_len);
   seed_write_bytes(prefix, "assets/wallpapers/square.jpg", 0644,
                    bootstrap_square_jpg, bootstrap_square_jpg_len);
+  seed_write_bytes(prefix, "assets/wallpapers/ducks.png", 0644,
+                   bootstrap_ducks_png, bootstrap_ducks_png_len);
   seed_write_bytes(prefix, "assets/wallpapers/default.jpg", 0644,
                    bootstrap_default_jpg, bootstrap_default_jpg_len);
   seed_write_bytes(prefix, "Pictures/test.png", 0644, bootstrap_test_png,
@@ -865,16 +867,13 @@ void refresh_external_storage_views(void) {
       if (vfs_mount(location, media_root, "iso9660", 0, NULL) == 0) {
         printk(KERN_INFO "STORAGE: mounted CD-ROM '%s' on '%s'\n", location,
                media_root);
-        copy_tree_to_prefix(media_root, external_root, 0, 0);
         continue;
       }
       if (iso9660_copy_to_ramfs(location, media_root) == 0) {
-        copy_tree_to_prefix(media_root, external_root, 0, 0);
         continue;
       }
       if (boot_is_installer_mode()) {
         copy_tree_to_prefix("/setup", media_root, 0, 0);
-        copy_tree_to_prefix("/setup", external_root, 0, 0);
         continue;
       }
     }
@@ -970,12 +969,18 @@ static void populate_installer_payload(void) {
       "\n"
       "1. Graphical Installer\n"
       "   Boot menu entry: \"OS8 Graphical Installer\"\n"
-      "   Use this for the normal desktop installer flow.\n";
+      "   Use this for the normal desktop installer flow.\n"
+      "\n"
+      "2. DOS Textmode Installer\n"
+      "   Utility: /dos/OSINST.COM with companion image /dos/OSSYS.IMG\n"
+      "   Copy both files onto a DOS-readable drive and run OSINST.COM from MS-DOS.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"
       "This directory mirrors the bootable installer media contents while\n"
       "running in setup mode, including the ZIP archive payload.\n";
+  uint8_t *boot_archive_data = NULL;
+  size_t boot_archive_size = 0;
   const uint8_t *kernel_image;
   size_t kernel_size;
   size_t bootx64_efi_size;
@@ -1136,11 +1141,22 @@ static void populate_installer_payload(void) {
     }
   }
 
-  if (installer_mode &&
-      copy_tree_to_prefix("/install/system-image", "/setup/bootimage", 0, 0) !=
-          0) {
-    printk(KERN_ERR "INSTALL: failed to mirror boot files into setup bootimage\n");
-    return;
+  if (installer_mode) {
+    if (copy_tree_to_prefix("/setup", "/setup/bootimage", 1, 0) != 0) {
+      printk(KERN_ERR "INSTALL: failed to mirror boot files into setup bootimage\n");
+      return;
+    }
+    if (media_zip_pack_tree("/setup/bootimage", &boot_archive_data,
+                            &boot_archive_size) != 0 ||
+        media_install_file("/setup/bootimage.zip", boot_archive_data,
+                           boot_archive_size) != 0) {
+      media_free_file(boot_archive_data);
+      printk(KERN_ERR "INSTALL: failed to package setup boot archive\n");
+      return;
+    }
+    media_free_file(boot_archive_data);
+    boot_archive_data = NULL;
+    boot_archive_size = 0;
   }
 
   if (installer_mode && !staged_image_present &&

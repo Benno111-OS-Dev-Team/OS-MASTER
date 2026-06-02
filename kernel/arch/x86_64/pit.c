@@ -135,9 +135,12 @@ uint64_t pit_get_ticks(void)
 
 void pit_sleep(uint32_t ms)
 {
+    if (ms == 0)
+        return;
+
     /*
-     * pit_ticks advances at TIMER_HZ, not at 1 KHz, so convert milliseconds
-     * to ticks with rounding up to avoid sleeping shorter than requested.
+     * Sleep against the architecture timer API so callers operate in true
+     * milliseconds regardless of the underlying PIT tick rate.
      */
     uint64_t ticks_to_wait = ((uint64_t)ms * TIMER_HZ + 999ULL) / 1000ULL;
     if (ticks_to_wait == 0)
