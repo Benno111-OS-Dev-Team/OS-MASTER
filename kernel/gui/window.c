@@ -9160,7 +9160,7 @@ static void installer_window_on_key(struct window *win, int key) {
     installer_page = INSTALLER_PAGE_PROGRESS;
 
   if (installer_page == INSTALLER_PAGE_COMPLETE) {
-    if (key == '\r' || key == '\n' || key == ' ' || key == 27) {
+    if (key >= 0) {
       extern void arch_reboot(void);
       installer_reboot_deadline_ms = 0;
       gui_flush_account_state_before_power_transition();
@@ -9171,6 +9171,14 @@ static void installer_window_on_key(struct window *win, int key) {
 
   if (installer_page == INSTALLER_PAGE_PROGRESS)
     return;
+
+  if (installer_page == INSTALLER_PAGE_WELCOME &&
+      (key == 'p' || key == 'P')) {
+    extern void arch_reboot(void);
+    gui_flush_account_state_before_power_transition();
+    arch_reboot();
+    return;
+  }
 
   if (installer_page == INSTALLER_PAGE_TARGET) {
     installer_refresh_disk_inventory();
@@ -9214,8 +9222,8 @@ static void installer_window_on_key(struct window *win, int key) {
     return;
   }
   if (installer_page == INSTALLER_PAGE_TARGET) {
-    installer_page = INSTALLER_PAGE_REVIEW;
-    installer_set_status("Review the install plan before continuing.");
+    if (!installer_has_run && !installer_active)
+      installer_start_background_install();
     return;
   }
   if (installer_page == INSTALLER_PAGE_REVIEW && !installer_has_run &&
@@ -9481,6 +9489,70 @@ static int installer_stage_value(int start, int end) {
   return ((done - start) * 100) / (end - start);
 }
 
+static int installer_text_progress_percent(void) {
+  if (installer_progress_total <= 0)
+    return 0;
+  return (installer_progress_done * 100) / installer_progress_total;
+}
+
+static int installer_text_strlen(const char *text) {
+  int len = 0;
+  if (!text)
+    return 0;
+  while (text[len])
+    len++;
+  return len;
+}
+
+static void installer_text_draw_centered(int x, int y, int w, const char *text,
+                                         uint32_t fg, uint32_t bg) {
+  int text_w = installer_text_strlen(text) * FONT_WIDTH;
+  int draw_x = x + (w - text_w) / 2;
+  if (draw_x < x)
+    draw_x = x;
+  gui_draw_string(draw_x, y, text, fg, bg);
+}
+
+static void installer_text_build_disk_label(int row, char *buf, int max) {
+  int idx = 0;
+  if (!buf || max <= 0)
+    return;
+  buf[0] = '\0';
+  for (const char *p = "DISK "; *p && idx < max - 1; p++)
+    buf[idx++] = *p;
+  append_decimal(buf, &idx, row);
+  if (row == installer_selected_disk) {
+    if (idx < max - 2) {
+      buf[idx++] = ' ';
+      buf[idx++] = '-';
+    }
+  }
+  buf[idx] = '\0';
+}
+
+static void installer_text_draw_footer(int content_x, int content_y, int content_w,
+                                       int content_h, const char *text) {
+  int footer_h = 38;
+  int text_y = content_y + content_h - footer_h + 8;
+  gui_draw_rect(content_x, content_y + content_h - footer_h, content_w, footer_h,
+                0x5A5A5A);
+  if (text && text[0])
+    gui_draw_string(content_x + 8, text_y, text, 0xFFFFFF, 0x5A5A5A);
+}
+
+static void installer_text_draw_progress_bar(int x, int y, int w, int h,
+                                             int percent, uint32_t fill_color) {
+  int fill_w;
+  if (percent < 0)
+    percent = 0;
+  if (percent > 100)
+    percent = 100;
+  gui_draw_rect(x, y, w, h, 0x5A5A5A);
+  fill_w = (w * percent) / 100;
+  if (fill_w > 0)
+    gui_draw_rect(x, y, fill_w, h, fill_color);
+}
+
 static void draw_installation_stage_bar(int x, int y, int w, int h,
                                         int percent) {
   int fill_w;
@@ -9572,131 +9644,107 @@ static void draw_installer_window(int content_x, int content_y, int content_w,
   if (text_mode) {
     uint32_t bg = 0x0000AA;
     uint32_t fg = 0xFFFFFF;
-    uint32_t accent = 0xFFFF55;
-    int line_y = content_y + 16;
-    int selected_disk_index = installer_selected_disk;
-    const char *selected_disk = installer_selected_disk_label();
-    char progress_label[64];
-
-    str_copy_safe(progress_label, "Progress ", sizeof(progress_label));
-    {
-      int idx = 0;
-      while (progress_label[idx] && idx < (int)sizeof(progress_label) - 1)
-        idx++;
-      append_decimal(progress_label, &idx, installer_progress_done);
-      installer_append_to_buf(progress_label, sizeof(progress_label), "%");
-    }
+    uint32_t bar_blue = 0x0000FF;
+    uint32_t bar_red = 0x7A0000;
+    int body_x = content_x;
+    int body_y = content_y;
+    int body_w = content_w;
+    int body_h = content_h - 38;
+    int progress_percent = installer_text_progress_percent();
+    int bar_w = body_w > 360 ? body_w - 220 : body_w - 60;
+    int bar_x = body_x + (body_w - bar_w) / 2;
 
     gui_draw_rect(content_x, content_y, content_w, content_h, bg);
-    gui_draw_string(content_x + 12, line_y,
-                    " OS8 Text Setup ", fg, bg);
-    line_y += 28;
-    gui_draw_string(content_x + 12, line_y,
-                    "Press ENTER to continue, ESC to go back, P for partitions.",
-                    fg, bg);
-    line_y += 22;
-    gui_draw_string(content_x + 12, line_y,
-                    "The installer media contents are exposed under /setup during text setup.",
-                    fg, bg);
-    line_y += 30;
+    gui_draw_string(body_x + 6, body_y + 8, "OS SETUP", fg, bg);
 
-    if (installer_page == INSTALLER_PAGE_WELCOME) {
-      gui_draw_string(content_x + 12, line_y,
-                      "Welcome to OS8 Setup.", accent, bg);
-      line_y += 24;
-      gui_draw_string(content_x + 12, line_y,
-                      "Setup will copy the system image and prepare BIOS and UEFI boot files.",
-                      fg, bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y,
-                      "This installer media runs text setup only.",
-                      fg, bg);
-      line_y += 28;
-      gui_draw_string(content_x + 12, line_y,
-                      "Press ENTER to select the destination disk.", fg, bg);
+    if (installer_page == INSTALLER_PAGE_WELCOME && !installer_active) {
+      installer_text_draw_centered(body_x, body_y + body_h / 2 - 18, body_w,
+                                   "WELCOME TO SETUP", fg, bg);
+      installer_text_draw_centered(body_x, body_y + body_h / 2 + 10, body_w,
+                                   "TO SETUP OS PRESS ENTER", fg, bg);
+      installer_text_draw_centered(body_x, body_y + body_h / 2 + 38, body_w,
+                                   "OR PRESS P TO RESTART YOUR COMPUTER", fg,
+                                   bg);
+      installer_text_draw_footer(content_x, content_y, content_w, content_h, "");
       return;
     }
 
-    if (installer_page == INSTALLER_PAGE_TARGET) {
-      gui_draw_string(content_x + 12, line_y,
-                      "Select the destination disk for OS8.", accent, bg);
-      line_y += 24;
+    if (installer_active && installer_phase <= 2) {
+      installer_text_draw_footer(content_x, content_y, content_w, content_h,
+                                 "LOADING DISKS");
+      return;
+    }
+
+    if (!installer_active && installer_page == INSTALLER_PAGE_TARGET) {
+      char disk_label[48];
+      int list_y = body_y + body_h / 2 - 20;
+      installer_text_draw_centered(body_x, body_y + body_h / 2 - 92, body_w,
+                                   "SELECT PARTITION TO INSTALL OS TO", fg, bg);
       for (int i = 0; i < installer_disk_count && i < 6; i++) {
-        gui_draw_string(content_x + 24, line_y,
-                        i == selected_disk_index ? "> " : "  ",
-                        fg, bg);
-        gui_draw_string(content_x + 44, line_y, installer_disk_labels[i],
-                        i == selected_disk_index ? accent : fg, bg);
-        line_y += 20;
+        installer_text_build_disk_label(i, disk_label, sizeof(disk_label));
+        installer_text_draw_centered(body_x, list_y + i * 30, body_w, disk_label,
+                                     fg, bg);
       }
-      line_y += 12;
-      gui_draw_string(content_x + 12, line_y,
-                      "Use UP and DOWN to change the target, then press ENTER.",
-                      fg, bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y,
-                      "Press P to open the partition manager if the disk layout needs work.",
-                      fg, bg);
-      return;
-    }
-
-    if (installer_page == INSTALLER_PAGE_REVIEW) {
-      gui_draw_string(content_x + 12, line_y,
-                      "Review the pending install plan.", accent, bg);
-      line_y += 24;
-      gui_draw_string(content_x + 12, line_y, "Target disk:", fg, bg);
-      gui_draw_string(content_x + 132, line_y, selected_disk, accent, bg);
-      line_y += 26;
-      gui_draw_string(content_x + 12, line_y,
-                      "1. Overwrite the selected target disk with the OS8 system image.",
-                      fg, bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y,
-                      "2. Preserve bootability for BIOS and UEFI startup.", fg,
-                      bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y,
-                      "3. Prepare first-boot account and storage setup.", fg,
-                      bg);
-      line_y += 28;
-      gui_draw_string(content_x + 12, line_y, "Warning: this operation destroys data on the selected disk.",
-                      accent, bg);
-      line_y += 28;
-      gui_draw_string(content_x + 12, line_y,
-                      "Press ENTER to start the text setup install.", fg, bg);
+      installer_text_draw_footer(content_x, content_y, content_w, content_h, "");
       return;
     }
 
     if (installer_page == INSTALLER_PAGE_PROGRESS) {
-      gui_draw_string(content_x + 12, line_y,
-                      "Installing OS8...", accent, bg);
-      line_y += 24;
-      gui_draw_string(content_x + 12, line_y, installer_progress_stage, fg, bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y, progress_label, accent, bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y, installer_status, fg, bg);
-      line_y += 20;
-      gui_draw_string(content_x + 12, line_y, installer_progress_detail, fg, bg);
-      line_y += 24;
-      gui_draw_string(content_x + 12, line_y,
-                      installer_log_buffer[0] ? installer_log_buffer
-                                              : "Waiting for installer output...",
-                      fg, bg);
+      const char *line1 = "SETUP IS COPYING OS FILES";
+      const char *line2 = "SETUP IS FORMATING...";
+      const char *footer = installer_status;
+      if (installer_progress_done >= 92) {
+        line1 = "";
+        line2 = "";
+        footer = "SETUP IS SETTINGUP OS CONFIG FILES...";
+      } else if (installer_progress_done >= 20) {
+        line1 = "SETUP IS COPYING OS FILES";
+        line2 = "TO THE OS INSTALLATING FOLDERS...";
+        footer = "SETUP IS COPYING OS FILES TO YOUR COMUTER...";
+      }
+
+      if (line1[0])
+        installer_text_draw_centered(body_x, body_y + 154, body_w, line1, fg, bg);
+      if (line2[0])
+        installer_text_draw_centered(body_x, body_y + 184, body_w, line2, fg, bg);
+      if (installer_progress_done < 92) {
+        installer_text_draw_progress_bar(bar_x, body_y + 250, bar_w, 64,
+                                         progress_percent, bar_blue);
+      }
+      installer_text_draw_footer(content_x, content_y, content_w, content_h,
+                                 footer);
       return;
     }
 
-    gui_draw_string(content_x + 12, line_y,
-                    "Installation complete.", accent, bg);
-    line_y += 24;
-    gui_draw_string(content_x + 12, line_y, installer_progress_detail, fg, bg);
-    line_y += 24;
-    gui_draw_string(content_x + 12, line_y,
-                    "Remove installer media if the machine enters setup again.",
-                    fg, bg);
-    line_y += 24;
-    gui_draw_string(content_x + 12, line_y,
-                    "Press ENTER to restart from the installed disk.", fg, bg);
+    if (installer_page == INSTALLER_PAGE_COMPLETE) {
+      uint64_t now = arch_timer_get_ms();
+      int countdown_percent = 100;
+      if (installer_reboot_deadline_ms > now) {
+        uint64_t total_ms = 3000;
+        uint64_t remaining_ms = installer_reboot_deadline_ms - now;
+        if (remaining_ms > total_ms)
+          remaining_ms = total_ms;
+        countdown_percent =
+            (int)(((total_ms - remaining_ms) * 100) / total_ms);
+      }
+      installer_text_draw_centered(body_x, body_y + 154, body_w,
+                                   "YOU NEED TO RESTART YOUR COMPUTER", fg, bg);
+      installer_text_draw_centered(body_x, body_y + 184, body_w,
+                                   "PRESS ANY KEY TO SPEED UP THE PROCESS", fg,
+                                   bg);
+      installer_text_draw_progress_bar(bar_x, body_y + 250, bar_w, 64,
+                                       countdown_percent, bar_red);
+      if (installer_reboot_deadline_ms > now) {
+        installer_text_draw_footer(content_x, content_y, content_w, content_h,
+                                   "");
+      } else {
+        installer_text_draw_footer(content_x, content_y, content_w, content_h,
+                                   "RESTARTING YOUR COMPUTER");
+      }
+      return;
+    }
+
+    installer_text_draw_footer(content_x, content_y, content_w, content_h, "");
     return;
   }
 
