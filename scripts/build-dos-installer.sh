@@ -55,7 +55,7 @@ Usage:
 6. Press F3 to exit Setup.
 
 Notes:
-- Setup starts target selection at BIOS disk 0x81 for safety.
+- Setup tries BIOS disks 0x81-0x87 before 0x80 for safety.
 - The selected target disk is overwritten sector-by-sector during install.
 - This utility is intended to resemble classic Windows NT text setup.
 EOF
