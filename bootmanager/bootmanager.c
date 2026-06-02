@@ -39,6 +39,7 @@ static bool boot_from_usb = false;
 static bool boot_live_media = false;
 static bool boot_installer_mode = false;
 static bool boot_xhci_enabled = false;
+static bool boot_generic_drivers_only = false;
 static struct boot_entry boot_entries[MAX_BOOT_ENTRIES];
 static int num_boot_entries = 0;
 static progress_callback_t boot_progress_cb = NULL;
@@ -183,6 +184,7 @@ void boot_parse_cmdline(const char *cmdline) {
   boot_live_media = false;
   boot_installer_mode = false;
   boot_xhci_enabled = false;
+  boot_generic_drivers_only = false;
   if (str_contains_token(cmdline, "boot=usb") ||
       str_contains_token(cmdline, "usbboot") ||
       str_contains_token(cmdline, "root=/dev/sd") ||
@@ -212,6 +214,13 @@ void boot_parse_cmdline(const char *cmdline) {
       str_contains_token(cmdline, "usb.xhci=off")) {
     boot_xhci_enabled = false;
   }
+  if (str_contains_token(cmdline, "drivers=generic") ||
+      str_contains_token(cmdline, "driver_mode=generic") ||
+      str_contains_token(cmdline, "genericdrivers") ||
+      str_contains_token(cmdline, "generic-drivers")) {
+    boot_generic_drivers_only = true;
+    boot_xhci_enabled = false;
+  }
 
   p = cmdline;
   while (*p) {
@@ -226,9 +235,10 @@ void boot_parse_cmdline(const char *cmdline) {
 
   printk(
       KERN_INFO
-      "BOOT: Cmdline parsed - verbose=%d debug=%d splash=%d usb=%d installer=%d xhci=%d\n",
+      "BOOT: Cmdline parsed - verbose=%d debug=%d splash=%d usb=%d installer=%d xhci=%d generic=%d\n",
       boot_cfg.verbose_boot, boot_cfg.debug_mode, boot_cfg.show_splash,
-      boot_from_usb, boot_installer_mode, boot_xhci_enabled);
+      boot_from_usb, boot_installer_mode, boot_xhci_enabled,
+      boot_generic_drivers_only);
 }
 
 int boot_is_usb_boot(void) { return boot_from_usb ? 1 : 0; }
@@ -238,6 +248,10 @@ int boot_is_live_media(void) { return boot_live_media ? 1 : 0; }
 int boot_is_installer_mode(void) { return boot_installer_mode ? 1 : 0; }
 
 int boot_allow_xhci(void) { return boot_xhci_enabled ? 1 : 0; }
+
+int boot_use_generic_drivers_only(void) {
+  return boot_generic_drivers_only ? 1 : 0;
+}
 
 int boot_should_show_splash(void) { return boot_cfg.show_splash ? 1 : 0; }
 

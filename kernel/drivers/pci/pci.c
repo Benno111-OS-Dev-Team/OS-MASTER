@@ -18,6 +18,7 @@
 static pci_device_t device_pool[64];
 static int device_count = 0;
 static pci_device_t *device_list = NULL;
+static int pci_generic_drivers_only = 0;
 
 /* MMIO allocation for unassigned BARs */
 static uint64_t next_mmio_base = 0x10000000;
@@ -33,6 +34,12 @@ static void pci_try_init_xhci_controller(pci_device_t *pci_dev,
                                          int allow_on_x86) {
   if (!pci_is_xhci_controller(pci_dev))
     return;
+
+  if (pci_generic_drivers_only) {
+    printk("PCI: generic driver mode skipping xHCI controller at %02x:%02x.%x\n",
+           pci_dev->bus, pci_dev->slot, pci_dev->func);
+    return;
+  }
 
   printk("PCI: Found xHCI USB controller at %02x:%02x.%x\n", pci_dev->bus,
          pci_dev->slot, pci_dev->func);
@@ -221,13 +228,20 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
 
   storage_register_pci_controller(pci_dev);
 
-  if (intel_hda_is_device_supported(pci_dev)) {
+  if (pci_generic_drivers_only && intel_hda_is_device_supported(pci_dev)) {
+    printk("PCI: generic driver mode skipping Intel HDA at %02x:%02x.%x\n",
+           pci_dev->bus, pci_dev->slot, pci_dev->func);
+  } else if (intel_hda_is_device_supported(pci_dev)) {
     printk("PCI: Found Intel HDA Audio Controller!\n");
     printk("PCI: HDA BAR0=0x%llx, IRQ=%d\n", pci_dev->bar0, pci_dev->irq);
     intel_hda_init(pci_dev);
   }
 
-  if (vendor == INTEL_GPU_VENDOR_ID && pci_dev->class_code == 0x03) {
+  if (pci_generic_drivers_only && vendor == INTEL_GPU_VENDOR_ID &&
+      pci_dev->class_code == 0x03) {
+    printk("PCI: generic driver mode skipping Intel integrated graphics at %02x:%02x.%x\n",
+           pci_dev->bus, pci_dev->slot, pci_dev->func);
+  } else if (vendor == INTEL_GPU_VENDOR_ID && pci_dev->class_code == 0x03) {
     printk("PCI: Found Intel integrated graphics controller\n");
     printk("PCI: Intel GPU BAR0=0x%llx BAR2=0x%llx IRQ=%d\n", pci_dev->bar0,
            pci_dev->bar2, pci_dev->irq);
@@ -235,8 +249,13 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   }
 
   if (vendor == PCI_VENDOR_VIRTIO && device == PCI_DEVICE_VIRTIO_GPU) {
-    printk("PCI: Found virtio-gpu device!\n");
-    printk("PCI: virtio-gpu BAR0=0x%llx\n", pci_dev->bar0);
+    if (pci_generic_drivers_only) {
+      printk("PCI: generic driver mode skipping virtio-gpu at %02x:%02x.%x\n",
+             pci_dev->bus, pci_dev->slot, pci_dev->func);
+    } else {
+      printk("PCI: Found virtio-gpu device!\n");
+      printk("PCI: virtio-gpu BAR0=0x%llx\n", pci_dev->bar0);
+    }
   }
 
   pci_try_init_xhci_controller(pci_dev, 0);
@@ -254,6 +273,10 @@ void pci_init(void) {
 
   device_count = 0;
   device_list = NULL;
+  pci_generic_drivers_only = boot_use_generic_drivers_only();
+  if (pci_generic_drivers_only) {
+    printk("PCI: generic driver mode enabled; vendor-specific PCI drivers will be skipped\n");
+  }
 
   for (int bus = 0; bus < 256; bus++) {
     for (int slot = 0; slot < 32; slot++) {

@@ -1329,7 +1329,14 @@ static void init_subsystems(void *dtb) {
   extern int virtio_gpu_init(pci_device_t * pci);
   extern pci_device_t *pci_find_device(uint16_t vendor, uint16_t device);
   extern void gui_refresh_hardware_acceleration_policy(void);
+  extern int boot_use_generic_drivers_only(void);
+  int generic_drivers_only = boot_use_generic_drivers_only();
   fb_init();
+
+  if (generic_drivers_only) {
+    printk(KERN_INFO
+           "  Generic driver mode enabled (cmdline: drivers=generic)\n");
+  }
 
   /* Discover PCI GPUs before GUI startup so Intel handoff is ready in time. */
   printk(KERN_INFO "  Initializing PCI bus...\n");
@@ -1355,12 +1362,14 @@ static void init_subsystems(void *dtb) {
   }
 
   pci_device_t *gpu = pci_find_device(0x1AF4, 0x1050); /* virtio-gpu */
-  if (gpu) {
+  if (!generic_drivers_only && gpu) {
     if (virtio_gpu_init(gpu) == 0) {
       printk(KERN_INFO "  GPU: virtio-gpu initialized with 3D acceleration\n");
     } else {
       printk(KERN_INFO "  GPU: virtio-gpu init failed\n");
     }
+  } else if (generic_drivers_only && gpu) {
+    printk(KERN_INFO "  GPU: generic driver mode skipping virtio-gpu acceleration\n");
   } else if (!intel_gfx_detected()) {
     printk(KERN_INFO "  GPU: No virtio-gpu found (software rendering)\n");
   }
@@ -1411,9 +1420,14 @@ static void init_subsystems(void *dtb) {
   extern int virtio_net_init(void);
   extern int vbox_net_init(void);
   tcpip_init();
-  virtio_net_init();
-  vbox_net_init();
-  wifi_init();
+  if (generic_drivers_only) {
+    printk(KERN_INFO
+           "  Generic driver mode skipping virtio-net, VBox net, and Wi-Fi drivers\n");
+  } else {
+    virtio_net_init();
+    vbox_net_init();
+    wifi_init();
+  }
 
   if (fb_buffer) {
     /* Refresh the framebuffer-backed desktop after the early boot log screen. */

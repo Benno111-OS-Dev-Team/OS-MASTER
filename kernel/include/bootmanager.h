@@ -34,6 +34,7 @@ int boot_is_usb_boot(void);
 int boot_is_live_media(void);
 int boot_is_installer_mode(void);
 int boot_allow_xhci(void);
+int boot_use_generic_drivers_only(void);
 int boot_should_show_splash(void);
 void boot_force_verbose_console(void);
 
