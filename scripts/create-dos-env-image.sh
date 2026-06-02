@@ -12,6 +12,7 @@ FREEDOS_VERSION="${FREEDOS_VERSION:-1.4}"
 FREEDOS_FULLUSB_URL="${FREEDOS_FULLUSB_URL:-https://www.freedos.org/download/download/FD14-FullUSB.zip}"
 FREEDOS_FULLUSB_SHA256="${FREEDOS_FULLUSB_SHA256:-cd440cd165f5a8a184870cb615f525af182660c15f9bcf1e9d198ca19cedcaff}"
 FREEDOS_CACHE_DIR="${FREEDOS_CACHE_DIR:-${BUILD_DIR}/freedos-cache}"
+BUNDLED_DOS_BOOT_IMAGE="${BUNDLED_DOS_BOOT_IMAGE:-${ROOT_DIR}/os-x86_64/dos-boot.img}"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -170,18 +171,24 @@ main() {
     temp_dir="$(mktemp -d)"
     trap 'if [ -n "${temp_dir:-}" ] && [ -d "$temp_dir" ]; then rm -rf "$temp_dir"; fi' EXIT
 
-    zip_path="${FREEDOS_CACHE_DIR}/${zip_name}"
-    log "Downloading FreeDOS ${FREEDOS_VERSION} FullUSB boot disk"
-    download_freedos_zip "$zip_path"
+    if [ -f "$BUNDLED_DOS_BOOT_IMAGE" ]; then
+        source_img="$BUNDLED_DOS_BOOT_IMAGE"
+        log "Using bundled DOS boot disk: $(basename "$source_img")"
+    else
+        zip_path="${FREEDOS_CACHE_DIR}/${zip_name}"
+        log "Bundled DOS boot disk not found; downloading FreeDOS ${FREEDOS_VERSION} FullUSB boot disk"
+        download_freedos_zip "$zip_path"
 
-    zip_hash="$(sha256_file "$zip_path")"
-    if [ "$zip_hash" != "$FREEDOS_FULLUSB_SHA256" ]; then
-        fail "FreeDOS archive hash mismatch for $zip_path"
+        zip_hash="$(sha256_file "$zip_path")"
+        if [ "$zip_hash" != "$FREEDOS_FULLUSB_SHA256" ]; then
+            fail "FreeDOS archive hash mismatch for $zip_path"
+        fi
+
+        extract_dir="${temp_dir}/freedos"
+        extract_zip_image "$zip_path" "$extract_dir"
+        source_img="$(find_extracted_img "$extract_dir")"
     fi
 
-    extract_dir="${temp_dir}/freedos"
-    extract_zip_image "$zip_path" "$extract_dir"
-    source_img="$(find_extracted_img "$extract_dir")"
     out_image="${IMAGE_DIR}/${OUT_IMAGE_NAME}"
     cp "$source_img" "$out_image"
 
