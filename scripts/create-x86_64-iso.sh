@@ -19,7 +19,7 @@ BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
 LIMINE_SRC_DIR="${BOOT_MANAGER_DIR}"
 LIMINE_TOOL_PATH="${LIMINE_SRC_DIR}/limine"
-LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine.conf}"
+LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installer-text.conf}"
 INSTALL_LIMINE_CFG="${INSTALL_LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installed.conf}"
 INSTALL_ROOT="${ISO_ROOT}/install/system-image"
 SYSTEM_IMAGE_ROOT="${SYSTEM_IMAGE_ROOT:-${BUILD_DIR}/system-image}"
@@ -200,12 +200,15 @@ if [ -f "$SYSTEM_DISK_IMAGE" ]; then
     cp "$SYSTEM_DISK_IMAGE" "$ISO_ROOT/install/system.img"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+    cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/OSINST.COM"
     cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/dos/OSINST.COM"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+    cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/OSSYS.IMG"
     cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/dos/OSSYS.IMG"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+    cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/README.TXT"
     cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/dos/README.TXT"
 fi
 LIMINE_TOOL="$(resolve_limine_tool)"
@@ -266,12 +269,15 @@ if [ -f "$SYSTEM_DISK_IMAGE" ]; then
     require_iso_path "/install/system.img"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+    require_iso_path "/OSINST.COM"
     require_iso_path "/dos/OSINST.COM"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+    require_iso_path "/OSSYS.IMG"
     require_iso_path "/dos/OSSYS.IMG"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+    require_iso_path "/README.TXT"
     require_iso_path "/dos/README.TXT"
 fi
 require_iso_path "/install/system-image/INSTALLERS.TXT"

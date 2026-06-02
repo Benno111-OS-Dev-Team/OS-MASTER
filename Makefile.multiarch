@@ -233,7 +233,7 @@ help:
 	@echo "  image    - Create bootable image/ISO"
 	@echo "  system-image - Build the staged x86_64 install image and zip"
 	@echo "  install-boot-files - Stage boot files into INSTALL_ROOT"
-	@echo "  installer-image - Create x86_64 graphical installer ISO"
+	@echo "  installer-image - Create x86_64 installer ISO (defaults to DOS text setup)"
 	@echo "  dos-installer - Build the DOS textmode installer utility"
 	@echo "  sdk      - Export application headers into build/sdk/include"
 	@echo "  qemu     - Run in QEMU emulator"

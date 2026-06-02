@@ -126,13 +126,13 @@ write_boot_metadata() {
     cat > "$INSTALL_ROOT/INSTALLERS.TXT" <<'EOF'
 OS8 Installer Types
 
-1. Graphical Installer
-   Boot menu entry: "OS8 Graphical Installer"
-   Use this for the normal desktop installer flow.
+1. DOS Text Setup
+   Default boot entry: "OS8 DOS Text Setup"
+   Generated installer media mirrors the DOS loader at /OSINST.COM and /OSSYS.IMG.
 
-2. DOS Textmode Installer
-   Utility: /dos/OSINST.COM with companion image /dos/OSSYS.IMG
-   Copy both files onto a DOS-readable drive and run OSINST.COM from MS-DOS.
+2. Graphical Installer
+   Alternate boot entry: "OS8 Graphical Installer"
+   Use this when you explicitly want the desktop installer workflow.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF

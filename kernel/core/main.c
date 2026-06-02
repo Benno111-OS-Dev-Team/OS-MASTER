@@ -930,6 +930,11 @@ static void populate_installer_payload(void) {
       "\n"
       "timeout: 5\n"
       "\n"
+      "/OS8 DOS Text Setup\n"
+      "    protocol: limine\n"
+      "    kernel_path: boot():/boot/main.sys\n"
+      "    cmdline: boot=usb mode=installer textsetup=1\n"
+      "\n"
       "/OS8 Graphical Installer\n"
       "    protocol: limine\n"
       "    kernel_path: boot():/boot/main.sys\n"
@@ -967,13 +972,13 @@ static void populate_installer_payload(void) {
   static const char *installers_txt =
       "OS8 Installer Types\n"
       "\n"
-      "1. Graphical Installer\n"
-      "   Boot menu entry: \"OS8 Graphical Installer\"\n"
-      "   Use this for the normal desktop installer flow.\n"
+      "1. DOS Text Setup\n"
+      "   Default boot entry: \"OS8 DOS Text Setup\"\n"
+      "   Generated installer media mirrors the DOS loader at /OSINST.COM and /OSSYS.IMG.\n"
       "\n"
-      "2. DOS Textmode Installer\n"
-      "   Utility: /dos/OSINST.COM with companion image /dos/OSSYS.IMG\n"
-      "   Copy both files onto a DOS-readable drive and run OSINST.COM from MS-DOS.\n";
+      "2. Graphical Installer\n"
+      "   Alternate boot entry: \"OS8 Graphical Installer\"\n"
+      "   Use this when you explicitly want the desktop installer workflow.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"
