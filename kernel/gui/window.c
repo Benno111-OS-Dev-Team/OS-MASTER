@@ -6102,10 +6102,19 @@ static int account_partition_manifest_info(const char *preferred_label,
   return -1;
 }
 
+static uint32_t account_partition_manifest_lba(uint32_t start_lba,
+                                               uint32_t sector_count) {
+  if (sector_count < ACCOUNT_RAW_SECTORS)
+    return start_lba;
+  /* Keep the raw manifest away from partition headers and boot sectors. */
+  return start_lba + sector_count - ACCOUNT_RAW_SECTORS;
+}
+
 static int load_account_manifest_from_partition(char *manifest, int max) {
   uint8_t *buf;
   uint32_t start_lba = 0;
   uint32_t sector_count = 0;
+  uint32_t manifest_lba = 0;
   uint32_t manifest_len;
   int disk_index = -1;
   int ret = -1;
@@ -6120,20 +6129,29 @@ static int load_account_manifest_from_partition(char *manifest, int max) {
     return -1;
   if (sector_count < ACCOUNT_RAW_SECTORS)
     return -1;
+  manifest_lba = account_partition_manifest_lba(start_lba, sector_count);
 
   buf = (uint8_t *)kmalloc(ACCOUNT_RAW_BYTES, GFP_KERNEL);
   if (!buf)
     return -1;
 
   for (int sector = 0; sector < ACCOUNT_RAW_SECTORS; sector++) {
-    if (storage_read_block(disk_index, start_lba + (uint32_t)sector,
+    if (storage_read_block(disk_index, manifest_lba + (uint32_t)sector,
                            buf + sector * 512, 512) != 0)
       goto done;
   }
 
   if (buf[0] != 'O' || buf[1] != 'S' || buf[2] != '8' || buf[3] != 'A' ||
-      buf[4] != 'C' || buf[5] != 'C' || buf[6] != 'T' || buf[7] != '1')
-    goto done;
+      buf[4] != 'C' || buf[5] != 'C' || buf[6] != 'T' || buf[7] != '1') {
+    for (int sector = 0; sector < ACCOUNT_RAW_SECTORS; sector++) {
+      if (storage_read_block(disk_index, start_lba + (uint32_t)sector,
+                             buf + sector * 512, 512) != 0)
+        goto done;
+    }
+    if (buf[0] != 'O' || buf[1] != 'S' || buf[2] != '8' || buf[3] != 'A' ||
+        buf[4] != 'C' || buf[5] != 'C' || buf[6] != 'T' || buf[7] != '1')
+      goto done;
+  }
 
   manifest_len = (uint32_t)buf[8] | ((uint32_t)buf[9] << 8) |
                  ((uint32_t)buf[10] << 16) | ((uint32_t)buf[11] << 24);
@@ -6155,6 +6173,7 @@ static int save_account_manifest_to_partition(const char *manifest) {
   uint8_t *buf;
   uint32_t start_lba = 0;
   uint32_t sector_count = 0;
+  uint32_t manifest_lba = 0;
   uint32_t manifest_len = 0;
   int disk_index = -1;
   int ret = -1;
@@ -6173,6 +6192,7 @@ static int save_account_manifest_to_partition(const char *manifest) {
     return -1;
   if (sector_count < ACCOUNT_RAW_SECTORS)
     return -1;
+  manifest_lba = account_partition_manifest_lba(start_lba, sector_count);
 
   buf = (uint8_t *)kmalloc(ACCOUNT_RAW_BYTES, GFP_KERNEL);
   if (!buf)
@@ -6196,7 +6216,7 @@ static int save_account_manifest_to_partition(const char *manifest) {
     buf[16 + i] = (uint8_t)manifest[i];
 
   for (int sector = 0; sector < ACCOUNT_RAW_SECTORS; sector++) {
-    if (storage_write_block(disk_index, start_lba + (uint32_t)sector,
+    if (storage_write_block(disk_index, manifest_lba + (uint32_t)sector,
                             buf + sector * 512, 512) != 0)
       goto done;
   }
