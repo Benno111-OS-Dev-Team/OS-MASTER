@@ -321,7 +321,7 @@ find_default_target:
     movb    $0x81, %bl
 dos_find_target_scan:
     cmpb    $0x88, %bl
-    jae     dos_find_target_done
+    jae     dos_find_target_fallback
     movb    %bl, %dl
     call    probe_drive
     jc      dos_find_target_next
@@ -330,6 +330,11 @@ dos_find_target_scan:
 dos_find_target_next:
     inc     %bl
     jmp     dos_find_target_scan
+dos_find_target_fallback:
+    movb    $0x80, %dl
+    call    probe_drive
+    jc      dos_find_target_done
+    movb    $0x80, selected_drive
 dos_find_target_done:
     ret
 
@@ -338,7 +343,7 @@ select_next_target:
     push    %cx
     push    %dx
     movb    selected_drive, %bl
-    cmpb    $0x81, %bl
+    cmpb    $0x80, %bl
     jae     dos_select_target_cycle
     movb    $0x80, %bl
 dos_select_target_cycle:
@@ -347,7 +352,7 @@ dos_select_target_try:
     inc     %bl
     cmpb    $0x88, %bl
     jb      dos_select_target_check
-    movb    $0x81, %bl
+    movb    $0x80, %bl
 dos_select_target_check:
     movb    %bl, %dl
     call    probe_drive
@@ -647,7 +652,7 @@ subtitle_text:
 menu_text:
     .asciz  "  ENTER = Install OS8 to the selected disk\r\n  C     = Change target disk\r\n  R     = Repair BIOS boot code only\r\n  H     = Help and usage notes\r\n  F3    = Exit Setup\r\n\r\n"
 help_text:
-    .asciz  "Usage:\r\n  1. Copy OSINST.COM and OSSYS.IMG into the same DOS directory.\r\n  2. Boot MS-DOS, change to that directory, and run OSINST.COM.\r\n  3. Press C to choose the destination BIOS disk.\r\n  4. Press ENTER to install the regular raw OS8 system image.\r\n  5. Press R if you only need to rewrite early BIOS boot code.\r\n\r\nFor safety, target selection starts at BIOS disk 0x81 instead of 0x80.\r\nExisting data on the selected target disk will be overwritten.\r\n\r\n"
+    .asciz  "Usage:\r\n  1. Copy OSINST.COM and OSSYS.IMG into the same DOS directory.\r\n  2. Boot MS-DOS, change to that directory, and run OSINST.COM.\r\n  3. Press C to choose the destination BIOS disk.\r\n  4. Press ENTER to install the regular raw OS8 system image.\r\n  5. Press R if you only need to rewrite early BIOS boot code.\r\n\r\nFor safety, target selection tries BIOS disks 0x81-0x87 before 0x80.\r\nExisting data on the selected target disk will be overwritten.\r\n\r\n"
 install_intro_text:
     .asciz  "OS8 Setup is preparing to install the system image to the selected disk.\r\nThe destination disk contents will be overwritten sector-by-sector.\r\n\r\n"
 bootloader_intro_text:

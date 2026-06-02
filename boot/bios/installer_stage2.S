@@ -59,18 +59,18 @@ menu_reboot:
 
 run_install:
     cmpb $0, selected_drive
-    jne .have_target
+    jne run_install_have_target
     mov $no_target_text, %si
     call print_string
     call wait_for_keypress
     ret
 
-.have_target:
+run_install_have_target:
     mov $installing_text, %si
     call print_string
 
-    ; placeholder installer flow
-    ; add partition / fs / payload logic here
+    # placeholder installer flow
+    # add partition / fs / payload logic here
 
     mov $install_done_text, %si
     call print_string
@@ -78,37 +78,90 @@ run_install:
     ret
 
 choose_drive:
+    push %dx
+
     mov $choose_drive_text, %si
     call print_string
     call list_drives
     call read_key
 
     cmp $27, %al
-    je .done
+    je choose_drive_done
 
     sub $'0', %al
     cmp $0, %al
-    je .done
+    je choose_drive_invalid
+    cmp $8, %al
+    ja choose_drive_invalid
 
     mov %al, %bl
     add $0x7F, %bl
-    mov %bl, selected_drive
+    mov %bl, %dl
+    call probe_drive
+    jc choose_drive_invalid
 
-.done:
+    mov %bl, selected_drive
+    jmp choose_drive_done
+
+choose_drive_invalid:
+    mov $invalid_drive_text, %si
+    call print_string
+    call wait_for_keypress
+
+choose_drive_done:
+    pop %dx
     ret
 
 run_shell:
     mov $shell_text, %si
     call print_string
-.shell_loop:
+run_shell_loop:
     call read_key
     cmp $27, %al
-    je .shell_done
+    je run_shell_done
     mov $0x0E, %ah
     mov $0x00, %bh
     int $0x10
-    jmp .shell_loop
-.shell_done:
+    jmp run_shell_loop
+run_shell_done:
+    ret
+
+probe_drive:
+    push %ax
+    push %bx
+    push %cx
+    push %dx
+
+    mov %dl, probe_drive_target
+    mov $0x55AA, %bx
+    mov $0x4100, %ax
+    int $0x13
+    jc probe_drive_legacy
+
+    cmp $0xAA55, %bx
+    jne probe_drive_legacy
+
+    test $0x0001, %cx
+    jnz probe_drive_found
+
+probe_drive_legacy:
+    mov probe_drive_target, %dl
+    mov $0x08, %ah
+    int $0x13
+    jc probe_drive_missing
+
+probe_drive_found:
+    clc
+    jmp probe_drive_done
+
+probe_drive_missing:
+    stc
+
+probe_drive_done:
+    pop %dx
+    pop %cx
+    pop %bx
+    pop %ax
     ret
 
 find_default_target:
@@ -122,28 +175,27 @@ find_default_target:
     mov $0x80, %cl
     add $8, %cl
 
-.scan_loop:
+find_default_target_scan_loop:
     cmp %bl, %dl
-    je .next
+    je find_default_target_next
 
-    mov $0x08, %ah
     mov %bl, %dl
-    int $0x13
-    jc .next
+    call probe_drive
+    jc find_default_target_next
 
     mov %bl, selected_drive
     clc
-    jmp .done
+    jmp find_default_target_done
 
-.next:
+find_default_target_next:
     inc %bl
     cmp %cl, %bl
-    jb .scan_loop
+    jb find_default_target_scan_loop
 
     movb $0, selected_drive
     stc
 
-.done:
+find_default_target_done:
     pop %dx
     pop %cx
     pop %bx
@@ -160,11 +212,18 @@ list_drives:
     mov $drive_list_text, %si
     call print_string
 
+    xor %ch, %ch
     mov $1, %cl
     mov $0x80, %bl
     mov $0x88, %bh
 
-.drive_loop:
+list_drives_drive_loop:
+    mov %bl, %dl
+    call probe_drive
+    jc list_drives_next_drive
+
+    inc %ch
+
     mov $drive_prefix_text, %si
     call print_string
 
@@ -181,11 +240,19 @@ list_drives:
     mov $newline_text, %si
     call print_string
 
+list_drives_next_drive:
     inc %cl
     inc %bl
     cmp %bh, %bl
-    jb .drive_loop
+    jb list_drives_drive_loop
 
+    test %ch, %ch
+    jnz list_drives_done
+
+    mov $no_drives_found_text, %si
+    call print_string
+
+list_drives_done:
     pop %si
     pop %dx
     pop %cx
@@ -202,16 +269,16 @@ print_selected_drive:
 
     mov selected_drive, %al
     cmp $0, %al
-    jne .print_drive
+    jne print_selected_drive_print_drive
 
     mov $none_text, %si
     call print_string
-    jmp .done
+    jmp print_selected_drive_done
 
-.print_drive:
+print_selected_drive_print_drive:
     call print_hex8
 
-.done:
+print_selected_drive_done:
     mov $newline_text, %si
     call print_string
 
@@ -245,15 +312,15 @@ clear_screen:
 print_string:
     push %ax
     push %bx
-.next_char:
+print_string_next_char:
     lodsb
     test %al, %al
-    jz .done
+    jz print_string_done
     mov $0x0E, %ah
     mov $0x00, %bh
     int $0x10
-    jmp .next_char
-.done:
+    jmp print_string_next_char
+print_string_done:
     pop %bx
     pop %ax
     ret
@@ -287,12 +354,12 @@ print_hex8:
 print_hex_nibble:
     and $0x0F, %al
     cmp $10, %al
-    jb .digit
+    jb print_hex_nibble_digit
     add $('A' - 10), %al
-    jmp .emit
-.digit:
+    jmp print_hex_nibble_emit
+print_hex_nibble_digit:
     add $'0', %al
-.emit:
+print_hex_nibble_emit:
     call print_char
     ret
 
@@ -333,6 +400,12 @@ install_done_text:
 choose_drive_text:
     .asciz "\r\nChoose target drive (1-8, ESC to cancel):\r\n"
 
+invalid_drive_text:
+    .asciz "\r\nThat BIOS hard disk was not detected.\r\n"
+
+no_drives_found_text:
+    .asciz "  No BIOS hard disks detected.\r\n"
+
 drive_list_text:
     .asciz "\r\nAvailable BIOS hard disks:\r\n"
 
@@ -357,4 +430,7 @@ boot_drive:
     .byte 0
 
 selected_drive:
+    .byte 0
+
+probe_drive_target:
     .byte 0
