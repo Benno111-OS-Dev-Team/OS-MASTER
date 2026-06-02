@@ -129,6 +129,10 @@ OS8 Installer Types
 1. Graphical Installer
    Boot menu entry: "OS8 Graphical Installer"
    Use this for the normal desktop installer flow.
+
+2. DOS Textmode Installer
+   Utility: /dos/OSINST.COM with companion image /dos/OSSYS.IMG
+   Copy both files onto a DOS-readable drive and run OSINST.COM from MS-DOS.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF

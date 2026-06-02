@@ -26,6 +26,7 @@ SYSTEM_IMAGE_ROOT="${SYSTEM_IMAGE_ROOT:-${BUILD_DIR}/system-image}"
 SYSTEM_IMAGE_ARCHIVE="${SYSTEM_IMAGE_ARCHIVE:-${BUILD_DIR}/system-image.zip}"
 BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
 SYSTEM_DISK_IMAGE="${SYSTEM_DISK_IMAGE:-${IMAGE_DIR}/os8-x86_64-system.img}"
+DOS_INSTALLER_DIR="${DOS_INSTALLER_DIR:-${BUILD_DIR}/dos-installer}"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -183,6 +184,7 @@ rm -rf "$ISO_ROOT"
 
 log "Preparing ISO root at $ISO_ROOT"
 mkdir -p "$ISO_ROOT/install"
+mkdir -p "$ISO_ROOT/dos"
 
 env BOOT_PROFILE=installer LIMINE_CFG_SOURCE="$LIMINE_CFG" \
     bash "$BOOT_FILES_SCRIPT" "$BUILD_DIR" "$ISO_ROOT"
@@ -196,6 +198,15 @@ if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
 fi
 if [ -f "$SYSTEM_DISK_IMAGE" ]; then
     cp "$SYSTEM_DISK_IMAGE" "$ISO_ROOT/install/system.img"
+fi
+if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+    cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/dos/OSINST.COM"
+fi
+if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+    cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/dos/OSSYS.IMG"
+fi
+if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+    cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/dos/README.TXT"
 fi
 LIMINE_TOOL="$(resolve_limine_tool)"
 
@@ -253,6 +264,15 @@ if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
 fi
 if [ -f "$SYSTEM_DISK_IMAGE" ]; then
     require_iso_path "/install/system.img"
+fi
+if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+    require_iso_path "/dos/OSINST.COM"
+fi
+if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+    require_iso_path "/dos/OSSYS.IMG"
+fi
+if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+    require_iso_path "/dos/README.TXT"
 fi
 require_iso_path "/install/system-image/INSTALLERS.TXT"
 require_iso_path "/install/system-image/boot/main.sys"

@@ -969,7 +969,11 @@ static void populate_installer_payload(void) {
       "\n"
       "1. Graphical Installer\n"
       "   Boot menu entry: \"OS8 Graphical Installer\"\n"
-      "   Use this for the normal desktop installer flow.\n";
+      "   Use this for the normal desktop installer flow.\n"
+      "\n"
+      "2. DOS Textmode Installer\n"
+      "   Utility: /dos/OSINST.COM with companion image /dos/OSSYS.IMG\n"
+      "   Copy both files onto a DOS-readable drive and run OSINST.COM from MS-DOS.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"

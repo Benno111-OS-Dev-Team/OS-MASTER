@@ -24,9 +24,14 @@ _start:
     sti
 
     movb    $0, selected_drive
+    mov     $0x0003, %ax
+    int     $0x10
+    call    find_default_target
 
 main_menu:
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     mov     $title_text, %si
     call    print_string
     mov     $subtitle_text, %si
@@ -34,24 +39,34 @@ main_menu:
     call    print_target_summary
     mov     $menu_text, %si
     call    print_string
+    mov     $footer_text, %si
+    call    print_string
     call    read_key
 
-    cmp     $'1', %al
-    je      install_image
-    cmp     $'2', %al
-    je      select_target_disk
-    cmp     $'3', %al
-    je      apply_bootloader_menu
-    cmp     $'4', %al
-    je      show_help
-    cmp     $'5', %al
+    cmp     $0x3D, %ah
     je      exit_to_dos
+    cmp     $13, %al
+    je      install_image
+    cmp     $'c', %al
+    je      select_target_disk
+    cmp     $'C', %al
+    je      select_target_disk
+    cmp     $'r', %al
+    je      apply_bootloader_menu
+    cmp     $'R', %al
+    je      apply_bootloader_menu
+    cmp     $'h', %al
+    je      show_help
+    cmp     $'H', %al
+    je      show_help
     cmp     $27, %al
     je      exit_to_dos
     jmp     main_menu
 
 install_image:
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     mov     $install_intro_text, %si
     call    print_string
     call    print_target_summary
@@ -63,14 +78,16 @@ install_image:
     mov     $confirm_text, %si
     call    print_string
     call    read_key
-    cmp     $'y', %al
-    je      do_install
-    cmp     $'Y', %al
+    cmp     $0x3D, %ah
+    je      main_menu
+    cmp     $13, %al
     je      do_install
     jmp     main_menu
 
 do_install:
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     mov     $copy_begin_text, %si
     call    print_string
     call    print_target_summary
@@ -96,6 +113,8 @@ no_target_disk:
 
 apply_bootloader_menu:
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     mov     $bootloader_intro_text, %si
     call    print_string
     call    print_target_summary
@@ -107,14 +126,16 @@ apply_bootloader_menu:
     mov     $bootloader_confirm_text, %si
     call    print_string
     call    read_key
-    cmp     $'y', %al
-    je      do_apply_bootloader
-    cmp     $'Y', %al
+    cmp     $0x3D, %ah
+    je      main_menu
+    cmp     $13, %al
     je      do_apply_bootloader
     jmp     main_menu
 
 do_apply_bootloader:
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     mov     $bootloader_begin_text, %si
     call    print_string
     call    print_target_summary
@@ -135,6 +156,8 @@ bootloader_failed:
 select_target_disk:
     call    select_next_target
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     jc      select_target_none
     mov     $target_updated_text, %si
     call    print_string
@@ -150,6 +173,8 @@ select_target_none:
 
 show_help:
     call    clear_screen
+    mov     $chrome_header_text, %si
+    call    print_string
     mov     $help_text, %si
     call    print_string
     call    print_target_summary
@@ -162,7 +187,7 @@ clear_screen:
     push    %cx
     push    %dx
     mov     $0x0600, %ax
-    mov     $0x0700, %bx
+    mov     $0x1F00, %bx
     mov     $0x0000, %cx
     mov     $0x184F, %dx
     int     $0x10
@@ -613,38 +638,40 @@ exit_to_dos:
     mov     $0x4C00, %ax
     int     $0x21
 
+chrome_header_text:
+    .asciz  " OS8 Text Setup                                                           \r\n\r\n"
 title_text:
-    .asciz  "OS8 DOS System Image Writer\r\n"
+    .asciz  "                             OS8 Text Setup                              \r\n"
 subtitle_text:
-    .asciz  "Run this from an existing DOS system with OSSYS.IMG nearby.\r\nIt writes the regular OS8 system image to another BIOS disk.\r\n\r\n"
+    .asciz  "This installer runs under MS-DOS and applies the OS8 system image\r\nto another BIOS hard disk using a Windows NT-style text setup flow.\r\n\r\n"
 menu_text:
-    .asciz  "  1. Write OSSYS.IMG to target disk\r\n  2. Change target disk\r\n  3. Apply bootloader to disk\r\n  4. Help\r\n  5. Exit to DOS\r\n  ESC. Exit to DOS\r\n\r\nSelect an option: "
+    .asciz  "  ENTER = Install OS8 to the selected disk\r\n  C     = Change target disk\r\n  R     = Repair BIOS boot code only\r\n  H     = Help and usage notes\r\n  F3    = Exit Setup\r\n\r\n"
 help_text:
-    .asciz  "Usage:\r\n  Place OSINST.COM and OSSYS.IMG in the same DOS folder.\r\n  Boot DOS, change to that directory, and run OSINST.COM.\r\n  Option 1 writes the regular raw system image to the selected BIOS disk.\r\n  Option 3 rewrites the early BIOS boot area from OSSYS.IMG.\r\n\r\nFor safety, target selection starts at BIOS disk 0x81 instead of 0x80.\r\n\r\n"
+    .asciz  "Usage:\r\n  1. Copy OSINST.COM and OSSYS.IMG into the same DOS directory.\r\n  2. Boot MS-DOS, change to that directory, and run OSINST.COM.\r\n  3. Press C to choose the destination BIOS disk.\r\n  4. Press ENTER to install the regular raw OS8 system image.\r\n  5. Press R if you only need to rewrite early BIOS boot code.\r\n\r\nFor safety, target selection starts at BIOS disk 0x81 instead of 0x80.\r\nExisting data on the selected target disk will be overwritten.\r\n\r\n"
 install_intro_text:
-    .asciz  "This writes the regular OS8 system image file to the selected BIOS disk.\r\nThe target disk contents will be overwritten sector-by-sector.\r\n\r\n"
+    .asciz  "OS8 Setup is preparing to install the system image to the selected disk.\r\nThe destination disk contents will be overwritten sector-by-sector.\r\n\r\n"
 bootloader_intro_text:
-    .asciz  "This rewrites the early BIOS boot area from OSSYS.IMG to the\r\nselected BIOS disk. Use it to repair bootability without rewriting\r\nthe full system image.\r\n\r\n"
+    .asciz  "OS8 Setup can also repair only the BIOS boot area from OSSYS.IMG.\r\nUse this when the installed system files are intact but the disk\r\nis no longer bootable.\r\n\r\n"
 confirm_text:
-    .asciz  "WARNING: continue only if you selected the correct target.\r\nPress Y to start or any other key to cancel.\r\n"
+    .asciz  "Press ENTER to continue the installation, or F3/ESC to cancel.\r\n"
 bootloader_confirm_text:
-    .asciz  "WARNING: this overwrites the target disk BIOS boot area.\r\nPress Y to continue or any other key to cancel.\r\n"
+    .asciz  "Press ENTER to rewrite BIOS boot code, or F3/ESC to cancel.\r\n"
 copy_begin_text:
-    .asciz  "Writing system image to target disk...\r\nProgress: "
+    .asciz  "Setup is now copying files and disk sectors to your OS8 target.\r\nProgress: "
 bootloader_begin_text:
-    .asciz  "Applying bootloader to target disk...\r\n"
+    .asciz  "Setup is repairing BIOS boot code on the selected target...\r\n"
 copy_success_text:
-    .asciz  "System image write complete.\r\nYou can now boot the target disk into OS8.\r\n\r\n"
+    .asciz  "OS8 Setup has finished writing the target disk.\r\nYou can now restart and boot the selected disk into OS8.\r\n\r\n"
 bootloader_success_text:
-    .asciz  "Bootloader applied successfully.\r\n\r\n"
+    .asciz  "BIOS boot code was repaired successfully.\r\n\r\n"
 copy_failed_text:
-    .asciz  "\r\nSystem image write failed.\r\n\r\n"
+    .asciz  "\r\nOS8 Setup could not finish writing the system image.\r\n\r\n"
 bootloader_failed_text:
-    .asciz  "\r\nBootloader apply failed.\r\n\r\n"
+    .asciz  "\r\nOS8 Setup could not repair BIOS boot code.\r\n\r\n"
 no_target_text:
-    .asciz  "No alternate BIOS target disk is available.\r\n\r\n"
+    .asciz  "No alternate BIOS target disk is available for installation.\r\n\r\n"
 target_updated_text:
-    .asciz  "Target disk updated.\r\n\r\n"
+    .asciz  "The selected installation disk has been updated.\r\n\r\n"
 target_missing_text:
     .asciz  "No alternate BIOS disk could be selected.\r\n\r\n"
 file_missing_text:
@@ -665,6 +692,8 @@ none_text:
     .asciz  "none\r\n"
 crlf_text:
     .asciz  "\r\n"
+footer_text:
+    .asciz  "                                                                      F3=Exit\r\n"
 image_filename_dos:
     .asciz  IMAGE_FILENAME
 
