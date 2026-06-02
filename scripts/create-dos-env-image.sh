@@ -102,16 +102,47 @@ find_extracted_img() {
     printf '%s\n' "$found"
 }
 
+is_raw_fat_boot_image() {
+    local image_path="$1"
+    local py
+    py="$(resolve_python)"
+    if [ -z "$py" ]; then
+        fail "python3 or python is required to inspect the DOS boot image"
+    fi
+    "$py" - "$image_path" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+sector = path.read_bytes()[:512]
+if len(sector) < 512:
+    raise SystemExit(1)
+if sector[510:512] != b"\x55\xAA":
+    raise SystemExit(1)
+labels = [sector[54:62], sector[82:90]]
+if any(label.startswith((b"FAT12", b"FAT16", b"FAT32")) for label in labels):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
 partition_offset_spec() {
     local image_path="$1"
     local py
     local json_path
+    if is_raw_fat_boot_image "$image_path"; then
+        printf '%s\n' "$image_path"
+        return 0
+    fi
     py="$(resolve_python)"
     if [ -z "$py" ]; then
         fail "python3 or python is required to inspect the FreeDOS image"
     fi
     json_path="${image_path}.sfdisk.json"
-    sfdisk -J "$image_path" > "$json_path"
+    if ! sfdisk -J "$image_path" > "$json_path" 2>/dev/null; then
+        printf '%s\n' "$image_path"
+        return 0
+    fi
     "$py" - "$json_path" "$image_path" <<'PY'
 import json
 import pathlib
