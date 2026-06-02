@@ -34,6 +34,12 @@ log() {
     echo -e "${GREEN}[UEFI-IMAGE]${NC} $1"
 }
 
+ceil_div() {
+    local value="$1"
+    local divisor="$2"
+    echo $(((value + divisor - 1) / divisor))
+}
+
 require_file() {
     if [ ! -f "$1" ]; then
         echo "[ERROR] Required file not found: $1" >&2
@@ -181,20 +187,6 @@ Usage:
 EOF
 }
 
-log "Creating UEFI disk image: $IMAGE_PATH (${IMAGE_SIZE_MB}M, profile=${BOOT_PROFILE})"
-dd if=/dev/zero of="$IMAGE_PATH" bs=1M count="$IMAGE_SIZE_MB" status=none
-
-PART_START_SECTORS=2048
-TOTAL_SECTORS=$((IMAGE_SIZE_MB * 1024 * 1024 / 512))
-PART_SIZE_SECTORS=$((TOTAL_SECTORS - PART_START_SECTORS))
-FAT_OFFSET_BYTES=$((PART_START_SECTORS * 512))
-MTOOLS_IMAGE="${IMAGE_PATH}@@${FAT_OFFSET_BYTES}"
-
-printf 'label: dos\nlabel-id: 0x4f534e58\nunit: sectors\n\n%s,%s,0x0c,*\n' \
-    "$PART_START_SECTORS" "$PART_SIZE_SECTORS" | sfdisk "$IMAGE_PATH" >/dev/null
-
-mkfs.fat -F 32 --offset "$PART_START_SECTORS" -n OSNEXT64 "$IMAGE_PATH" >/dev/null
-
 STAGING_ROOT="${TMP_DIR}/staging-root"
 rm -rf "$STAGING_ROOT"
 mkdir -p "$STAGING_ROOT"
@@ -214,6 +206,32 @@ fi
 if [ "$INCLUDE_DOS_ENV" = "1" ]; then
     seed_dos_environment "$STAGING_ROOT"
 fi
+
+STAGING_KIB=$(du -sk "$STAGING_ROOT" | awk '{print $1}')
+PAYLOAD_MB=$(ceil_div "$STAGING_KIB" 1024)
+REQUIRED_IMAGE_MB=$((PAYLOAD_MB + 64))
+if [ "$REQUIRED_IMAGE_MB" -lt 100 ]; then
+    REQUIRED_IMAGE_MB=100
+fi
+if [ "$IMAGE_SIZE_MB" -lt "$REQUIRED_IMAGE_MB" ]; then
+    log "Growing image from ${IMAGE_SIZE_MB}M to ${REQUIRED_IMAGE_MB}M to fit staged payload"
+    IMAGE_SIZE_MB="$REQUIRED_IMAGE_MB"
+fi
+
+log "Creating UEFI disk image: $IMAGE_PATH (${IMAGE_SIZE_MB}M, profile=${BOOT_PROFILE})"
+dd if=/dev/zero of="$IMAGE_PATH" bs=1M count="$IMAGE_SIZE_MB" status=none
+
+PART_START_SECTORS=2048
+TOTAL_SECTORS=$((IMAGE_SIZE_MB * 1024 * 1024 / 512))
+PART_SIZE_SECTORS=$((TOTAL_SECTORS - PART_START_SECTORS))
+FAT_OFFSET_BYTES=$((PART_START_SECTORS * 512))
+MTOOLS_IMAGE="${IMAGE_PATH}@@${FAT_OFFSET_BYTES}"
+
+printf 'label: dos\nlabel-id: 0x4f534e58\nunit: sectors\n\n%s,%s,0x0c,*\n' \
+    "$PART_START_SECTORS" "$PART_SIZE_SECTORS" | sfdisk "$IMAGE_PATH" >/dev/null
+
+mkfs.fat -F 32 --offset "$PART_START_SECTORS" -n OSNEXT64 "$IMAGE_PATH" >/dev/null
+
 LIMINE_TOOL="$(resolve_limine_tool)"
 
 log "Seeding UEFI boot files into FAT image"
