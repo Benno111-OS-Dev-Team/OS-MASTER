@@ -50,6 +50,7 @@ jobs:
           make -f Makefile.multiarch ARCH=x86_64 image
 
       - name: Build x86_64 Installer ISO
+        if: ${{ false }}
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           BUILD_BRANCH: ${{ github.ref_name }}
@@ -66,14 +67,14 @@ jobs:
           if [ -f image/os8-x86_64.iso.xz ]; then
             file image/os8-x86_64.iso.xz
           fi
-          ls -lh image/os8-x86_64-installer.iso image/os8-x86_64-system.img
-          file image/os8-x86_64-installer.iso
-          file image/os8-x86_64-system.img
-          if [ -f image/os8-x86_64-installer.iso.xz ]; then
-            file image/os8-x86_64-installer.iso.xz
-          fi
-          ls -lh image/os8-x86_64-installer.iso.7z
-          file image/os8-x86_64-installer.iso.7z
+          ##ls -lh image/os8-x86_64-installer.iso image/os8-x86_64-system.img
+          ##file image/os8-x86_64-installer.iso
+          ##file image/os8-x86_64-system.img
+          ##if [ -f image/os8-x86_64-installer.iso.xz ]; then
+          ##  file image/os8-x86_64-installer.iso.xz
+          ##fi
+          ##ls -lh image/os8-x86_64-installer.iso.7z
+          ##file image/os8-x86_64-installer.iso.7z
 
       - name: Generate release notes
         run: |
@@ -86,14 +87,14 @@ jobs:
 
           - ARM64 ISO: skipped for now
           - x86_64 ISO: success
-          - x86_64 Installer ISO: success
+          - x86_64 Installer ISO: skipped
 
           ## Bootable Media
 
           - \`os8-x86_64.iso\`
           - \`os8-x86_64.iso.xz\`
-          - \`os8-x86_64-installer.iso\`
-          - \`os8-x86_64-installer.iso.7z\`
+          ##- \`os8-x86_64-installer.iso\`
+          ##- \`os8-x86_64-installer.iso.7z\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
@@ -114,7 +115,7 @@ jobs:
           files: |
             image/os8-x86_64.iso
             image/os8-x86_64.iso.xz
-            image/os8-x86_64-installer.iso
-            image/os8-x86_64-installer.iso.7z
+            ##image/os8-x86_64-installer.iso
+            ##image/os8-x86_64-installer.iso.7z
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
