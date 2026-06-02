@@ -969,6 +969,7 @@ static void populate_installer_payload(void) {
       "\n"
       "1. DOS Text Setup\n"
       "   Primary artifacts: DOSENV.IMG, OSINST.COM, and OSSYS.IMG.\n"
+      "   DOSENV.IMG is built from the official FreeDOS FullUSB boot disk image.\n"
       "   The DOS boot disk keeps OSINST.COM and OSSYS.IMG together in the root folder.\n"
       "   The ISO output is only a carrier for that same DOS boot disk and payload.\n";
   static const char *setup_info =

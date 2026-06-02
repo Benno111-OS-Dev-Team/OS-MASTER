@@ -235,7 +235,7 @@ help:
 	@echo "  install-boot-files - Stage boot files into INSTALL_ROOT"
 	@echo "  installer-image - Create x86_64 DOS installer image and carrier ISO"
 	@echo "  dos-installer - Build the DOS textmode installer utility"
-	@echo "  dos-env-image - Create a hybrid BIOS+UEFI DOS environment image"
+	@echo "  dos-env-image - Create a full FreeDOS boot disk with OS8 setup"
 	@echo "  sdk      - Export application headers into build/sdk/include"
 	@echo "  qemu     - Run in QEMU emulator"
 	@echo "  qemu-bios - Run via legacy BIOS (x86/x86_64)"
@@ -474,7 +474,7 @@ endif
 
 dos-env-image: kernel system-image
 ifeq ($(ARCH),x86_64)
-	@echo "[IMAGE] Creating hybrid BIOS+UEFI DOS environment image..."
+	@echo "[IMAGE] Creating full FreeDOS boot disk image..."
 	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@bash ./scripts/create-dos-env-image.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os-x86_64-dos-env.img"
