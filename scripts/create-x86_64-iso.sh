@@ -185,7 +185,6 @@ rm -rf "$ISO_ROOT"
 
 log "Preparing ISO root at $ISO_ROOT"
 mkdir -p "$ISO_ROOT/install"
-mkdir -p "$ISO_ROOT/dos"
 
 env BOOT_PROFILE=installer LIMINE_CFG_SOURCE="$LIMINE_CFG" \
     bash "$BOOT_FILES_SCRIPT" "$BUILD_DIR" "$ISO_ROOT"
@@ -202,19 +201,15 @@ if [ -f "$SYSTEM_DISK_IMAGE" ]; then
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
     cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/OSINST.COM"
-    cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/dos/OSINST.COM"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
     cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/OSSYS.IMG"
-    cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/dos/OSSYS.IMG"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
     cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/README.TXT"
-    cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/dos/README.TXT"
 fi
 if [ -f "${DOS_ENV_IMAGE}" ]; then
     cp "${DOS_ENV_IMAGE}" "$ISO_ROOT/DOSENV.IMG"
-    cp "${DOS_ENV_IMAGE}" "$ISO_ROOT/dos/DOSENV.IMG"
 fi
 LIMINE_TOOL="$(resolve_limine_tool)"
 
@@ -275,19 +270,15 @@ if [ -f "$SYSTEM_DISK_IMAGE" ]; then
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
     require_iso_path "/OSINST.COM"
-    require_iso_path "/dos/OSINST.COM"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
     require_iso_path "/OSSYS.IMG"
-    require_iso_path "/dos/OSSYS.IMG"
 fi
 if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
     require_iso_path "/README.TXT"
-    require_iso_path "/dos/README.TXT"
 fi
 if [ -f "${DOS_ENV_IMAGE}" ]; then
     require_iso_path "/DOSENV.IMG"
-    require_iso_path "/dos/DOSENV.IMG"
 fi
 require_iso_path "/install/system-image/INSTALLERS.TXT"
 require_iso_path "/install/system-image/boot/main.sys"

@@ -138,18 +138,14 @@ seed_dos_environment() {
     local startup_path="${root}/startup.nsh"
     local notes_path="${root}/DOSENV.TXT"
 
-    mkdir -p "${root}/dos"
     if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
         cp "${DOS_INSTALLER_DIR}/OSINST.COM" "${root}/OSINST.COM"
-        cp "${DOS_INSTALLER_DIR}/OSINST.COM" "${root}/dos/OSINST.COM"
     fi
     if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
         cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "${root}/OSSYS.IMG"
-        cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "${root}/dos/OSSYS.IMG"
     fi
     if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
         cp "${DOS_INSTALLER_DIR}/README.TXT" "${root}/README.TXT"
-        cp "${DOS_INSTALLER_DIR}/README.TXT" "${root}/dos/README.TXT"
     fi
 
     cat > "${startup_path}" <<'EOF'
@@ -181,9 +177,10 @@ Included DOS payload:
 - /README.TXT
 
 Usage:
-1. Boot the image directly on BIOS or UEFI hardware to enter OS8 text setup.
-2. Or copy OSINST.COM and OSSYS.IMG onto an existing DOS system and run OSINST.COM.
-3. In a UEFI shell, run fs0:\EFI\BOOT\BOOTX64.EFI to start text setup manually.
+1. Boot this disk image directly on BIOS or UEFI hardware.
+2. OSINST.COM and OSSYS.IMG stay together in the root directory.
+3. Or copy OSINST.COM and OSSYS.IMG onto an existing DOS system and run OSINST.COM.
+4. In a UEFI shell, run fs0:\EFI\BOOT\BOOTX64.EFI to start text setup manually.
 EOF
 }
 

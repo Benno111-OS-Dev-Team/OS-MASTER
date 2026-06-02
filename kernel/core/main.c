@@ -968,9 +968,9 @@ static void populate_installer_payload(void) {
       "OS8 Installer Types\n"
       "\n"
       "1. DOS Text Setup\n"
-      "   Primary artifacts: OSINST.COM, OSSYS.IMG, and DOSENV.IMG when available.\n"
-      "   DOSENV.IMG is the preferred installer image produced by the build.\n"
-      "   The ISO output is a carrier for the DOS payload files.\n";
+      "   Primary artifacts: DOSENV.IMG, OSINST.COM, and OSSYS.IMG.\n"
+      "   The DOS boot disk keeps OSINST.COM and OSSYS.IMG together in the root folder.\n"
+      "   The ISO output is only a carrier for that same DOS boot disk and payload.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"

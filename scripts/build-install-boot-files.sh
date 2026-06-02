@@ -127,9 +127,9 @@ write_boot_metadata() {
 OS8 Installer Types
 
 1. DOS Text Setup
-   Primary artifacts: OSINST.COM, OSSYS.IMG, and DOSENV.IMG when available.
-   DOSENV.IMG is the preferred installer image produced by the build.
-   The ISO output is a carrier for the DOS payload files.
+   Primary artifacts: DOSENV.IMG, OSINST.COM, and OSSYS.IMG.
+   The DOS boot disk keeps OSINST.COM and OSSYS.IMG together in the root folder.
+   The ISO output is only a carrier for that same DOS boot disk and payload.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF
