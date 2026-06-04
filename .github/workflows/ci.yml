@@ -40,17 +40,7 @@ jobs:
             nasm
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
-      - name: Build x86_64 ISO
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-          BUILD_BRANCH: ${{ github.ref_name }}
-        run: |
-          set -euxo pipefail
-          export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          make -f Makefile.multiarch ARCH=x86_64 image
-
-      - name: Build x86_64 Installer ISO
-        if: ${{ false }}
+      - name: Build x86_64 OS installer with staged system image
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           BUILD_BRANCH: ${{ github.ref_name }}
@@ -62,19 +52,26 @@ jobs:
       - name: Verify release files
         run: |
           set -euxo pipefail
-          ls -lh image/os8-x86_64.iso*
-          file image/os8-x86_64.iso
-          if [ -f image/os8-x86_64.iso.xz ]; then
-            file image/os8-x86_64.iso.xz
-          fi
-          ##ls -lh image/os8-x86_64-installer.iso image/os8-x86_64-system.img
-          ##file image/os8-x86_64-installer.iso
-          ##file image/os8-x86_64-system.img
-          ##if [ -f image/os8-x86_64-installer.iso.xz ]; then
-          ##  file image/os8-x86_64-installer.iso.xz
-          ##fi
-          ##ls -lh image/os8-x86_64-installer.iso.7z
-          ##file image/os8-x86_64-installer.iso.7z
+          ls -lh \
+            image/os8-x86_64-installer.iso \
+            image/os8-x86_64-installer.iso.xz \
+            image/os8-x86_64-installer.iso.7z \
+            image/os8-x86_64-installer.img \
+            image/os8-x86_64-system.img \
+            image/os8-x86_64-dos-env.img \
+            build/x86_64/system-image.zip \
+            build/x86_64/boot-files.zip
+          file image/os8-x86_64-installer.iso
+          file image/os8-x86_64-installer.iso.xz
+          file image/os8-x86_64-installer.iso.7z
+          file image/os8-x86_64-installer.img
+          file image/os8-x86_64-system.img
+          file image/os8-x86_64-dos-env.img
+          test -d build/x86_64/system-image
+          test -f build/x86_64/system-image/boot/main.sys
+          test -f build/x86_64/system-image/boot/screen/logo.svg
+          test -f build/x86_64/system-image/boot/screen/bar.svg
+          test -f build/x86_64/system-image/boot/screen/progress.png
 
       - name: Generate release notes
         run: |
@@ -86,15 +83,20 @@ jobs:
           ## Build Status
 
           - ARM64 ISO: skipped for now
-          - x86_64 ISO: success
-          - x86_64 Installer ISO: skipped
+          - x86_64 staged system image: success
+          - x86_64 installer ISO: success
+          - x86_64 DOS installer image: success
 
           ## Bootable Media
 
-          - \`os8-x86_64.iso\`
-          - \`os8-x86_64.iso.xz\`
-          ##- \`os8-x86_64-installer.iso\`
-          ##- \`os8-x86_64-installer.iso.7z\`
+          - \`os8-x86_64-installer.iso\`
+          - \`os8-x86_64-installer.iso.xz\`
+          - \`os8-x86_64-installer.iso.7z\`
+          - \`os8-x86_64-installer.img\`
+          - \`os8-x86_64-system.img\`
+          - \`os8-x86_64-dos-env.img\`
+          - \`system-image.zip\`
+          - \`boot-files.zip\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
@@ -110,12 +112,16 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: os CI Draft
           body_path: release_notes.md
-          draft: False ##Auto-draft is not working, so we set it to false and update the release with the files
-          prerelease: False ## Set to true if you want to mark this release as a prerelease
+          draft: false
+          prerelease: false
           files: |
-            image/os8-x86_64.iso
-            image/os8-x86_64.iso.xz
-            ##image/os8-x86_64-installer.iso
-            ##image/os8-x86_64-installer.iso.7z
+            image/os8-x86_64-installer.iso
+            image/os8-x86_64-installer.iso.xz
+            image/os8-x86_64-installer.iso.7z
+            image/os8-x86_64-installer.img
+            image/os8-x86_64-system.img
+            image/os8-x86_64-dos-env.img
+            build/x86_64/system-image.zip
+            build/x86_64/boot-files.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
