@@ -9,6 +9,7 @@ extern const unsigned int os_seed_mp3_len;
 extern const uint8_t os_seed_jpg[];
 extern const unsigned int os_seed_jpg_len;
 
+#if EMBED_BOOT_MEDIA
 extern const unsigned char bootstrap_logo_png[];
 extern const unsigned int bootstrap_logo_png_len;
 
@@ -37,6 +38,8 @@ extern const unsigned int bootstrap_city_jpg_len;
 
 extern const unsigned char bootstrap_httpbin_jpg[];
 extern const unsigned int bootstrap_httpbin_jpg_len;
+
+#endif /* EMBED_BOOT_MEDIA */
 
 /* HD Wallpapers (high quality) */
 extern const unsigned char hd_wallpaper_landscape_jpg[];

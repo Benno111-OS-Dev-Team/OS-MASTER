@@ -15,6 +15,7 @@ int boot_splash_prepare(void) {
   if (g_boot_logo_state == 1)
     return 0;
 
+#if EMBED_BOOT_MEDIA
   if (media_decode_png(bootstrap_logo_png, bootstrap_logo_png_len,
                        &g_boot_logo) == 0 &&
       g_boot_logo.width && g_boot_logo.height && g_boot_logo.pixels) {
@@ -23,7 +24,11 @@ int boot_splash_prepare(void) {
            g_boot_logo.height);
     return 0;
   }
+#else
+  printk(KERN_INFO "BOOT: external splash assets are packaged separately\n");
+#endif
 
+  g_boot_logo_state = -1;
   return -EINVAL;
 }
 

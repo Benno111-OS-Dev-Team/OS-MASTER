@@ -92,6 +92,10 @@ Supported architectures:
 
 Common targets:
 
+Build option:
+
+- `EMBED_BOOT_MEDIA=0` is the default and keeps the kernel small by packaging boot/logo/wallpaper artwork as separate files under the boot and asset trees. Use `EMBED_BOOT_MEDIA=1` only when you need the legacy self-contained RAMFS media seed inside the kernel.
+
 - `all` builds the kernel and boot image
 - `kernel` builds only the kernel
 - `sdk` exports app-facing headers under `build/sdk/include/`
@@ -163,6 +167,8 @@ To stage boot files into an existing OS install root:
 ```sh
 make ARCH=x86_64 install-boot-files INSTALL_ROOT=/path/to/os-root
 ```
+
+The staged boot layout keeps the Limine/kernel payloads in `/boot` and the small boot-screen artwork in `/boot/screen` so the boot graphics are separate from the kernel image.
 
 ### x86_64 default image
 

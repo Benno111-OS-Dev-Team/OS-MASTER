@@ -15,6 +15,7 @@ BOOT_MANAGER_SYNC="${ROOT_DIR}/scripts/update-os-boot-manager.sh"
 
 BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
+BOOT_SCREEN_ASSET_DIR="${ROOT_DIR}/assets/boot-assets"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -93,6 +94,9 @@ resolve_dependencies() {
     require_file "$LIMINE_BIN_DIR/limine-bios.sys"
     require_file "$LIMINE_BIN_DIR/limine-bios-cd.bin"
     require_file "$LIMINE_BIN_DIR/limine-uefi-cd.bin"
+    require_file "$BOOT_SCREEN_ASSET_DIR/logo.svg"
+    require_file "$BOOT_SCREEN_ASSET_DIR/bar.svg"
+    require_file "$BOOT_SCREEN_ASSET_DIR/progress.png"
 
     PYTHON_CMD="$(resolve_python)"
     if [ -z "$PYTHON_CMD" ]; then
@@ -102,6 +106,7 @@ resolve_dependencies() {
 
 ensure_layout() {
     mkdir -p "$INSTALL_ROOT/boot"
+    mkdir -p "$INSTALL_ROOT/boot/screen"
     mkdir -p "$INSTALL_ROOT/EFI/BOOT"
     mkdir -p "$INSTALL_ROOT/limine"
     mkdir -p "$INSTALL_ROOT/System"
@@ -120,6 +125,10 @@ copy_boot_payload() {
     cp "$LIMINE_BIN_DIR/limine-bios-cd.bin" "$INSTALL_ROOT/boot/"
     cp "$LIMINE_BIN_DIR/limine-uefi-cd.bin" "$INSTALL_ROOT/boot/"
     cp "$LIMINE_BIN_DIR/BOOTX64.EFI" "$INSTALL_ROOT/EFI/BOOT/"
+
+    cp "$BOOT_SCREEN_ASSET_DIR/logo.svg" "$INSTALL_ROOT/boot/screen/"
+    cp "$BOOT_SCREEN_ASSET_DIR/bar.svg" "$INSTALL_ROOT/boot/screen/"
+    cp "$BOOT_SCREEN_ASSET_DIR/progress.png" "$INSTALL_ROOT/boot/screen/"
 }
 
 write_boot_metadata() {
@@ -192,6 +201,9 @@ Primary payload files:
 - /boot/limine-bios-cd.bin
 - /boot/limine-uefi-cd.bin
 - /EFI/BOOT/BOOTX64.EFI
+- /boot/screen/logo.svg
+- /boot/screen/bar.svg
+- /boot/screen/progress.png
 EOF
 }
 
