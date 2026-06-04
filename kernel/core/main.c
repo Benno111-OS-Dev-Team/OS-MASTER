@@ -9,6 +9,19 @@
 #include "acpi.h"
 #include "arch/arch.h"
 #include "build_uuid.h"
+
+#ifndef BUILD_NUMBER
+#define BUILD_NUMBER "0"
+#endif
+#ifndef BUILD_STRING
+#define BUILD_STRING "0 OS8 DEVELOPER PREVIEW"
+#endif
+#ifndef BUILD_BRANCH
+#define BUILD_BRANCH "unknown"
+#endif
+#ifndef BUILD_COMPILE_TIME
+#define BUILD_COMPILE_TIME "unknown"
+#endif
 #include "drivers/storage.h"
 #include "drivers/pci.h"
 #include "drivers/uart.h"

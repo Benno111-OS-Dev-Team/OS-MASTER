@@ -376,7 +376,7 @@ $(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS)
 		printf '%s\n' '#endif'; \
 	} > $(BUILD_METADATA_HEADER)
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
+$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 ifeq ($(ARCH),arm64)
@@ -395,12 +395,12 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S
 	@echo "[AS] $<"
 	@$(AS) $(ASFLAGS) -c $< -o $@ 
 
-$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c
+$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c
+$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
