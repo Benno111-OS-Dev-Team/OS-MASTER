@@ -957,7 +957,6 @@ static char term_input[TERM_INPUT_MAX];
 static int term_input_len = 0;
 static char term_history[TERM_HISTORY_LINES][80];
 static int term_history_count = 0;
-static int term_scroll = 0;
 
 /* Bowling game state */
 #define BOWLING_LANE_COLUMNS 7
