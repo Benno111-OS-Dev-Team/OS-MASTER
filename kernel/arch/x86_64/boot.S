@@ -12,8 +12,10 @@
 .code64
 .section .text.boot
 .global _start
+.global _start_from_loader
 .global idt64
 .extern limine_entry_main
+.extern limine_loader_entry_main
 .extern x86_64_boot_init_idt
 .extern __bss_start
 .extern __bss_end
@@ -59,6 +61,28 @@ _start:
 halt:
     cli
     hlt
+    jmp     halt
+
+/*
+ * Alternate entry point used by the tiny pre-kernel bootscreen loader.
+ * %rdi carries a pointer to os8_boot_handoff_t.
+ */
+_start_from_loader:
+    cli
+    cld
+
+    mov     %rdi, %rbx
+    lea     __stack_top(%rip), %rsp
+    xor     %rbp, %rbp
+
+    lea     __bss_start(%rip), %rdi
+    lea     __bss_end(%rip), %rcx
+    sub     %rdi, %rcx
+    xor     %rax, %rax
+    rep     stosb
+
+    mov     %rbx, %rdi
+    call    limine_loader_entry_main
     jmp     halt
 
 /* ===================================================================== */
