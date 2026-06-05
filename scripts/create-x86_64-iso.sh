@@ -19,7 +19,7 @@ BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
 LIMINE_SRC_DIR="${BOOT_MANAGER_DIR}"
 LIMINE_TOOL_PATH="${LIMINE_SRC_DIR}/limine"
-LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installer-text.conf}"
+LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine.conf}"
 INSTALL_LIMINE_CFG="${INSTALL_LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installed.conf}"
 INSTALL_ROOT="${ISO_ROOT}/install/system-image"
 SYSTEM_IMAGE_ROOT="${SYSTEM_IMAGE_ROOT:-${BUILD_DIR}/system-image}"
@@ -28,6 +28,7 @@ BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
 SYSTEM_DISK_IMAGE="${SYSTEM_DISK_IMAGE:-${IMAGE_DIR}/os8-x86_64-system.img}"
 DOS_INSTALLER_DIR="${DOS_INSTALLER_DIR:-${BUILD_DIR}/dos-installer}"
 DOS_ENV_IMAGE="${DOS_ENV_IMAGE:-${IMAGE_DIR}/os8-x86_64-dos-env.img}"
+BOOT_PROFILE="${BOOT_PROFILE:-live-cd}"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -186,7 +187,7 @@ rm -rf "$ISO_ROOT"
 log "Preparing ISO root at $ISO_ROOT"
 mkdir -p "$ISO_ROOT/install"
 
-env BOOT_PROFILE=installer LIMINE_CFG_SOURCE="$LIMINE_CFG" \
+env BOOT_PROFILE="$BOOT_PROFILE" LIMINE_CFG_SOURCE="$LIMINE_CFG" \
     bash "$BOOT_FILES_SCRIPT" "$BUILD_DIR" "$ISO_ROOT"
 env BOOT_LIMINE_CFG="$INSTALL_LIMINE_CFG" \
     bash "$SYSTEM_IMAGE_SCRIPT" "$BUILD_DIR" "$SYSTEM_IMAGE_ROOT"
@@ -255,6 +256,9 @@ require_iso_path() {
 require_iso_path "/boot/main.sys"
 require_iso_path "/boot/limine-bios-cd.bin"
 require_iso_path "/boot/limine-uefi-cd.bin"
+require_iso_path "/boot/screen/logo.svg"
+require_iso_path "/boot/screen/bar.svg"
+require_iso_path "/boot/screen/progress.png"
 require_iso_path "/boot/limine-bios.sys"
 require_iso_path "/EFI/BOOT/BOOTX64.EFI"
 require_iso_path "/limine.conf"
@@ -290,6 +294,9 @@ require_iso_path "/install/system-image/EFI/BOOT/limine.conf"
 require_iso_path "/install/system-image/boot/limine-bios.sys"
 require_iso_path "/install/system-image/boot/limine-bios-cd.bin"
 require_iso_path "/install/system-image/boot/limine-uefi-cd.bin"
+require_iso_path "/install/system-image/boot/screen/logo.svg"
+require_iso_path "/install/system-image/boot/screen/bar.svg"
+require_iso_path "/install/system-image/boot/screen/progress.png"
 require_iso_path "/install/system-image/EFI/BOOT/BOOTX64.EFI"
 require_iso_path "/install/system-image/IMAGE_INFO.txt"
 

@@ -9,6 +9,19 @@
 #include "acpi.h"
 #include "arch/arch.h"
 #include "build_uuid.h"
+
+#ifndef BUILD_NUMBER
+#define BUILD_NUMBER "0"
+#endif
+#ifndef BUILD_STRING
+#define BUILD_STRING "0 OS8 DEVELOPER PREVIEW"
+#endif
+#ifndef BUILD_BRANCH
+#define BUILD_BRANCH "unknown"
+#endif
+#ifndef BUILD_COMPILE_TIME
+#define BUILD_COMPILE_TIME "unknown"
+#endif
 #include "drivers/storage.h"
 #include "drivers/pci.h"
 #include "drivers/uart.h"
@@ -589,10 +602,12 @@ static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
 }
 
 static void populate_seed_tree_at(const char *prefix) {
+#if EMBED_BOOT_MEDIA
   extern const unsigned char bootstrap_test_png[];
   extern const unsigned int bootstrap_test_png_len;
   extern const unsigned char bootstrap_logo_png[];
   extern const unsigned int bootstrap_logo_png_len;
+#endif
 
   seed_make_dir(prefix, "Documents");
   seed_make_dir(prefix, "Downloads");
@@ -616,6 +631,7 @@ static void populate_seed_tree_at(const char *prefix) {
   seed_write_text(prefix, "todo.txt", 0644,
                   "- Implement Browser\n- Fix Bugs\n- Sleep");
   seed_write_bytes(prefix, "sample.mp3", 0644, os_seed_mp3, os_seed_mp3_len);
+#if EMBED_BOOT_MEDIA
   seed_write_bytes(prefix, "assets/logo.png", 0644, bootstrap_logo_png,
                    bootstrap_logo_png_len);
   seed_write_bytes(prefix, "assets/wallpapers/landscape.png", 0644,
@@ -634,6 +650,9 @@ static void populate_seed_tree_at(const char *prefix) {
                    bootstrap_default_jpg, bootstrap_default_jpg_len);
   seed_write_bytes(prefix, "Pictures/test.png", 0644, bootstrap_test_png,
                    bootstrap_test_png_len);
+#else
+  printk(KERN_INFO "SEED: media assets are packaged outside the kernel\n");
+#endif
 
   seed_make_dir(prefix, "bin");
   seed_make_dir(prefix, "sbin");

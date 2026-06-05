@@ -106,12 +106,15 @@ CFLAGS_COMMON := -Wall -Wextra -Wno-unused-function -ffreestanding \
                  -fno-stack-protector -fno-pic -O2 -g
 DEPFLAGS := -MMD -MP
 
+EMBED_BOOT_MEDIA ?= 0
+
 CFLAGS_KERNEL := $(CFLAGS_COMMON) $(CROSS_TARGET) $(ARCH_CFLAGS) \
                  -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(GENERATED_DIR) \
                  -I$(ROOT_DIR) \
                  -I$(ROOT_DIR)/shared-api \
                  -fno-builtin -nostdlib -nostdinc \
-                 -DARCH_$(shell echo $(ARCH) | tr a-z A-Z | tr - _)
+                 -DARCH_$(shell echo $(ARCH) | tr a-z A-Z | tr - _) \
+                 -DEMBED_BOOT_MEDIA=$(EMBED_BOOT_MEDIA)
 
 ASFLAGS := $(CROSS_TARGET) $(ARCH_CFLAGS) -I$(KERNEL_DIR)/include
 
@@ -163,6 +166,10 @@ KERNEL_SOURCES_C := $(filter-out \
 	$(KERNEL_DIR)/media/hd_wallpaper_nature.c \
 	$(KERNEL_DIR)/media/hd_wallpaper_city.c, \
 	$(KERNEL_SOURCES_C))
+
+ifeq ($(EMBED_BOOT_MEDIA),0)
+KERNEL_SOURCES_C := $(filter-out $(KERNEL_DIR)/media/bootstrap_%.c,$(KERNEL_SOURCES_C))
+endif
 
 # Architecture-specific sources
 KERNEL_SOURCES_C += $(shell find $(KERNEL_DIR)/arch/$(ARCH) -name '*.c' 2>/dev/null)
@@ -241,6 +248,9 @@ help:
 	@echo "  qemu-bios - Run via legacy BIOS (x86/x86_64)"
 	@echo "  qemu-uefi - Run via UEFI (arm64/x86_64)"
 	@echo "  clean    - Remove build artifacts"
+	@echo ""
+	@echo "Options:"
+	@echo "  EMBED_BOOT_MEDIA=1 - Embed boot/logo/wallpaper seed images in the kernel"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make ARCH=arm64 all"
@@ -366,13 +376,13 @@ $(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS)
 		printf '%s\n' '#endif'; \
 	} > $(BUILD_METADATA_HEADER)
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
+$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 ifeq ($(ARCH),arm64)
 	@# Media files need FP support on ARM64
 	@if echo "$<" | grep -q "/media/"; then \
-		$(CC) $(CFLAGS_COMMON) $(DEPFLAGS) $(CROSS_TARGET) -mcpu=cortex-a72 -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(GENERATED_DIR) -fno-builtin -nostdlib -nostdinc -DARCH_ARM64 -c $< -o $@; \
+		$(CC) $(CFLAGS_COMMON) $(DEPFLAGS) $(CROSS_TARGET) -mcpu=cortex-a72 -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(GENERATED_DIR) -fno-builtin -nostdlib -nostdinc -DARCH_ARM64 -DEMBED_BOOT_MEDIA=$(EMBED_BOOT_MEDIA) -c $< -o $@; \
 	else \
 		$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@; \
 	fi
@@ -385,12 +395,12 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S
 	@echo "[AS] $<"
 	@$(AS) $(ASFLAGS) -c $< -o $@ 
 
-$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c
+$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c
+$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
@@ -461,7 +471,7 @@ ifeq ($(ARCH),x86_64)
 	@bash ./scripts/create-dos-env-image.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os8-x86_64-installer.img"
 	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os-x86_64-installer.img"
-	@ISO_NAME=os8-x86_64-installer.iso LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer-text.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@ISO_NAME=os8-x86_64-installer.iso BOOT_PROFILE=installer LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer-text.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-installer.iso" "$(IMAGE_DIR)/os-x86_64-installer.iso"
 	@echo "[IMAGE] Primary DOS installer image: $(IMAGE_DIR)/os8-x86_64-installer.img"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.img"
