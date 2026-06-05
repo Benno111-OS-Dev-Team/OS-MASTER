@@ -145,6 +145,7 @@ $(ISO): $(KERNEL) $(LIMINE_DIR)/limine
 	mkdir -p $(ISO_ROOT)/limine
 	
 	# Copy kernel
+	cp $(KERNEL) $(ISO_ROOT)/boot/bootloader.sys
 	cp $(KERNEL) $(ISO_ROOT)/boot/main.sys
 	
 	# Copy Limine config to ALL locations Limine searches

@@ -96,6 +96,7 @@ if [ ! -f "${LIMINE_BIN_DIR}/BOOTX64.EFI" ]; then
     echo "For now, creating a QEMU-compatible disk image..."
 
     mkdir -p "$ISO_ROOT"/boot
+    cp $BUILD_DIR/main.sys "$ISO_ROOT"/boot/bootloader.sys
     cp $BUILD_DIR/main.sys "$ISO_ROOT"/boot/main.sys
     cp limine.conf "$ISO_ROOT"/boot/limine.conf
 
@@ -115,6 +116,7 @@ mkdir -p "$ISO_ROOT"/boot
 mkdir -p "$ISO_ROOT"/EFI/BOOT
 
 # Copy kernel
+cp $BUILD_DIR/main.sys "$ISO_ROOT"/boot/bootloader.sys
 cp $BUILD_DIR/main.sys "$ISO_ROOT"/boot/main.sys
 
 # Copy Limine config to multiple locations (Limine searches several paths)

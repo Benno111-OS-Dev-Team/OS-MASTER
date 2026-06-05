@@ -252,7 +252,9 @@ require_iso_path() {
     fi
 }
 
+require_iso_path "/boot/bootloader.sys"
 require_iso_path "/boot/main.sys"
+require_iso_path "/boot/raw/manifest.txt"
 require_iso_path "/boot/limine-bios-cd.bin"
 require_iso_path "/boot/limine-uefi-cd.bin"
 require_iso_path "/boot/limine-bios.sys"
@@ -281,8 +283,9 @@ if [ -f "${DOS_ENV_IMAGE}" ]; then
     require_iso_path "/DOSENV.IMG"
 fi
 require_iso_path "/install/system-image/INSTALLERS.TXT"
-require_iso_path "/install/system-image/boot/main.sys"
 require_iso_path "/install/system-image/boot/bootloader.sys"
+require_iso_path "/install/system-image/boot/main.sys"
+require_iso_path "/install/system-image/boot/raw/manifest.txt"
 require_iso_path "/install/system-image/limine.conf"
 require_iso_path "/install/system-image/boot/limine.conf"
 require_iso_path "/install/system-image/limine/limine.conf"

@@ -5,6 +5,7 @@
  * Uses the Limine Boot Protocol for clean 64-bit entry.
  */
 
+#include "arch/x86_64/boot_handoff.h"
 #include "types.h"
 
 /* ========== Limine Structures ========== */
@@ -200,6 +201,8 @@ static struct limine_framebuffer *g_fb = 0;
 static void *g_rsdp = 0;
 static uint64_t g_hhdm_offset = 0;
 static const char *g_kernel_cmdline = 0;
+static void *g_bootstrap_file_addr = 0;
+static uint64_t g_bootstrap_file_size = 0;
 static void *g_kernel_file_addr = 0;
 static uint64_t g_kernel_file_size = 0;
 
@@ -371,6 +374,10 @@ uint64_t limine_get_hhdm_offset(void) { return g_hhdm_offset; }
 
 const char *limine_get_kernel_cmdline(void) { return g_kernel_cmdline; }
 
+void *limine_get_bootstrap_file_addr(void) { return g_bootstrap_file_addr; }
+
+uint64_t limine_get_bootstrap_file_size(void) { return g_bootstrap_file_size; }
+
 void *limine_get_kernel_file_addr(void) { return g_kernel_file_addr; }
 
 uint64_t limine_get_kernel_file_size(void) { return g_kernel_file_size; }
@@ -518,6 +525,46 @@ void x86_64_boot_emergency_exception(uint64_t int_no, uint64_t rip,
 
 extern void kernel_main(void *dtb);
 
+static void limine_capture_direct_boot_state(void) {
+    if (rsdp_request.response) {
+        g_rsdp = rsdp_request.response->address;
+    }
+    if (hhdm_request.response) {
+        g_hhdm_offset = hhdm_request.response->offset;
+    }
+    if (kernel_file_request.response && kernel_file_request.response->kernel_file) {
+        g_kernel_cmdline = kernel_file_request.response->kernel_file->cmdline;
+        g_bootstrap_file_addr = kernel_file_request.response->kernel_file->address;
+        g_bootstrap_file_size = kernel_file_request.response->kernel_file->size;
+        g_kernel_file_addr = g_bootstrap_file_addr;
+        g_kernel_file_size = g_bootstrap_file_size;
+    }
+}
+
+static int limine_seed_loader_handoff(const os8_boot_handoff_t *handoff) {
+    if (!handoff || handoff->magic != OS8_BOOT_HANDOFF_MAGIC ||
+        handoff->version != OS8_BOOT_HANDOFF_VERSION) {
+        serial_puts("ERROR: Invalid loader handoff\n");
+        return -1;
+    }
+
+    static struct limine_framebuffer loader_fb;
+    loader_fb.address = (void *)(uintptr_t)handoff->framebuffer_addr;
+    loader_fb.width = handoff->framebuffer_width;
+    loader_fb.height = handoff->framebuffer_height;
+    loader_fb.pitch = handoff->framebuffer_pitch;
+    loader_fb.bpp = 32;
+    g_fb = &loader_fb;
+    g_rsdp = (void *)(uintptr_t)handoff->rsdp_addr;
+    g_hhdm_offset = handoff->hhdm_offset;
+    g_kernel_cmdline = (const char *)(uintptr_t)handoff->cmdline_addr;
+    g_bootstrap_file_addr = (void *)(uintptr_t)handoff->bootstrap_file_addr;
+    g_bootstrap_file_size = handoff->bootstrap_file_size;
+    g_kernel_file_addr = (void *)(uintptr_t)handoff->kernel_file_addr;
+    g_kernel_file_size = handoff->kernel_file_size;
+    return 0;
+}
+
 /* ========== Entry Point ========== */
 
 void limine_entry_main(void) {
@@ -551,17 +598,7 @@ void limine_entry_main(void) {
     }
 
     g_fb = framebuffer_request.response->framebuffers[0];
-    if (rsdp_request.response) {
-        g_rsdp = rsdp_request.response->address;
-    }
-    if (hhdm_request.response) {
-        g_hhdm_offset = hhdm_request.response->offset;
-    }
-    if (kernel_file_request.response && kernel_file_request.response->kernel_file) {
-        g_kernel_cmdline = kernel_file_request.response->kernel_file->cmdline;
-        g_kernel_file_addr = kernel_file_request.response->kernel_file->address;
-        g_kernel_file_size = kernel_file_request.response->kernel_file->size;
-    }
+    limine_capture_direct_boot_state();
 
     serial_puts("Framebuffer acquired:\n");
     serial_puts("  Address: ");
@@ -588,6 +625,35 @@ void limine_entry_main(void) {
     kernel_main(0);
 
     /* Should never reach here */
+    serial_puts("kernel_main returned!\n");
+    halt();
+}
+
+void limine_loader_entry_main(const os8_boot_handoff_t *handoff) {
+    serial_init();
+    serial_puts("\n\n=== OS8 second-stage kernel ===\n");
+
+    x86_64_install_exception_handlers();
+    serial_puts("Boot IDT installed from loader handoff\n");
+
+    if (limine_seed_loader_handoff(handoff) != 0) {
+        halt();
+    }
+
+    serial_puts("Framebuffer acquired from loader handoff:\n");
+    serial_puts("  Address: ");
+    serial_puthex((uint64_t)g_fb->address);
+    serial_puts("\n  Width: ");
+    serial_puthex(g_fb->width);
+    serial_puts("\n  Height: ");
+    serial_puthex(g_fb->height);
+    serial_puts("\n  Pitch: ");
+    serial_puthex(g_fb->pitch);
+    serial_puts("\n  Kernel payload: ");
+    serial_puthex((uint64_t)g_kernel_file_addr);
+    serial_puts("\n");
+
+    kernel_main(0);
     serial_puts("kernel_main returned!\n");
     halt();
 }

@@ -923,7 +923,7 @@ static void populate_installer_payload(void) {
       "\n"
       "/OS8\n"
       "    protocol: limine\n"
-      "    kernel_path: boot():/boot/main.sys\n";
+      "    kernel_path: boot():/boot/bootloader.sys\n";
   static const char *installer_limine_cfg =
       "# OS8 Boot Configuration\n"
       "# OS8 x64 installer ISO\n"
@@ -932,7 +932,7 @@ static void populate_installer_payload(void) {
       "\n"
       "/OS8 DOS Text Setup\n"
       "    protocol: limine\n"
-      "    kernel_path: boot():/boot/main.sys\n"
+      "    kernel_path: boot():/boot/bootloader.sys\n"
       "    cmdline: boot=usb mode=installer textsetup=1\n";
   static const char *image_info =
       "OS8 System Image\n"

@@ -10,6 +10,8 @@ BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
 LIMINE_CFG_SOURCE="${LIMINE_CFG_SOURCE:-${ROOT_DIR}/os-x86_64/limine.conf}"
 BOOT_PROFILE="${BOOT_PROFILE:-installed-system}"
 KERNEL_PATH="${BUILD_DIR}/kernel/os-x86_64.elf"
+RAW_PARTS_DIR="${BUILD_DIR}/kernel/raw"
+RAW_PARTS_SCRIPT="${ROOT_DIR}/scripts/export-kernel-raw-parts.sh"
 BOOT_MANAGER_DIR="${BUILD_DIR}/boot-assets/os-boot-manager"
 BOOT_MANAGER_SYNC="${ROOT_DIR}/scripts/update-os-boot-manager.sh"
 
@@ -88,6 +90,7 @@ configure_profile() {
 
 resolve_dependencies() {
     require_file "$KERNEL_PATH"
+    require_file "$RAW_PARTS_SCRIPT"
     require_file "$LIMINE_CFG_SOURCE"
     require_file "$LIMINE_BIN_DIR/BOOTX64.EFI"
     require_file "$LIMINE_BIN_DIR/limine-bios.sys"
@@ -102,14 +105,18 @@ resolve_dependencies() {
 
 ensure_layout() {
     mkdir -p "$INSTALL_ROOT/boot"
+    mkdir -p "$INSTALL_ROOT/boot/raw"
     mkdir -p "$INSTALL_ROOT/EFI/BOOT"
     mkdir -p "$INSTALL_ROOT/limine"
     mkdir -p "$INSTALL_ROOT/System"
 }
 
 copy_boot_payload() {
-    cp "$KERNEL_PATH" "$INSTALL_ROOT/boot/main.sys"
     cp "$KERNEL_PATH" "$INSTALL_ROOT/boot/bootloader.sys"
+    cp "$KERNEL_PATH" "$INSTALL_ROOT/boot/main.sys"
+
+    bash "$RAW_PARTS_SCRIPT" "$KERNEL_PATH" "$RAW_PARTS_DIR"
+    cp "$RAW_PARTS_DIR"/* "$INSTALL_ROOT/boot/raw/"
 
     cp "$LIMINE_CFG_SOURCE" "$INSTALL_ROOT/limine.conf"
     cp "$LIMINE_CFG_SOURCE" "$INSTALL_ROOT/boot/limine.conf"
@@ -182,8 +189,13 @@ This image contains:
 - Limine BIOS and UEFI boot files
 
 Primary payload files:
-- /boot/main.sys
 - /boot/bootloader.sys
+- /boot/main.sys
+- /boot/raw/manifest.txt
+- /boot/raw/00-limine-requests.bin
+- /boot/raw/10-text.bin
+- /boot/raw/20-rodata.bin
+- /boot/raw/30-data.bin
 - /limine.conf
 - /boot/limine.conf
 - /limine/limine.conf
