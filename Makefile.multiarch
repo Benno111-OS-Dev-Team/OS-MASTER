@@ -189,6 +189,7 @@ BOOTMANAGER_OBJECTS := $(patsubst $(BOOTMANAGER_DIR)/%.c,$(BUILD_DIR)/bootmanage
 DRIVER_OBJECTS := $(patsubst $(DRIVERS_DIR)/%.c,$(BUILD_DIR)/drivers/%.o,$(DRIVER_SOURCES))
 CODE_HASH_INPUTS := $(sort $(KERNEL_SOURCES_C) $(BOOTMANAGER_SOURCES_C) $(KERNEL_SOURCES_ASM) $(DRIVER_SOURCES) $(ROOT_DIR)/Makefile.multiarch)
 BUILD_METADATA_HEADER := $(GENERATED_DIR)/build_uuid.h
+BUILD_PREPARED_STAMP := $(BUILD_DIR)/.build-prepared
 BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
 BUILD_STRING ?= $(BUILD_NUMBER) OS8 DEVELOPER PREVIEW
 BUILD_BRANCH ?= $(shell git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
@@ -251,7 +252,11 @@ help:
 # Directory Setup
 # ============================================================================
 
-$(BUILD_DIR):
+$(BUILD_PREPARED_STAMP):
+	@if [ ! -f "$@" ]; then \
+		echo "[PREP] Resetting checked-in build outputs for $(ARCH)..."; \
+		rm -rf "$(BUILD_DIR)"; \
+	fi
 	@mkdir -p $(BUILD_DIR)/kernel/core
 	@mkdir -p $(BUILD_DIR)/kernel/arch/$(ARCH)
 	@mkdir -p $(BUILD_DIR)/kernel/mm
@@ -272,8 +277,9 @@ $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)/drivers
 	@mkdir -p $(BUILD_ASSETS_DIR)
 	@mkdir -p $(IMAGE_DIR)
+	@touch $@
 
-assets: $(BUILD_DIR)
+assets: $(BUILD_PREPARED_STAMP)
 	@echo "[ASSETS] Syncing repo assets into $(BUILD_ASSETS_DIR)"
 	@rm -rf "$(BUILD_ASSETS_DIR)"
 	@mkdir -p "$(BUILD_ASSETS_DIR)"
@@ -328,7 +334,7 @@ assets: $(BUILD_DIR)
 		echo "[ASSETS] No bootstrap wallpaper source directory found"; \
 	fi
 
-sdk: $(BUILD_DIR)
+sdk: $(BUILD_PREPARED_STAMP)
 	@echo "[SDK] Exporting application headers..."
 	@rm -rf $(SDK_INCLUDE_DIR)
 	@mkdir -p $(SDK_INCLUDE_DIR)/shared-api
@@ -341,10 +347,10 @@ sdk: $(BUILD_DIR)
 # Kernel Build
 # ============================================================================
 
-kernel: $(BUILD_DIR) $(BUILD_METADATA_HEADER) assets $(KERNEL_BINARY) $(if $(filter x86,$(ARCH)),$(KERNEL_FLAT_BINARY),)
+kernel: $(BUILD_PREPARED_STAMP) $(BUILD_METADATA_HEADER) assets $(KERNEL_BINARY) $(if $(filter x86,$(ARCH)),$(KERNEL_FLAT_BINARY),)
 	@echo "[KERNEL] $(ARCH) build complete: $(KERNEL_BINARY)"
 
-$(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS)
+$(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS) | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(GENERATED_DIR)
 	@echo "[META] Generating build UUID from code hash"
 	@set -e; \
@@ -366,7 +372,7 @@ $(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS)
 		printf '%s\n' '#endif'; \
 	} > $(BUILD_METADATA_HEADER)
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
+$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 ifeq ($(ARCH),arm64)
@@ -380,17 +386,17 @@ else
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 endif
 
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S
+$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "[AS] $<"
 	@$(AS) $(ASFLAGS) -c $< -o $@ 
 
-$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c
+$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c
+$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
