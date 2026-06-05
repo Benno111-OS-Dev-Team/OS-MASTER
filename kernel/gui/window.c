@@ -957,7 +957,6 @@ static char term_input[TERM_INPUT_MAX];
 static int term_input_len = 0;
 static char term_history[TERM_HISTORY_LINES][80];
 static int term_history_count = 0;
-static int term_scroll = 0;
 
 /* Bowling game state */
 #define BOWLING_LANE_COLUMNS 7
@@ -3294,25 +3293,37 @@ static void window_get_draw_rect(const struct window *win, int *x, int *y, int *
 
 static void gui_destroy_window_immediate(struct window *win);
 
+static void gui_invalidate_window(struct window *win) {
+  int dirty_x;
+  int dirty_y;
+  int dirty_w;
+  int dirty_h;
+
+  if (!win || win->id == 0 || !win->visible)
+    return;
+
+  window_get_draw_rect(win, &dirty_x, &dirty_y, &dirty_w, &dirty_h);
+  compositor_mark_dirty(dirty_x, dirty_y, dirty_w, dirty_h);
+}
+
 static void gui_begin_window_close(struct window *win) {
   if (!win || win->id == 0)
     return;
   if (win->animation == WINDOW_ANIM_CLOSE)
     return;
+  gui_invalidate_window(win);
   win->animation = WINDOW_ANIM_CLOSE;
   win->anim_frame = 0;
   win->anim_total_frames = 8;
-  compositor_mark_full_redraw();
+  gui_invalidate_window(win);
 }
 
 static void gui_update_window_animations(void) {
-  int any_active = 0;
   struct window *win = window_stack;
   while (win) {
     struct window *next = win->next;
     int old_x = 0, old_y = 0, old_w = 0, old_h = 0;
     if (win->animation != WINDOW_ANIM_NONE) {
-      any_active = 1;
       window_get_draw_rect(win, &old_x, &old_y, &old_w, &old_h);
       if (win->anim_frame < win->anim_total_frames)
         win->anim_frame++;
@@ -3334,8 +3345,6 @@ static void gui_update_window_animations(void) {
     }
     win = next;
   }
-  if (any_active)
-    compositor_mark_full_redraw();
 }
 
 static int gui_has_active_animation(void) {
@@ -3754,7 +3763,7 @@ struct window *gui_create_window(const char *title, int x, int y, int w,
   window_stack = win;
 
   printk(KERN_INFO "GUI: Created window '%s' (%dx%d)\n", title, w, h);
-  compositor_mark_full_redraw();
+  gui_invalidate_window(win);
 
   return win;
 }
@@ -3818,7 +3827,6 @@ static void gui_destroy_window_immediate(struct window *win) {
   win->userdata = NULL;
   win->next = NULL;
   win->id = 0;
-  compositor_mark_full_redraw();
 }
 
 void gui_destroy_window(struct window *win) {
@@ -10430,6 +10438,7 @@ static void fm_navigate_to(struct window *win, struct fm_state *st,
   st->scroll_y = 0;
   st->context_menu_visible = 0;
   fm_set_window_title(win, st->path);
+  gui_invalidate_window(win);
 }
 
 static void fm_go_parent(struct window *win, struct fm_state *st) {
@@ -10454,6 +10463,7 @@ static void fm_go_parent(struct window *win, struct fm_state *st) {
   st->scroll_y = 0;
   st->context_menu_visible = 0;
   fm_set_window_title(win, st->path);
+  gui_invalidate_window(win);
 }
 
 static void fm_hide_context_menu(struct fm_state *st) {
@@ -11697,8 +11707,10 @@ static void fm_on_mouse(struct window *win, int x, int y, int buttons) {
 
       fm_hide_context_menu(st);
 
-      if (!was_selected)
+      if (!was_selected) {
+        gui_invalidate_window(win);
         return;
+      }
 
       fm_open_item(win, st, items[i].name, items[i].type);
       return;
@@ -18807,6 +18819,10 @@ static void notepad_on_mouse(struct window *win, int x, int y, int buttons) {
 
   if (x >= content_x + 5 && x < content_x + win->width - BORDER_WIDTH * 2 - 4 &&
       y >= text_area_y && y < text_area_y + text_area_h) {
+    int old_cursor = notepad_cursor;
+    int old_selection_anchor = notepad_selection_anchor;
+    int old_selection_cursor = notepad_selection_cursor;
+    int old_selecting = notepad_selecting_with_mouse;
     int cursor = notepad_cursor_from_point(x, y, text_x, text_area_y + 4, max_x, max_y);
 
     if (buttons & 1) {
@@ -18819,6 +18835,11 @@ static void notepad_on_mouse(struct window *win, int x, int y, int buttons) {
       notepad_move_cursor(cursor, 0);
       notepad_selecting_with_mouse = 0;
     }
+    if (old_cursor != notepad_cursor ||
+        old_selection_anchor != notepad_selection_anchor ||
+        old_selection_cursor != notepad_selection_cursor ||
+        old_selecting != notepad_selecting_with_mouse)
+      gui_invalidate_window(win);
     return;
   }
 
@@ -18871,6 +18892,7 @@ static void rename_on_mouse(struct window *win, int x, int y, int buttons) {
 
         if (ret == 0) {
           printk("Rename successful: %s -> %s\n", rename_path, new_full_path);
+          gui_invalidate_window(win);
           win->visible = 0; /* Close window */
         } else {
           printk("Rename failed: %d\n", ret);
@@ -19432,6 +19454,7 @@ static void image_viewer_on_mouse(struct window *win, int x, int y,
         g_imgview.offset_y = 0;
         break;
       }
+      gui_invalidate_window(win);
       return;
     }
     btn_x += btn_size + btn_spacing;
