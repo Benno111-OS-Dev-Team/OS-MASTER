@@ -3937,13 +3937,13 @@ static void activate_window_switcher(void) {
   gui_focus_window(target);
   copy_window_title(window_switcher_title, target->title);
   window_switcher_frames = 75;
-  compositor_mark_full_redraw();
+  compositor_mark_screen_rect_dirty();
 }
 
 static void execute_secure_attention_action(int action) {
   if (action == SECURE_ACTION_CANCEL) {
     secure_attention_open = 0;
-    compositor_mark_full_redraw();
+    compositor_mark_screen_rect_dirty();
     return;
   }
 
@@ -3966,7 +3966,7 @@ static void open_secure_attention(void) {
   secure_attention_open = 1;
   secure_attention_selection = SECURE_ACTION_CANCEL;
   window_switcher_frames = 0;
-  compositor_mark_full_redraw();
+  compositor_mark_screen_rect_dirty();
 }
 
 static int secure_attention_button_hit(int x, int y) {
@@ -15838,6 +15838,13 @@ static void compositor_mark_screen_dirty(void) {
   g_full_redraw = 0;
 }
 
+static void compositor_mark_screen_rect_dirty(void) {
+  if (!primary_display.width || !primary_display.height)
+    return;
+  compositor_mark_dirty(0, 0, (int)primary_display.width,
+                        (int)primary_display.height);
+}
+
 static int dock_handle_click(int x, int y) {
   int dock_y;
   int dock_h;
@@ -16570,7 +16577,7 @@ void gui_compose(void) {
   gui_update_window_animations();
 
   if (window_switcher_frames > 0)
-    compositor_mark_full_redraw();
+    compositor_mark_screen_rect_dirty();
 
   if (g_partial_redraw_clear_debug_frames > 0) {
     g_partial_redraw_clear_debug_frames--;
@@ -16754,12 +16761,12 @@ void gui_handle_key_event(int key) {
     }
     if (key == '\t' || key == KEY_RIGHT) {
       secure_attention_selection = (secure_attention_selection + 1) % 3;
-      compositor_mark_full_redraw();
+      compositor_mark_screen_rect_dirty();
       return;
     }
     if (key == KEY_LEFT) {
       secure_attention_selection = (secure_attention_selection + 2) % 3;
-      compositor_mark_full_redraw();
+      compositor_mark_screen_rect_dirty();
       return;
     }
     if (key == '\n' || key == '\r' || key == ' ') {
@@ -16785,17 +16792,17 @@ void gui_handle_key_event(int key) {
   if (wifi_tray_open && wifi_tray_password_active) {
     if (key == '\t' || key == 27) {
       wifi_tray_password_active = 0;
-      compositor_mark_full_redraw();
+      wifi_tray_mark_dirty();
       return;
     }
     if (key == '\r' || key == '\n') {
       if (wifi_can_connect_selected())
         wifi_connect_selected(wifi_password_draft);
-      compositor_mark_full_redraw();
+      wifi_tray_mark_dirty();
       return;
     }
     append_input_char(wifi_password_draft, (int)sizeof(wifi_password_draft), key);
-    compositor_mark_full_redraw();
+    wifi_tray_mark_dirty();
     return;
   }
 
@@ -16838,7 +16845,6 @@ void gui_handle_key_event(int key) {
         settings_wifi_password_active) {
       if (key == '\t' || key == 27) {
         settings_wifi_password_active = 0;
-        compositor_mark_full_redraw();
         return;
       }
       if (key == '\r' || key == '\n') {
@@ -16846,12 +16852,10 @@ void gui_handle_key_event(int key) {
           wifi_connect_selected(wifi_password_draft);
         str_copy_safe(settings_status, wifi_get_status_text(),
                       sizeof(settings_status));
-        compositor_mark_full_redraw();
         return;
       }
       append_input_char(wifi_password_draft, (int)sizeof(wifi_password_draft),
                         key);
-      compositor_mark_full_redraw();
       return;
     }
     /* Check if it's a Terminal window */
@@ -17256,9 +17260,6 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
   if (menu_vis) {
     printk(KERN_INFO "MOUSE: Menu visible, calling hover at %d,%d\n", x, y);
     desktop_context_menu_hover(x, y);
-    /* Force compositor to update */
-    extern void compositor_mark_full_redraw(void);
-    compositor_mark_full_redraw();
   }
 
   /* Track for double-click detection */
