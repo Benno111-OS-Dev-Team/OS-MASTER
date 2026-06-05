@@ -40,37 +40,25 @@ jobs:
             nasm
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
-      - name: Build x86_64 OS with staged system image
+      - name: Build x86_64 live CD with staged system image
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           BUILD_BRANCH: ${{ github.ref_name }}
         run: |
           set -euxo pipefail
           export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          make -f Makefile.multiarch ARCH=x86_64 system-image
-          IMAGE_NAME=os8-x86_64-system.img \
-            bash ./scripts/create-uefi-image.sh build/x86_64 image
-          cp image/os8-x86_64-system.img image/os-x86_64-system.img
-          ISO_NAME=os8-x86_64-installer.iso \
-            LIMINE_CFG=os-x86_64/limine-installer-text.conf \
-            INSTALL_LIMINE_CFG=os-x86_64/limine-installed.conf \
-            bash ./scripts/create-x86_64-iso.sh build/x86_64 image
-          cp image/os8-x86_64-installer.iso image/os-x86_64-installer.iso
+          make -f Makefile.multiarch ARCH=x86_64 image
 
       - name: Verify release files
         run: |
           set -euxo pipefail
           ls -lh \
-            image/os8-x86_64-installer.iso \
-            image/os8-x86_64-installer.iso.xz \
-            image/os8-x86_64-installer.iso.7z \
-            image/os8-x86_64-system.img \
+            image/os8-x86_64.iso \
+            image/os8-x86_64.iso.xz \
             build/x86_64/system-image.zip \
             build/x86_64/boot-files.zip
-          file image/os8-x86_64-installer.iso
-          file image/os8-x86_64-installer.iso.xz
-          file image/os8-x86_64-installer.iso.7z
-          file image/os8-x86_64-system.img
+          file image/os8-x86_64.iso
+          file image/os8-x86_64.iso.xz
           test -d build/x86_64/system-image
           test -f build/x86_64/system-image/boot/main.sys
           test -f build/x86_64/system-image/boot/screen/logo.svg
@@ -88,14 +76,12 @@ jobs:
 
           - ARM64 ISO: skipped for now
           - x86_64 staged system image: success
-          - x86_64 installer ISO: success
+          - x86_64 live CD ISO: success
 
           ## Bootable Media
 
-          - \`os8-x86_64-installer.iso\`
-          - \`os8-x86_64-installer.iso.xz\`
-          - \`os8-x86_64-installer.iso.7z\`
-          - \`os8-x86_64-system.img\`
+          - \`os8-x86_64.iso\`
+          - \`os8-x86_64.iso.xz\`
           - \`system-image.zip\`
           - \`boot-files.zip\`
 
@@ -116,10 +102,8 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            image/os8-x86_64-installer.iso
-            image/os8-x86_64-installer.iso.xz
-            image/os8-x86_64-installer.iso.7z
-            image/os8-x86_64-system.img
+            image/os8-x86_64.iso
+            image/os8-x86_64.iso.xz
             build/x86_64/system-image.zip
             build/x86_64/boot-files.zip
         env:

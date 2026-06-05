@@ -81,6 +81,12 @@ configure_profile() {
             BIOS_BOOTABLE_SOURCE="installer"
             FIRST_BOOT_SETUP="0"
             ;;
+        live-cd)
+            INSTALLER_STATE_SOURCE="live-cd"
+            BOOTABLE_SOURCE="live-cd"
+            BIOS_BOOTABLE_SOURCE="live-cd"
+            FIRST_BOOT_SETUP="0"
+            ;;
         *)
             fail "Unsupported BOOT_PROFILE: $BOOT_PROFILE"
             ;;

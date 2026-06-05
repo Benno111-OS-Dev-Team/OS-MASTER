@@ -471,7 +471,7 @@ ifeq ($(ARCH),x86_64)
 	@bash ./scripts/create-dos-env-image.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os8-x86_64-installer.img"
 	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os-x86_64-installer.img"
-	@ISO_NAME=os8-x86_64-installer.iso LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer-text.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@ISO_NAME=os8-x86_64-installer.iso BOOT_PROFILE=installer LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer-text.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-installer.iso" "$(IMAGE_DIR)/os-x86_64-installer.iso"
 	@echo "[IMAGE] Primary DOS installer image: $(IMAGE_DIR)/os8-x86_64-installer.img"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.img"
