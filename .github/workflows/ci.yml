@@ -1,4 +1,4 @@
-name: CI Build
+name: FreeBSD Release Staging
 
 on:
   push:
@@ -7,118 +7,61 @@ on:
     branches: [ main, master, develop ]
 
 jobs:
-
-  Build:
-    name: Draft Release
+  stage-freebsd:
+    name: Stage Official FreeBSD Media
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      PRODUCT_NAME: os-master-freebsd
+      FREEBSD_RELEASE: 14.4-RELEASE
+      FREEBSD_ARCH: amd64
+      FREEBSD_IMAGE_BASENAME: disc1.iso
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up release build environment
+      - name: Install staging dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ccache \
-            clang \
-            gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu \
-            dosfstools \
-            fdisk \
-            mtools \
-            qemu-system-x86 \
-            qemu-system-arm \
-            qemu-system-aarch64 \
-            qemu-efi-aarch64 \
-            qemu-utils \
-            xorriso \
-            make \
-            lld \
-            llvm \
-            nasm
-          sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
+            curl \
+            xz-utils \
+            file \
+            make
 
-      - name: Build x86_64 ISO
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-          BUILD_BRANCH: ${{ github.ref_name }}
+      - name: Stage official FreeBSD image
         run: |
           set -euxo pipefail
-          export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          make -f Makefile.multiarch ARCH=x86_64 image
+          make image
 
-      - name: Verify BSD-compatible userspace surface
-        env:
-          BSD_TARGET: aarch64-unknown-freebsd
+      - name: Verify staged outputs
         run: |
           set -euxo pipefail
-          clang --target="${BSD_TARGET}" -fsyntax-only -std=gnu11 \
-            -Ilibc/include \
-            -Ishared-api \
-            libc/src/syscall.c \
-            libc/src/stdlib.c \
-            libc/src/stdio.c \
-            libc/src/string.c \
-            libc/src/signal.c \
-            libc/src/errno.c
-          clang --target="${BSD_TARGET}" -fsyntax-only -std=gnu11 \
-            -Ilibc/include \
-            -Ishared-api \
-            -Ibuild/sdk/include/shared-api \
-            userspace/init/init.c \
-            userspace/login/login.c \
-            userspace/shell/shell.c
-
-      - name: Build x86_64 Installer ISO
-        if: ${{ false }}
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-          BUILD_BRANCH: ${{ github.ref_name }}
-        run: |
-          set -euxo pipefail
-          export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          make -f Makefile.multiarch ARCH=x86_64 installer-image
-
-      - name: Verify release files
-        run: |
-          set -euxo pipefail
-          ls -lh image/os8-x86_64.iso*
-          file image/os8-x86_64.iso
-          if [ -f image/os8-x86_64.iso.xz ]; then
-            file image/os8-x86_64.iso.xz
-          fi
-          ##ls -lh image/os8-x86_64-installer.iso image/os8-x86_64-system.img
-          ##file image/os8-x86_64-installer.iso
-          ##file image/os8-x86_64-system.img
-          ##if [ -f image/os8-x86_64-installer.iso.xz ]; then
-          ##  file image/os8-x86_64-installer.iso.xz
-          ##fi
-          ##ls -lh image/os8-x86_64-installer.iso.7z
-          ##file image/os8-x86_64-installer.iso.7z
+          OUTPUT_PREFIX="image/${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}"
+          ls -lh "${OUTPUT_PREFIX}" "${OUTPUT_PREFIX}.xz" "${OUTPUT_PREFIX}.txt"
+          file "${OUTPUT_PREFIX}"
+          file "${OUTPUT_PREFIX}.xz"
 
       - name: Generate release notes
         run: |
           cat > release_notes.md << EOF
-          # os CI Draft
+          # OS-MASTER FreeBSD Draft
 
-          Automatic draft release generated from CI.
+          This draft republishes an official FreeBSD release image staged by CI.
 
-          ## Build Status
+          ## Base
 
-          - ARM64 ISO: skipped for now
-          - x86_64 ISO: success
-          - BSD userspace compatibility check: success
-          - x86_64 Installer ISO: skipped
+          - FreeBSD release: \`${FREEBSD_RELEASE}\`
+          - Architecture: \`${FREEBSD_ARCH}\`
+          - Image: \`${FREEBSD_IMAGE_BASENAME}\`
 
-          ## Bootable Media
+          ## Files
 
-          - \`os8-x86_64.iso\`
-          - \`os8-x86_64.iso.xz\`
-          ##- \`os8-x86_64-installer.iso\`
-          ##- \`os8-x86_64-installer.iso.7z\`
+          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}\`
+          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz\`
+          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.txt\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
@@ -130,16 +73,15 @@ jobs:
       - name: Create or update draft release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: os-ci-draft
+          tag_name: os-master-freebsd-draft
           target_commitish: ${{ github.sha }}
-          name: os CI Draft
+          name: OS-MASTER FreeBSD Draft
           body_path: release_notes.md
-          draft: False ##Auto-draft is not working, so we set it to false and update the release with the files
-          prerelease: False ## Set to true if you want to mark this release as a prerelease
+          draft: false
+          prerelease: false
           files: |
-            image/os8-x86_64.iso
-            image/os8-x86_64.iso.xz
-            ##image/os8-x86_64-installer.iso
-            ##image/os8-x86_64-installer.iso.7z
+            image/os-master-freebsd-14.4-RELEASE-amd64-disc1.iso
+            image/os-master-freebsd-14.4-RELEASE-amd64-disc1.iso.xz
+            image/os-master-freebsd-14.4-RELEASE-amd64-disc1.iso.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
