@@ -79,6 +79,7 @@ int usleep(unsigned int usec);
 /* ===================================================================== */
 
 int access(const char *path, int mode);
+int gethostname(char *name, size_t len);
 int sethostname(const char *name, size_t len);
 pid_t setsid(void);
 void sync(void);

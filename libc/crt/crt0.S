@@ -9,7 +9,7 @@
 
 .extern main
 .extern exit
-.extern __libc_init
+.extern environ
 
 _start:
     /* Clear frame pointer for stack traces */
@@ -17,15 +17,10 @@ _start:
     mov     x30, #0
     
     /* argc is in x0, argv in x1, envp in x2 (from kernel) */
-    /* These are passed on stack for most ABIs, adjust as needed */
-    
-    /* For now, use simple argc=0, argv=NULL, envp=NULL */
-    mov     x0, #0          /* argc */
-    mov     x1, #0          /* argv */
-    mov     x2, #0          /* envp */
-    
-    /* Initialize libc */
-    /* bl    __libc_init */
+    /* Publish envp for getenv() and friends before calling main. */
+    adrp    x9, environ
+    add     x9, x9, :lo12:environ
+    str     x2, [x9]
     
     /* Call main(argc, argv, envp) */
     bl      main

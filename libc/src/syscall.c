@@ -6,6 +6,7 @@
 #include "../include/unistd.h"
 #include "../include/sys/types.h"
 #include "../include/sys/stat.h"
+#include "../include/sys/utsname.h"
 #include "../include/sys/wait.h"
 #include "../include/signal.h"
 #include "../include/fcntl.h"
@@ -425,6 +426,33 @@ int fsync(int fd)
 int sethostname(const char *name, size_t len)
 {
     return __syscall_ret(__syscall2(__NR_sethostname, (long)name, len));
+}
+
+int uname(struct utsname *buf)
+{
+    return __syscall_ret(__syscall1(__NR_uname, (long)buf));
+}
+
+int gethostname(char *name, size_t len)
+{
+    struct utsname uts;
+    size_t i = 0;
+
+    if (!name || len == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (uname(&uts) < 0) {
+        return -1;
+    }
+
+    while (uts.nodename[i] && i < len - 1) {
+        name[i] = uts.nodename[i];
+        i++;
+    }
+    name[i] = '\0';
+    return 0;
 }
 
 long sysconf(int name)

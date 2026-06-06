@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -340,13 +341,18 @@ int main(int argc, char *argv[]) {
   char username[MAX_USER_LEN];
   char password[MAX_PASS_LEN];
   struct user_cred cred;
+  struct utsname uts;
 
   (void)argc;
   (void)argv;
 
   printf("\033[2J\033[H");
   printf("Welcome to OS8 v8.0.0\n");
-  printf("Kernel 8.0.0-arm64 on an aarch64\n\n");
+  if (uname(&uts) == 0) {
+    printf("%s %s on %s\n\n", uts.sysname, uts.release, uts.machine);
+  } else {
+    printf("POSIX/BSD-compatible userland session\n\n");
+  }
 
   while (1) {
     printf("OS8 login: ");
@@ -372,12 +378,15 @@ int main(int argc, char *argv[]) {
     if (authenticate(&cred, username, password)) {
       char home_env[MAX_HOME_LEN + 5];
       char shell_env[MAX_SHELL_LEN + 7];
+      char user_env[MAX_USER_LEN + 6];
       char *shell_argv[] = {cred.shell, "-l", NULL};
-      char *envp[] = {home_env, "PATH=/bin:/sbin:/usr/bin:/usr/sbin",
-                      shell_env, "TERM=linux", NULL};
+      char *envp[] = {home_env,
+                      "PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin",
+                      shell_env, user_env, "TERM=xterm", NULL};
 
       snprintf(home_env, sizeof(home_env), "HOME=%s", cred.home);
       snprintf(shell_env, sizeof(shell_env), "SHELL=%s", cred.shell);
+      snprintf(user_env, sizeof(user_env), "USER=%s", cred.username);
 
       printf("\nLogin successful.\n\n");
       chdir(cred.home);

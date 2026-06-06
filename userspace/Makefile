@@ -42,7 +42,7 @@ init: dirs
 shell: dirs
 	@echo "[BUILD] shell"
 	@$(CC) $(CFLAGS) -c shell/shell.c -o $(BUILD_DIR)/shell.o
-	@$(LD) $(LDFLAGS) -o $(BUILD_DIR)/bin/sh $(BUILD_DIR)/shell.o
+	@$(LD) $(LDFLAGS) -o $(BUILD_DIR)/bin/sh $(CRT0) $(BUILD_DIR)/shell.o $(LIBC)
 
 # Coreutils
 coreutils: dirs

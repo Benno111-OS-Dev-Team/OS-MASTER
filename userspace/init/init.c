@@ -16,7 +16,9 @@
 
 #define HOSTNAME "OS8"
 #define LOGIN_PATH "/bin/login"
+#define LOGIN_PATH_FALLBACK "/usr/bin/login"
 #define SHELL_PATH "/bin/sh"
+#define SHELL_PATH_FALLBACK "/usr/bin/sh"
 #define CONSOLE_DEV "/dev/console"
 
 static void setup_console(void) {
@@ -42,13 +44,21 @@ static void setup_console(void) {
 }
 
 static void prepare_runtime_dirs(void) {
-  if (mkdir("/proc", 0755) < 0 && errno != EEXIST) {
-  }
-  if (mkdir("/sys", 0755) < 0 && errno != EEXIST) {
-  }
   if (mkdir("/dev", 0755) < 0 && errno != EEXIST) {
   }
   if (mkdir("/tmp", 01777) < 0 && errno != EEXIST) {
+  }
+  if (mkdir("/var", 0755) < 0 && errno != EEXIST) {
+  }
+  if (mkdir("/var/run", 0755) < 0 && errno != EEXIST) {
+  }
+  if (mkdir("/var/tmp", 01777) < 0 && errno != EEXIST) {
+  }
+  if (mkdir("/usr", 0755) < 0 && errno != EEXIST) {
+  }
+  if (mkdir("/usr/bin", 0755) < 0 && errno != EEXIST) {
+  }
+  if (mkdir("/usr/sbin", 0755) < 0 && errno != EEXIST) {
   }
 
   if (sethostname(HOSTNAME, strlen(HOSTNAME)) < 0) {
@@ -66,15 +76,18 @@ static int start_session(void) {
 
   if (pid == 0) {
     char *argv[] = {"/bin/login", NULL};
-    char *envp[] = {"HOME=/root", "PATH=/bin:/sbin:/usr/bin:/usr/sbin",
-                    "SHELL=/bin/sh", "TERM=linux", NULL};
+    char *envp[] = {"HOME=/root",
+                    "PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin",
+                    "SHELL=/bin/sh", "TERM=xterm", "USER=root", NULL};
 
     setsid();
     execve(LOGIN_PATH, argv, envp);
-    execve("/bin/bash", argv, envp);
+    execve(LOGIN_PATH_FALLBACK, argv, envp);
 
     char *shell_argv[] = {"/bin/sh", "-l", NULL};
     execve(SHELL_PATH, shell_argv, envp);
+    shell_argv[0] = "/usr/bin/sh";
+    execve(SHELL_PATH_FALLBACK, shell_argv, envp);
     perror("execve");
     _exit(127);
   }

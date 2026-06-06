@@ -130,7 +130,20 @@ char **environ = environ_empty;
 
 char *getenv(const char *name)
 {
-    (void)name;
+    size_t name_len;
+    int i;
+
+    if (!name || !name[0] || !environ) {
+        return NULL;
+    }
+
+    name_len = strlen(name);
+    for (i = 0; environ[i]; i++) {
+        if (strncmp(environ[i], name, name_len) == 0 &&
+            environ[i][name_len] == '=') {
+            return environ[i] + name_len + 1;
+        }
+    }
     return NULL;
 }
 
