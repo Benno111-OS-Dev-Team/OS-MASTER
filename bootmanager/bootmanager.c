@@ -28,7 +28,7 @@ static struct boot_config boot_cfg = {
     .show_splash = false,
     .verbose_boot = false,
     .debug_mode = false,
-    .kernel_cmdline = "console=ttyS0 rootwait",
+    .kernel_cmdline = "console=ttyS0 rootwait drivers=generic",
     .default_kernel = "/boot/vib-os.elf",
     .recovery_kernel = "/boot/recovery.elf",
     .splash_bg_color = 0x1A1A2E,

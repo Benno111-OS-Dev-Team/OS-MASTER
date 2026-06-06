@@ -40,6 +40,11 @@ The x86_64 path is the fastest-moving part of the project right now. It includes
 - An installer workflow that stages a bundled system image
 - A setup-media mirror exposed at `/setup/` while running the installer
 
+The default x86_64 boot profiles now start in `drivers=generic` mode so the OS
+leans on the most conservative shared low-level path first instead of
+auto-enabling experimental vendor-specific PCI, GPU, audio, USB, and network
+bring-up during early boot.
+
 The live environment is still largely RAMFS-based. The installer writes a staged system image into an installed target layout, but this is still an experimental OS project, not a finished general-purpose system.
 
 ## Repository Layout
@@ -279,8 +284,14 @@ For x86_64 bring-up and installer work:
 
 ### xHCI Bring-up Toggle (x86_64)
 
-On the current x86/x86_64 bring-up path, xHCI probing is disabled by default for
-stability. To opt in during testing, add this kernel cmdline flag in Limine:
+On the current x86/x86_64 bring-up path, the shipped boot profiles default to
+`drivers=generic` for stability. That keeps the conservative shared low-level
+path in place and skips the experimental vendor-specific components during
+early boot.
+
+To opt back into the more experimental x86 PCI/USB bring-up during testing,
+remove `drivers=generic` from the Limine cmdline and, for xHCI specifically,
+add this kernel cmdline flag:
 
 ```text
 xhci=on
