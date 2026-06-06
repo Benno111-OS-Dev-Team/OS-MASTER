@@ -76,6 +76,36 @@ That downloads the official compressed image, verifies it against the official
 FreeBSD SHA256 checksum file, overlays the OS-MASTER X11 installer hooks, and
 stages the customized result under `image/`.
 
+## Local Windows Build
+
+On this repository's Windows setup, the easiest local build path is through
+WSL because the customization flow depends on Linux tools like `xorriso` and
+`xz`.
+
+From PowerShell in the repo root:
+
+```powershell
+.\scripts\build-local.ps1
+```
+
+That script:
+
+- uses your current WSL installation
+- installs missing Linux build dependencies with `apt`
+- runs the same FreeBSD image staging flow locally
+
+You can skip the dependency install on later runs:
+
+```powershell
+.\scripts\build-local.ps1 -SkipDependencyInstall
+```
+
+You can also override the release inputs:
+
+```powershell
+.\scripts\build-local.ps1 -FreebsdRelease 15.0-RELEASE -FreebsdImageBasename dvd1.iso
+```
+
 ## Configuration
 
 You can override the default release parameters:
