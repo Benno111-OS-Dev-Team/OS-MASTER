@@ -36,6 +36,9 @@ else
 fi
 "@
     wsl.exe -e sh -lc $installCommand
+    if ($LASTEXITCODE -ne 0) {
+        throw "WSL dependency installation failed with exit code $LASTEXITCODE"
+    }
 }
 
 $wslCommand = @"
@@ -52,5 +55,8 @@ bash ./scripts/fetch-freebsd-release.sh
 
 Write-Host "[BUILD] Running FreeBSD image build in WSL..."
 wsl.exe -e sh -lc $wslCommand
+if ($LASTEXITCODE -ne 0) {
+    throw "WSL build failed with exit code $LASTEXITCODE"
+}
 
 Write-Host "[DONE] Local build completed."
