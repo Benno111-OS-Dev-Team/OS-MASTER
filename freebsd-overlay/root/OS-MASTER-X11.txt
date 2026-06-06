@@ -1,0 +1,5 @@
+OS-MASTER preinstalls X11 into the installer and the target system.
+
+From a shell, launch the default session with:
+
+  startx

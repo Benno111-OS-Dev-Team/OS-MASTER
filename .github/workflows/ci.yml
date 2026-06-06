@@ -1,4 +1,4 @@
-name: FreeBSD Release Staging
+name: FreeBSD X11 Release Staging
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   stage-freebsd:
-    name: Stage Official FreeBSD Media
+    name: Stage FreeBSD X11 Installer Media
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,7 +16,7 @@ jobs:
       PRODUCT_NAME: os-master-freebsd
       FREEBSD_RELEASE: 14.4-RELEASE
       FREEBSD_ARCH: amd64
-      FREEBSD_IMAGE_BASENAME: disc1.iso
+      FREEBSD_IMAGE_BASENAME: dvd1.iso
 
     steps:
       - name: Checkout code
@@ -29,9 +29,12 @@ jobs:
             curl \
             xz-utils \
             file \
-            make
+            make \
+            python3 \
+            python3-pip
+          python3 -m pip install pycdlib
 
-      - name: Stage official FreeBSD image
+      - name: Stage customized FreeBSD image
         run: |
           set -euxo pipefail
           make image
@@ -47,15 +50,16 @@ jobs:
       - name: Generate release notes
         run: |
           cat > release_notes.md << EOF
-          # OS-MASTER FreeBSD Draft
+          # OS-MASTER FreeBSD X11 Draft
 
-          This draft republishes an official FreeBSD release image staged by CI.
+          This draft stages a customized FreeBSD installer image with X11 hooks for the installer and the installed system.
 
           ## Base
 
           - FreeBSD release: \`${FREEBSD_RELEASE}\`
           - Architecture: \`${FREEBSD_ARCH}\`
           - Image: \`${FREEBSD_IMAGE_BASENAME}\`
+          - Customization: `xorg` preinstall in installer and target system
 
           ## Files
 
@@ -75,13 +79,13 @@ jobs:
         with:
           tag_name: os-master-freebsd-draft
           target_commitish: ${{ github.sha }}
-          name: OS-MASTER FreeBSD Draft
+          name: OS-MASTER FreeBSD X11 Draft
           body_path: release_notes.md
           draft: false
           prerelease: false
           files: |
-            image/os-master-freebsd-14.4-RELEASE-amd64-disc1.iso
-            image/os-master-freebsd-14.4-RELEASE-amd64-disc1.iso.xz
-            image/os-master-freebsd-14.4-RELEASE-amd64-disc1.iso.txt
+            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso
+            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.xz
+            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

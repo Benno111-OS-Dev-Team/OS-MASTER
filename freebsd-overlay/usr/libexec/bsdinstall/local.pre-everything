@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -eu
+
+if [ ! -r /root/os-master-x11-common.sh ]; then
+  exit 0
+fi
+
+. /root/os-master-x11-common.sh
+
+os_master_log "Attempting installer-side X11 installation"
+
+if os_master_install_x11 ""; then
+  os_master_seed_xinitrc /
+  os_master_log "Installer-side X11 installation complete"
+else
+  os_master_log "Installer-side X11 installation failed; continuing with text installer"
+fi
+
+exit 0

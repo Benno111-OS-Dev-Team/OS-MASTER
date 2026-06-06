@@ -1,7 +1,7 @@
 PRODUCT_NAME ?= os-master-freebsd
 FREEBSD_RELEASE ?= 14.4-RELEASE
 FREEBSD_ARCH ?= amd64
-FREEBSD_IMAGE_BASENAME ?= disc1.iso
+FREEBSD_IMAGE_BASENAME ?= dvd1.iso
 BUILD_DIR ?= build/freebsd
 OUTPUT_DIR ?= image
 
@@ -30,11 +30,11 @@ clean:
 	@rm -rf build image
 
 help:
-	@echo "OS-MASTER FreeBSD Wrapper"
+	@echo "OS-MASTER FreeBSD X11 Installer Wrapper"
 	@echo ""
 	@echo "Targets:"
-	@echo "  image  - Download, verify, and stage the official FreeBSD image"
-	@echo "  qemu   - Boot the staged amd64 installer image in QEMU"
+	@echo "  image  - Download, customize, and stage the FreeBSD installer image"
+	@echo "  qemu   - Boot the staged amd64 X11-enabled installer image in QEMU"
 	@echo "  clean  - Remove local build and image output"
 	@echo ""
 	@echo "Variables:"
