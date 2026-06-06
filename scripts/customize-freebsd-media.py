@@ -72,20 +72,39 @@ def stage_overlay_files(tmp_dir: Path) -> list[tuple[Path, str, int]]:
 
 def get_boot_replay_options(input_iso: Path) -> list[str]:
     result = subprocess.run(
-        ["xorriso", "-indev", str(input_iso), "-report_el_torito", "as_mkisofs"],
-        check=True,
+        [
+            "xorriso",
+            "-indev",
+            str(input_iso),
+            "-report_el_torito",
+            "as_mkisofs",
+            "-report_system_area",
+            "as_mkisofs",
+        ],
+        check=False,
         capture_output=True,
         text=True,
     )
 
     options: list[str] = []
-    for line in result.stdout.splitlines():
+    combined_output = "\n".join([result.stdout, result.stderr])
+
+    for line in combined_output.splitlines():
         stripped = line.strip()
         if stripped.startswith("-"):
             options.extend(shlex.split(stripped))
 
+    if result.returncode not in (0, 32):
+        raise SystemExit(
+            "[ERROR] xorriso could not report boot options from source ISO\n"
+            f"{combined_output}"
+        )
+
     if not options:
-        raise SystemExit("[ERROR] Could not determine boot options from source ISO")
+        raise SystemExit(
+            "[ERROR] Could not determine boot options from source ISO\n"
+            f"{combined_output}"
+        )
 
     return options
 
