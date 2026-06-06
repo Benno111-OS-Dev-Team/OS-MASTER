@@ -46,6 +46,14 @@ jobs:
           file "${OUTPUT_PREFIX}"
           file "${OUTPUT_PREFIX}.xz"
 
+      - name: Prepare release-sized assets
+        run: |
+          set -euxo pipefail
+          OUTPUT_PREFIX="image/${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}"
+          PART_PREFIX="${OUTPUT_PREFIX}.xz.part-"
+          split -b 1900m -d -a 3 "${OUTPUT_PREFIX}.xz" "${PART_PREFIX}"
+          ls -lh "${OUTPUT_PREFIX}.xz".part-*
+
       - name: Generate release notes
         run: |
           cat > release_notes.md << EOF
@@ -62,13 +70,17 @@ jobs:
 
           ## Files
 
-          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz\`
+          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz.part-000\`
+          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz.part-001\`
+          - additional \`.xz.part-*\` files when required
           - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.txt\`
 
           ## Notes
 
           - The raw \`.iso\` is built during CI validation.
-          - GitHub Releases only publishes the compressed \`.iso.xz\` plus the manifest because the raw DVD image exceeds the GitHub release asset size limit.
+          - GitHub Releases cannot store assets larger than 2 GiB, so the compressed DVD image is split into \`.xz.part-*\` chunks for publishing.
+          - Reassemble the compressed image with: \`cat ${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz.part-* > ${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz\`
+          - Then expand it with: \`xz -d ${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
@@ -87,7 +99,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.xz
+            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.xz.part-*
             image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
