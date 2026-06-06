@@ -1,7 +1,8 @@
 # UnixOS Userspace Makefile
 
 CC = clang
-CFLAGS = -target aarch64-unknown-none-elf \
+TARGET_TRIPLE ?= aarch64-unknown-none-elf
+CFLAGS = -target $(TARGET_TRIPLE) \
          -ffreestanding -fno-builtin \
          -nostdlib -nostdinc \
          -I../build/sysroot/usr/include \

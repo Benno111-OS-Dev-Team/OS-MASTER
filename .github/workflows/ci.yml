@@ -23,6 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ccache \
+            clang \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
             dosfstools \
@@ -48,6 +49,28 @@ jobs:
           set -euxo pipefail
           export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
           make -f Makefile.multiarch ARCH=x86_64 image
+
+      - name: Verify BSD-compatible userspace surface
+        env:
+          BSD_TARGET: aarch64-unknown-freebsd
+        run: |
+          set -euxo pipefail
+          clang --target="${BSD_TARGET}" -fsyntax-only -std=gnu11 \
+            -Ilibc/include \
+            -Ishared-api \
+            libc/src/syscall.c \
+            libc/src/stdlib.c \
+            libc/src/stdio.c \
+            libc/src/string.c \
+            libc/src/signal.c \
+            libc/src/errno.c
+          clang --target="${BSD_TARGET}" -fsyntax-only -std=gnu11 \
+            -Ilibc/include \
+            -Ishared-api \
+            -Ibuild/sdk/include/shared-api \
+            userspace/init/init.c \
+            userspace/login/login.c \
+            userspace/shell/shell.c
 
       - name: Build x86_64 Installer ISO
         if: ${{ false }}
@@ -87,6 +110,7 @@ jobs:
 
           - ARM64 ISO: skipped for now
           - x86_64 ISO: success
+          - BSD userspace compatibility check: success
           - x86_64 Installer ISO: skipped
 
           ## Bootable Media

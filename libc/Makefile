@@ -5,7 +5,8 @@ AS = clang
 AR = llvm-ar
 RANLIB = llvm-ranlib
 
-TARGET = --target=aarch64-linux-musl
+TARGET_TRIPLE ?= aarch64-linux-musl
+TARGET = --target=$(TARGET_TRIPLE)
 
 CFLAGS = $(TARGET) \
          -ffreestanding \
