@@ -24,6 +24,18 @@
 #include "toolbar_icons.h" /* Toolbar icons for image viewer */
 #include "types.h"
 
+#ifndef BUILD_STRING
+#define BUILD_STRING "unknown build"
+#endif
+
+#ifndef BUILD_BRANCH
+#define BUILD_BRANCH "unknown"
+#endif
+
+#ifndef BUILD_COMPILE_TIME
+#define BUILD_COMPILE_TIME "unknown"
+#endif
+
 #define GUI_DISPLAY_CONFIG_PATH "/System/display.cfg"
 #define GUI_THEME_CONFIG_PATH "/System/theme.cfg"
 #define GUI_THEME_DARK_PATH "/assets/themes/dark.theme"
@@ -140,6 +152,7 @@ int gui_are_blur_effects_enabled(void);
 int gui_is_gpu_rendering_enabled(void);
 void gui_start_partial_redraw_clear_debug(void);
 int gui_partial_redraw_clear_debug_enabled(void);
+static void compositor_mark_screen_rect_dirty(void);
 
 /* Blur/compositor state is defined later but used by early draw helpers. */
 static int g_blur_effects_requested;
