@@ -31,8 +31,7 @@ jobs:
             file \
             make \
             python3 \
-            python3-pip
-          python3 -m pip install pycdlib
+            xorriso
 
       - name: Stage customized FreeBSD image
         run: |

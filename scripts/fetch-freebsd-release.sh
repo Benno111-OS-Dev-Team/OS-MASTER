@@ -29,9 +29,8 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! "${PYTHON_BIN}" -c "import pycdlib" >/dev/null 2>&1; then
-  echo "[ERROR] pycdlib is required for ISO customization" >&2
-  echo "[ERROR] Install it with: ${PYTHON_BIN} -m pip install pycdlib" >&2
+if ! command -v xorriso >/dev/null 2>&1; then
+  echo "[ERROR] xorriso is required for ISO customization" >&2
   exit 1
 fi
 
