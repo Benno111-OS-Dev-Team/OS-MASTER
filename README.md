@@ -60,8 +60,14 @@ you can launch the default X11 session with:
 startx
 ```
 
-The seeded default session is a simple `twm` session from the `xorg` meta
-package.
+If the current shell has not reloaded its login profile yet, the direct path is:
+
+```sh
+/usr/local/bin/startx
+```
+
+The seeded default session launches the restored OS-MASTER desktop shell rather
+than plain `twm`.
 
 ## Build
 

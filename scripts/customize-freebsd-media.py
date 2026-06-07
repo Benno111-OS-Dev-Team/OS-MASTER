@@ -26,6 +26,8 @@ EXECUTABLE_RELATIVE_PATHS = {
 
 ADDITIONAL_FILES: list[tuple[Path, str, int]] = []
 DOTFILE_PATH_OVERRIDES = {
+    "root/dot.cshrc": "/root/.cshrc",
+    "root/dot.profile": "/root/.profile",
     "root/dot.xinitrc": "/root/.xinitrc",
 }
 
