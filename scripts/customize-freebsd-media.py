@@ -38,6 +38,7 @@ DOTFILE_PATH_OVERRIDES = {
     "root/dot.xsession": "/root/.xsession",
     "root/dot.xinitrc": "/root/.xinitrc",
 }
+OFFLINE_REPO_ENV_VAR = "OS_MASTER_OFFLINE_REPO_DIR"
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,6 +79,19 @@ def get_overlay_files() -> list[tuple[Path, str, int]]:
         )
 
     overlay_files.extend(ADDITIONAL_FILES)
+
+    offline_repo_dir = os.environ.get(OFFLINE_REPO_ENV_VAR, "").strip()
+    if offline_repo_dir:
+        repo_root = Path(offline_repo_dir).resolve()
+        if repo_root.is_dir():
+            for source in sorted(repo_root.rglob("*")):
+                if not source.is_file():
+                    continue
+                relative_path = source.relative_to(repo_root).as_posix()
+                overlay_files.append(
+                    (source, f"/usr/freebsd-packages/offline/{relative_path}", 0o644)
+                )
+
     return overlay_files
 
 

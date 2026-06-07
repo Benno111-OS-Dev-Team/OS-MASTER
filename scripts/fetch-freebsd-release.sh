@@ -10,6 +10,9 @@ BUILD_DIR="${BUILD_DIR:-build/freebsd}"
 OUTPUT_DIR="${OUTPUT_DIR:-image}"
 FREEBSD_SERIES="${FREEBSD_SERIES:-${FREEBSD_RELEASE%%-RELEASE}}"
 FREEBSD_BASE_URL="${FREEBSD_BASE_URL:-https://download.freebsd.org/releases/ISO-IMAGES/${FREEBSD_SERIES}}"
+FREEBSD_PKG_MAJOR="${FREEBSD_PKG_MAJOR:-${FREEBSD_SERIES%%.*}}"
+FREEBSD_PKG_ABI="${FREEBSD_PKG_ABI:-FreeBSD:${FREEBSD_PKG_MAJOR}:${FREEBSD_ARCH}}"
+FREEBSD_PKG_REPO_URL="${FREEBSD_PKG_REPO_URL:-https://pkg.freebsd.org/${FREEBSD_PKG_ABI}/quarterly}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 FREEBSD_CACHE_DIR="${FREEBSD_CACHE_DIR:-${BUILD_DIR}}"
 
@@ -26,8 +29,9 @@ artifact_xz_path="${FREEBSD_CACHE_DIR}/${artifact_xz}"
 artifact_raw_path="${FREEBSD_CACHE_DIR}/${artifact_raw}"
 checksum_path="${FREEBSD_CACHE_DIR}/${checksum_file}"
 customize_cache_root="${FREEBSD_CACHE_DIR}/customize-cache/${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}"
+offline_repo_root="${FREEBSD_CACHE_DIR}/offline-packages/${FREEBSD_RELEASE}-${FREEBSD_ARCH}"
 
-mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}" "${FREEBSD_CACHE_DIR}" "${customize_cache_root}"
+mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}" "${FREEBSD_CACHE_DIR}" "${customize_cache_root}" "${offline_repo_root}"
 
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   echo "[ERROR] ${PYTHON_BIN} is required" >&2
@@ -88,7 +92,13 @@ else
   xz -dc "${artifact_xz_path}" > "${artifact_raw_path}"
 fi
 
+echo "[FETCH] OS-MASTER desktop package repo"
+"${PYTHON_BIN}" ./scripts/fetch-freebsd-packages.py \
+  --repo-url "${FREEBSD_PKG_REPO_URL}" \
+  --output-dir "${offline_repo_root}"
+
 echo "[CUSTOMIZE] ${artifact_raw}"
+export OS_MASTER_OFFLINE_REPO_DIR="${offline_repo_root}"
 "${PYTHON_BIN}" ./scripts/customize-freebsd-media.py \
   --input "${artifact_raw_path}" \
   --cache-root "${customize_cache_root}" \
@@ -110,14 +120,17 @@ Image basename: ${FREEBSD_IMAGE_BASENAME}
 Series: ${FREEBSD_SERIES}
 Source image URL: ${artifact_url}
 Source checksum URL: ${checksum_url}
+Desktop package repo URL: ${FREEBSD_PKG_REPO_URL}
 Source SHA256 (${artifact_xz}): ${actual_sha256}
 Source archive cache: ${artifact_xz_path}
 Source extraction cache: ${customize_cache_root}
+Offline desktop package cache: ${offline_repo_root}
 Customized SHA256 (${output_prefix}): ${custom_iso_sha256}
 Customized SHA256 (${output_prefix}.xz): ${custom_xz_sha256}
 Customization:
   - installer-side X11 hook
   - installed-system X11 hook
+  - offline desktop package repo
   - seeded .xinitrc launching os-master-session
 EOF
 

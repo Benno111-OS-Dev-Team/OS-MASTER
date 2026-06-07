@@ -35,7 +35,7 @@ os_master_find_local_repo() {
     /usr/freebsd-packages/offline \
     /cdrom/packages
   do
-    if [ -d "${candidate}" ] && find "${candidate}" -maxdepth 2 \( -name '*.pkg' -o -name 'meta.conf' -o -name 'packagesite.pkg' -o -name 'packagesite.txz' \) | grep -q .; then
+    if [ -d "${candidate}" ] && find "${candidate}" -maxdepth 4 \( -name '*.pkg' -o -name 'meta.conf' -o -name 'packagesite.pkg' -o -name 'packagesite.txz' \) | grep -q .; then
       printf '%s\n' "${candidate}"
       return 0
     fi
@@ -45,7 +45,7 @@ os_master_find_local_repo() {
 
 os_master_repo_has_x11() {
   repo_dir="$1"
-  find "${repo_dir}" -maxdepth 2 -name 'xorg-*.pkg' | grep -q .
+  find "${repo_dir}" -maxdepth 4 -name 'xorg-*.pkg' | grep -q .
 }
 
 os_master_write_repo_conf() {
@@ -100,6 +100,7 @@ os_master_install_x11() {
   os_master_pkg "${rootdir}" install \
     xorg \
     xinit \
+    xdm \
     dbus \
     openbox \
     tint2 \
