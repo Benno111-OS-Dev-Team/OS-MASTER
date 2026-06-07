@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -eu
+
+BG_PATH="/usr/local/share/os-master-desktop/login/background.png"
+
+xsetroot -cursor_name left_ptr
+
+if command -v feh >/dev/null 2>&1 && [ -f "${BG_PATH}" ]; then
+  feh --no-fehbg --bg-fill "${BG_PATH}" >/dev/null 2>&1 &
+fi

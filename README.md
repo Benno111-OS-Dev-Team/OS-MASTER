@@ -48,6 +48,7 @@ The staged installer image now includes:
 - a loader splash bitmap during boot
 - a live X11 installer session for the installer environment
 - X11 installation into the installed FreeBSD system during `bsdinstall`
+- a graphical XDM login on the installed system
 - a first-boot retry service if the installed-system X11 package step could
   not complete during setup
 
@@ -63,8 +64,11 @@ desktop with shortcuts to:
 This still uses official `bsdinstall` underneath, but it is wrapped in a
 graphical X11 session.
 
-After logging into either the installer shell or the installed system shell,
-you can launch the default X11 session with:
+The installed system is configured to present a graphical login on `ttyv8`
+and launch the restored OS-MASTER desktop after sign-in.
+
+If you land in a shell instead, you can still launch the default X11 session
+manually with:
 
 ```sh
 startx

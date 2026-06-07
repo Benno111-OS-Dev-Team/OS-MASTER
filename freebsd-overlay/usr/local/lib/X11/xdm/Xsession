@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -eu
+
+if [ -x "$HOME/.xsession" ]; then
+  exec "$HOME/.xsession"
+fi
+
+if [ -f "$HOME/.xsession" ]; then
+  exec /bin/sh "$HOME/.xsession"
+fi
+
+exec /usr/local/bin/os-master-xsession

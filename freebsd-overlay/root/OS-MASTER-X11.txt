@@ -1,8 +1,9 @@
 OS-MASTER preinstalls X11 into the installer and the target system.
 The live media launches a graphical installer session, and the installed
 system restores the May 2026 desktop layout with the original wallpaper set,
-dock icons, and dark top bar.
+dock icons, dark top bar, and a graphical login screen.
 
-From a shell, launch the default session with:
+The installed system should present the desktop login on `ttyv8`.
+From a shell, the fallback launch command is:
 
   startx

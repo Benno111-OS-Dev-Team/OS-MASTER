@@ -26,6 +26,8 @@ os_master_x11_firstboot_start() {
   . "${helper}"
 
   if os_master_x11_is_installed ""; then
+    os_master_seed_desktop_login /
+    os_master_add_video_users /
     os_master_mark_x11_installed "${marker}"
     os_master_log "First-boot X11 retry skipped because X11 is already installed"
     return 0
@@ -34,7 +36,7 @@ os_master_x11_firstboot_start() {
   os_master_log "Attempting first-boot X11 installation on installed system"
 
   if os_master_install_x11 ""; then
-    os_master_seed_xinitrc /
+    os_master_seed_desktop_login /
     os_master_add_video_users /
     os_master_mark_x11_installed "${marker}"
     os_master_log "First-boot X11 installation complete"

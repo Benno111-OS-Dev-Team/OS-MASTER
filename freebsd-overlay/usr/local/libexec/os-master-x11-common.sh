@@ -100,6 +100,7 @@ os_master_install_x11() {
   os_master_pkg "${rootdir}" install \
     xorg \
     xinit \
+    dbus \
     openbox \
     tint2 \
     pcmanfm \
@@ -125,6 +126,86 @@ exec /usr/local/bin/os-master-session
 EOF
     chmod 0644 "${target_root}/usr/share/skel/dot.xinitrc"
   fi
+}
+
+os_master_seed_xsession() {
+  target_root="$1"
+
+  cat > "${target_root}/root/.xsession" <<'EOF'
+#!/bin/sh
+exec /usr/local/bin/os-master-xsession
+EOF
+  chmod 0644 "${target_root}/root/.xsession"
+
+  if [ -d "${target_root}/usr/share/skel" ]; then
+    cat > "${target_root}/usr/share/skel/dot.xsession" <<'EOF'
+#!/bin/sh
+exec /usr/local/bin/os-master-xsession
+EOF
+    chmod 0644 "${target_root}/usr/share/skel/dot.xsession"
+  fi
+}
+
+os_master_enable_rc_conf_flag() {
+  target_root="$1"
+  flag_name="$2"
+  flag_value="$3"
+  rc_conf_path="${target_root}/etc/rc.conf"
+  temp_path="${rc_conf_path}.tmp"
+
+  mkdir -p "$(dirname "${rc_conf_path}")"
+  if [ ! -f "${rc_conf_path}" ]; then
+    : > "${rc_conf_path}"
+  fi
+
+  awk -v name="${flag_name}" '$0 !~ ("^" name "=")' "${rc_conf_path}" > "${temp_path}"
+  printf '%s="%s"\n' "${flag_name}" "${flag_value}" >> "${temp_path}"
+  mv "${temp_path}" "${rc_conf_path}"
+}
+
+os_master_enable_dbus() {
+  target_root="$1"
+  os_master_enable_rc_conf_flag "${target_root}" "dbus_enable" "YES"
+}
+
+os_master_enable_graphical_login() {
+  target_root="$1"
+  ttys_path="${target_root}/etc/ttys"
+  temp_path="${ttys_path}.tmp"
+  xdm_line='ttyv8   "/usr/local/bin/xdm -nodaemon"  xterm   on  secure'
+
+  if [ ! -f "${ttys_path}" ]; then
+    return 0
+  fi
+
+  awk -v xdm_line="${xdm_line}" '
+    BEGIN {
+      replaced = 0
+    }
+    $1 == "ttyv8" {
+      print xdm_line
+      replaced = 1
+      next
+    }
+    {
+      print
+    }
+    END {
+      if (!replaced) {
+        print xdm_line
+      }
+    }
+  ' "${ttys_path}" > "${temp_path}"
+  mv "${temp_path}" "${ttys_path}"
+}
+
+os_master_seed_desktop_login() {
+  target_root="$1"
+
+  os_master_seed_xinitrc "${target_root}"
+  os_master_seed_xsession "${target_root}"
+  os_master_enable_dbus "${target_root}"
+  os_master_enable_graphical_login "${target_root}"
 }
 
 os_master_add_video_users() {

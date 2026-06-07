@@ -21,6 +21,16 @@ WALLPAPER_OUTPUT_PATH = (
     / "installer"
     / "wallpaper.png"
 )
+LOGIN_BACKGROUND_OUTPUT_PATH = (
+    ROOT
+    / "freebsd-overlay"
+    / "usr"
+    / "local"
+    / "share"
+    / "os-master-desktop"
+    / "login"
+    / "background.png"
+)
 
 
 def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -78,9 +88,46 @@ def generate_installer_wallpaper() -> None:
     canvas.convert("RGB").save(WALLPAPER_OUTPUT_PATH)
 
 
+def generate_login_background() -> None:
+    canvas_size = (1600, 900)
+    canvas = Image.new("RGBA", canvas_size, (4, 8, 16, 255))
+
+    if BOOTSCREEN_PATH.exists():
+        background = Image.open(BOOTSCREEN_PATH).convert("RGBA")
+        background = cover_resize(background, canvas_size)
+        background = background.filter(ImageFilter.GaussianBlur(radius=16))
+        background.putalpha(135)
+        canvas.alpha_composite(background)
+
+    overlay = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rectangle((0, 0, canvas_size[0], canvas_size[1]), fill=(4, 8, 16, 162))
+    draw.ellipse((1020, -120, 1680, 500), fill=(56, 189, 248, 70))
+    draw.ellipse((-240, 420, 520, 1160), fill=(244, 63, 94, 58))
+    draw.rounded_rectangle((470, 180, 1130, 720), radius=38, fill=(10, 15, 27, 178))
+    canvas.alpha_composite(overlay)
+
+    logo = Image.open(LOGO_PATH).convert("RGBA")
+    target_logo_width = 240
+    scale = target_logo_width / logo.width
+    logo = logo.resize((target_logo_width, int(logo.height * scale)), Image.LANCZOS)
+    logo_pos = ((canvas_size[0] - logo.width) // 2, 240)
+    canvas.alpha_composite(logo, logo_pos)
+
+    draw = ImageDraw.Draw(canvas)
+    draw.text((630, 430), "OS-MASTER", fill=(248, 250, 252, 255))
+    draw.text((545, 475), "Sign in to launch the restored desktop.", fill=(203, 213, 225, 255))
+    draw.rounded_rectangle((560, 560, 1040, 570), radius=5, fill=(248, 250, 252, 65))
+    draw.rounded_rectangle((560, 560, 760, 570), radius=5, fill=(248, 250, 252, 210))
+
+    LOGIN_BACKGROUND_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    canvas.convert("RGB").save(LOGIN_BACKGROUND_OUTPUT_PATH)
+
+
 def main() -> int:
     generate_boot_splash()
     generate_installer_wallpaper()
+    generate_login_background()
     return 0
 
 

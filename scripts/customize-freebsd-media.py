@@ -21,15 +21,19 @@ EXECUTABLE_RELATIVE_PATHS = {
     "usr/local/bin/os-master-installer-session",
     "usr/local/bin/os-master-installer-ui",
     "usr/local/bin/os-master-session",
+    "usr/local/bin/os-master-xsession",
     "usr/local/bin/os-master-launch",
     "usr/local/etc/rc.d/os_master_x11_firstboot",
     "usr/local/libexec/os-master-x11-common.sh",
+    "usr/local/lib/X11/xdm/Xsession",
+    "usr/local/lib/X11/xdm/Xsetup_0",
 }
 
 ADDITIONAL_FILES: list[tuple[Path, str, int]] = []
 DOTFILE_PATH_OVERRIDES = {
     "root/dot.cshrc": "/root/.cshrc",
     "root/dot.profile": "/root/.profile",
+    "root/dot.xsession": "/root/.xsession",
     "root/dot.xinitrc": "/root/.xinitrc",
 }
 

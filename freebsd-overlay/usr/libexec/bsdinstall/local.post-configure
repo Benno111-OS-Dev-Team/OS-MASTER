@@ -13,7 +13,7 @@ fi
 os_master_log "Attempting target-system X11 installation into ${target_root}"
 
 if os_master_install_x11 "${target_root}"; then
-  os_master_seed_xinitrc "${target_root}"
+  os_master_seed_desktop_login "${target_root}"
   os_master_add_video_users "${target_root}"
   os_master_mark_x11_installed "${target_root}/var/db/os-master/x11-installed"
   os_master_log "Target-system X11 installation complete"
