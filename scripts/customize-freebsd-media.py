@@ -209,6 +209,24 @@ def apply_overlay(extract_root: Path, staged_files: list[tuple[Path, str, int]])
         destination.chmod(file_mode)
 
 
+def patch_live_installer_ttys(extract_root: Path) -> None:
+    ttys_path = extract_root / "etc" / "ttys"
+
+    if not ttys_path.is_file():
+        return
+
+    lines = ttys_path.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("ttyv0\t") and '"/usr/libexec/getty Pc"' in line:
+            updated_lines.append('ttyv0\t"/usr/libexec/getty al.Pc"\txterm\tonifexists secure')
+        else:
+            updated_lines.append(line)
+
+    ttys_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+
 def stage_boot_files(extract_root: Path, boot_root: Path) -> tuple[str, str]:
     source_bios = boot_root / "eltorito_img1_bios.img"
     source_efi = boot_root / "gpt_part2_efi.img"
@@ -361,6 +379,7 @@ def main() -> int:
             extract_root.mkdir(parents=True)
             extract_iso_tree(input_iso, extract_root)
         apply_overlay(extract_root, staged_files)
+        patch_live_installer_ttys(extract_root)
         build_repacked_iso(input_iso, extract_root, output_iso, boot_root)
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
