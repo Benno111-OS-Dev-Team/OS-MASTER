@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import shlex
@@ -79,43 +80,60 @@ def stage_overlay_files(tmp_dir: Path) -> list[tuple[Path, str, int]]:
     return staged
 
 
-def get_boot_replay_options(input_iso: Path) -> list[str]:
+def get_source_boot_config(input_iso: Path) -> dict[str, str]:
     result = subprocess.run(
         [
             "xorriso",
             "-indev",
             str(input_iso),
-            "-report_el_torito",
-            "as_mkisofs",
             "-report_system_area",
-            "as_mkisofs",
+            "cmd",
+            "-report_el_torito",
+            "plain",
+            "-end",
         ],
         check=False,
         capture_output=True,
         text=True,
     )
 
-    options: list[str] = []
     combined_output = "\n".join([result.stdout, result.stderr])
+    volume_id = ""
+    modification_date = ""
+    bios_load_size = "4"
 
     for line in combined_output.splitlines():
         stripped = line.strip()
-        if stripped.startswith("-"):
-            options.extend(shlex.split(stripped))
+        if stripped.startswith("-volid ") and not volume_id:
+            parts = shlex.split(stripped)
+            if len(parts) >= 2:
+                volume_id = parts[1]
+        elif stripped.startswith("-volume_date uuid ") and not modification_date:
+            parts = shlex.split(stripped)
+            if len(parts) >= 3:
+                modification_date = parts[2]
+        elif "El Torito boot img" in stripped and "BIOS" in stripped:
+            match = re.search(r"BIOS\s+\w+\s+\w+\s+0x[0-9a-fA-F]+\s+0x[0-9a-fA-F]+\s+(\d+)\s+\d+$", stripped)
+            if match:
+                bios_load_size = match.group(1)
 
     if result.returncode not in (0, 32):
         raise SystemExit(
-            "[ERROR] xorriso could not report boot options from source ISO\n"
+            "[ERROR] xorriso could not report source boot configuration\n"
             f"{combined_output}"
         )
 
-    if not options:
+    if not volume_id:
         raise SystemExit(
-            "[ERROR] Could not determine boot options from source ISO\n"
+            "[ERROR] Could not determine source ISO volume ID\n"
             f"{combined_output}"
         )
 
-    return options
+    return {
+        "volume_id": volume_id,
+        "modification_date": modification_date,
+        "bios_load_size": bios_load_size,
+    }
 
 
 def extract_iso_tree(input_iso: Path, extract_root: Path) -> None:
@@ -129,6 +147,22 @@ def extract_iso_tree(input_iso: Path, extract_root: Path) -> None:
             "-extract",
             "/",
             str(extract_root),
+            "-end",
+        ],
+        check=True,
+    )
+
+
+def extract_boot_images(input_iso: Path, boot_root: Path) -> None:
+    subprocess.run(
+        [
+            "xorriso",
+            "-osirrox",
+            "on",
+            "-indev",
+            str(input_iso),
+            "-extract_boot_images",
+            str(boot_root),
             "-end",
         ],
         check=True,
@@ -163,8 +197,36 @@ def apply_overlay(extract_root: Path, staged_files: list[tuple[Path, str, int]])
         destination.chmod(file_mode)
 
 
-def build_repacked_iso(input_iso: Path, extract_root: Path, output_iso: Path) -> None:
-    options = get_boot_replay_options(input_iso)
+def stage_boot_files(extract_root: Path, boot_root: Path) -> tuple[str, str]:
+    source_bios = boot_root / "eltorito_img1_bios.img"
+    source_efi = boot_root / "gpt_part2_efi.img"
+    source_system_area = boot_root / "systemarea.img"
+
+    if not source_bios.is_file():
+        raise SystemExit(f"[ERROR] Missing extracted BIOS boot image: {source_bios}")
+    if not source_efi.is_file():
+        raise SystemExit(f"[ERROR] Missing extracted EFI boot image: {source_efi}")
+    if not source_system_area.is_file():
+        raise SystemExit(f"[ERROR] Missing extracted system area image: {source_system_area}")
+
+    iso_boot_dir = extract_root / ".os-master-boot"
+    shutil.rmtree(iso_boot_dir, ignore_errors=True)
+    iso_boot_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_bios, iso_boot_dir / "eltorito_img1_bios.img")
+    return (".os-master-boot/eltorito_img1_bios.img", ".os-master-boot/eltorito_catalog.img")
+
+
+def build_repacked_iso(
+    input_iso: Path,
+    extract_root: Path,
+    output_iso: Path,
+    boot_root: Path,
+) -> None:
+    boot_config = get_source_boot_config(input_iso)
+    bios_iso_path, catalog_iso_path = stage_boot_files(extract_root, boot_root)
+    systemarea_path = boot_root / "systemarea.img"
+    efi_partition_path = boot_root / "gpt_part2_efi.img"
+
     command = [
         "xorriso",
         "-as",
@@ -174,9 +236,44 @@ def build_repacked_iso(input_iso: Path, extract_root: Path, output_iso: Path) ->
         "-joliet-long",
         "-o",
         str(output_iso),
-        *options,
-        str(extract_root),
+        "-V",
+        boot_config["volume_id"],
     ]
+    if boot_config["modification_date"]:
+        command.append(f"--modification-date={boot_config['modification_date']}")
+    command.extend(
+        [
+            "--protective-msdos-label",
+            "-partition_cyl_align",
+            "off",
+            "-partition_offset",
+            "0",
+            "--gpt-iso-not-ro",
+            "-G",
+            str(systemarea_path),
+            "-append_partition",
+            "2",
+            "0xef",
+            str(efi_partition_path),
+            "-c",
+            catalog_iso_path,
+            "--boot-catalog-hide",
+            "-b",
+            bios_iso_path,
+            "-no-emul-boot",
+            "-boot-load-size",
+            boot_config["bios_load_size"],
+            "-eltorito-alt-boot",
+            "-e",
+            "--interval:appended_partition_2:all::",
+            "-no-emul-boot",
+        ]
+    )
+    command.extend(
+        [
+        str(extract_root),
+        ]
+    )
     subprocess.run(command, check=True)
 
 
@@ -227,18 +324,24 @@ def main() -> int:
         cache_root.mkdir(parents=True, exist_ok=True)
         temp_root = cache_root / "overlay-staging"
         extract_root = cache_root / "work-extract"
+        boot_root = cache_root / "boot-images"
     else:
         temp_root = output_iso.parent / ".overlay-staging"
         extract_root = output_iso.parent / ".iso-extract"
+        boot_root = output_iso.parent / ".boot-images"
 
     if temp_root.exists():
         shutil.rmtree(temp_root)
     if extract_root.exists():
         shutil.rmtree(extract_root)
+    if boot_root.exists():
+        shutil.rmtree(boot_root)
     temp_root.mkdir(parents=True)
+    boot_root.mkdir(parents=True)
 
     try:
         staged_files = stage_overlay_files(temp_root)
+        extract_boot_images(input_iso, boot_root)
         if cache_root is not None:
             source_extract_root = ensure_cached_extract(input_iso, cache_root)
             clone_tree(source_extract_root, extract_root)
@@ -246,10 +349,11 @@ def main() -> int:
             extract_root.mkdir(parents=True)
             extract_iso_tree(input_iso, extract_root)
         apply_overlay(extract_root, staged_files)
-        build_repacked_iso(input_iso, extract_root, output_iso)
+        build_repacked_iso(input_iso, extract_root, output_iso, boot_root)
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
         shutil.rmtree(extract_root, ignore_errors=True)
+        shutil.rmtree(boot_root, ignore_errors=True)
 
     return 0
 
