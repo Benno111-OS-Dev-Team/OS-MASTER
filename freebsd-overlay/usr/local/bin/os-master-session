@@ -1,0 +1,51 @@
+#!/bin/sh
+
+set -eu
+
+DATA_DIR="/usr/local/share/os-master-desktop"
+CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
+STATE_DIR="${CONFIG_HOME}/os-master-desktop"
+DESKTOP_DIR="${HOME}/Desktop"
+
+copy_managed_file() {
+  source_path="$1"
+  target_path="$2"
+
+  mkdir -p "$(dirname "${target_path}")"
+  cp "${source_path}" "${target_path}"
+}
+
+seed_desktop_launchers() {
+  mkdir -p "${DESKTOP_DIR}"
+
+  for launcher in "${DATA_DIR}"/applications/*.desktop; do
+    [ -f "${launcher}" ] || continue
+    cp "${launcher}" "${DESKTOP_DIR}/$(basename "${launcher}")"
+    chmod 0755 "${DESKTOP_DIR}/$(basename "${launcher}")"
+  done
+}
+
+seed_user_config() {
+  mkdir -p "${STATE_DIR}"
+
+  copy_managed_file "${DATA_DIR}/session/Xresources" "${HOME}/.Xresources"
+  copy_managed_file "${DATA_DIR}/session/tint2rc" "${CONFIG_HOME}/tint2/tint2rc"
+  copy_managed_file "${DATA_DIR}/session/pcmanfm-desktop-items-0.conf" "${CONFIG_HOME}/pcmanfm/default/desktop-items-0.conf"
+  copy_managed_file "${DATA_DIR}/session/pcmanfm.conf" "${CONFIG_HOME}/pcmanfm/default/pcmanfm.conf"
+  copy_managed_file "${DATA_DIR}/session/libfm.conf" "${CONFIG_HOME}/libfm/libfm.conf"
+}
+
+start_desktop_services() {
+  xrdb -merge "${HOME}/.Xresources"
+  xsetroot -cursor_name left_ptr
+  feh --no-fehbg --bg-fill "${DATA_DIR}/wallpapers/default.jpg"
+  pcmanfm --desktop --profile=default >/tmp/os-master-pcmanfm.log 2>&1 &
+  tint2 >/tmp/os-master-tint2.log 2>&1 &
+}
+
+mkdir -p "${CONFIG_HOME}"
+seed_user_config
+seed_desktop_launchers
+start_desktop_services
+
+exec openbox

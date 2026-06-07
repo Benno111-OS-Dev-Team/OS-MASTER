@@ -1,4 +1,6 @@
 OS-MASTER preinstalls X11 into the installer and the target system.
+The default session restores the May 2026 desktop layout with the original
+wallpaper set, dock icons, and dark top bar.
 
 From a shell, launch the default session with:
 

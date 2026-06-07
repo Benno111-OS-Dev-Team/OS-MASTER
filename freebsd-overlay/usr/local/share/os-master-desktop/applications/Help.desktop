@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Help
+Exec=/usr/local/bin/os-master-launch help
+Icon=/usr/local/share/os-master-desktop/icons/dock_help.png
+Terminal=false
+Categories=Documentation;

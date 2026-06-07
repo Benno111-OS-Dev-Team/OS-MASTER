@@ -12,38 +12,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OVERLAY_ROOT = ROOT / "freebsd-overlay"
 
-OVERLAY_FILES = [
-    (
-        OVERLAY_ROOT / "root" / "os-master-x11-common.sh",
-        "/root/os-master-x11-common.sh",
-        0o755,
-    ),
-    (
-        OVERLAY_ROOT / "root" / "dot.xinitrc",
-        "/root/.xinitrc",
-        0o644,
-    ),
-    (
-        OVERLAY_ROOT / "root" / "OS-MASTER-X11.txt",
-        "/root/OS-MASTER-X11.txt",
-        0o644,
-    ),
-    (
-        OVERLAY_ROOT / "usr" / "libexec" / "bsdinstall" / "local.pre-everything",
-        "/usr/libexec/bsdinstall/local.pre-everything",
-        0o755,
-    ),
-    (
-        OVERLAY_ROOT / "usr" / "libexec" / "bsdinstall" / "local.post-configure",
-        "/usr/libexec/bsdinstall/local.post-configure",
-        0o755,
-    ),
-    (
-        OVERLAY_ROOT / "usr" / "share" / "skel" / "dot.xinitrc",
-        "/usr/share/skel/dot.xinitrc",
-        0o644,
-    ),
-]
+EXECUTABLE_RELATIVE_PATHS = {
+    "root/os-master-x11-common.sh",
+    "usr/libexec/bsdinstall/local.pre-everything",
+    "usr/libexec/bsdinstall/local.post-configure",
+    "usr/local/bin/os-master-session",
+    "usr/local/bin/os-master-launch",
+}
+
+ADDITIONAL_FILES: list[tuple[Path, str, int]] = []
+DOTFILE_PATH_OVERRIDES = {
+    "root/dot.xinitrc": "/root/.xinitrc",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,10 +40,34 @@ def require_tool(name: str) -> None:
         raise SystemExit(f"[ERROR] Required tool not found: {name}")
 
 
+def iso_path_from_relative_path(relative_path: str) -> str:
+    override = DOTFILE_PATH_OVERRIDES.get(relative_path)
+    if override:
+        return override
+    return f"/{relative_path}"
+
+
+def get_overlay_files() -> list[tuple[Path, str, int]]:
+    overlay_files: list[tuple[Path, str, int]] = []
+
+    for source in sorted(OVERLAY_ROOT.rglob("*")):
+        if not source.is_file():
+            continue
+        relative_path = source.relative_to(OVERLAY_ROOT).as_posix()
+        file_mode = 0o755 if relative_path in EXECUTABLE_RELATIVE_PATHS else 0o644
+        overlay_files.append(
+            (source, iso_path_from_relative_path(relative_path), file_mode)
+        )
+
+    overlay_files.extend(ADDITIONAL_FILES)
+    return overlay_files
+
+
 def stage_overlay_files(tmp_dir: Path) -> list[tuple[Path, str, int]]:
     staged: list[tuple[Path, str, int]] = []
-    for source, iso_path, file_mode in OVERLAY_FILES:
-        destination = tmp_dir / source.name
+    for source, iso_path, file_mode in get_overlay_files():
+        destination = tmp_dir / iso_path.lstrip("/")
+        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         destination.chmod(file_mode)
         staged.append((destination, iso_path, file_mode))

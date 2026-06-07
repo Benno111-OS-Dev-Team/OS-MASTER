@@ -79,7 +79,16 @@ os_master_install_x11() {
   fi
 
   os_master_pkg "${rootdir}" update -f
-  os_master_pkg "${rootdir}" install xorg xinit
+  os_master_pkg "${rootdir}" install \
+    xorg \
+    xinit \
+    openbox \
+    tint2 \
+    pcmanfm \
+    xterm \
+    feh \
+    dejavu \
+    liberation-fonts-ttf
 }
 
 os_master_seed_xinitrc() {
@@ -87,14 +96,14 @@ os_master_seed_xinitrc() {
 
   cat > "${target_root}/root/.xinitrc" <<'EOF'
 #!/bin/sh
-exec twm
+exec /usr/local/bin/os-master-session
 EOF
   chmod 0644 "${target_root}/root/.xinitrc"
 
   if [ -d "${target_root}/usr/share/skel" ]; then
     cat > "${target_root}/usr/share/skel/dot.xinitrc" <<'EOF'
 #!/bin/sh
-exec twm
+exec /usr/local/bin/os-master-session
 EOF
     chmod 0644 "${target_root}/usr/share/skel/dot.xinitrc"
   fi
