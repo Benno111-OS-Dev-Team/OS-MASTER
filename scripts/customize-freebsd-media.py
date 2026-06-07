@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import shlex
@@ -32,6 +33,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--input", required=True, help="Path to the verified upstream ISO")
     parser.add_argument("--output", required=True, help="Path to write the customized ISO")
+    parser.add_argument(
+        "--cache-root",
+        help="Optional directory for persistent extracted-tree cache and working files",
+    )
     return parser.parse_args()
 
 
@@ -130,11 +135,30 @@ def extract_iso_tree(input_iso: Path, extract_root: Path) -> None:
     )
 
 
+def hardlink_or_copy(source: str, destination: str) -> str:
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+    return destination
+
+
+def clone_tree(source_root: Path, destination_root: Path) -> None:
+    shutil.copytree(
+        source_root,
+        destination_root,
+        symlinks=True,
+        copy_function=hardlink_or_copy,
+    )
+
+
 def apply_overlay(extract_root: Path, staged_files: list[tuple[Path, str, int]]) -> None:
     for source, iso_path, file_mode in staged_files:
         relative_path = iso_path.lstrip("/")
         destination = extract_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() or destination.is_symlink():
+            destination.unlink()
         shutil.copy2(source, destination)
         destination.chmod(file_mode)
 
@@ -156,6 +180,38 @@ def build_repacked_iso(input_iso: Path, extract_root: Path, output_iso: Path) ->
     subprocess.run(command, check=True)
 
 
+def source_cache_identity(input_iso: Path) -> str:
+    stat_result = input_iso.stat()
+    return f"{input_iso.name}|{stat_result.st_size}|{stat_result.st_mtime_ns}"
+
+
+def ensure_cached_extract(input_iso: Path, cache_root: Path) -> Path:
+    cache_extract_root = cache_root / "source-extract"
+    cache_identity_path = cache_root / "source-extract.id"
+    current_identity = source_cache_identity(input_iso)
+    cached_identity = ""
+
+    if cache_identity_path.exists():
+        cached_identity = cache_identity_path.read_text(encoding="utf-8").strip()
+
+    if cache_extract_root.exists() and cached_identity == current_identity:
+        return cache_extract_root
+
+    refresh_root = cache_root / "source-extract.refresh"
+    shutil.rmtree(refresh_root, ignore_errors=True)
+    refresh_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        extract_iso_tree(input_iso, refresh_root)
+        cache_identity_path.write_text(current_identity, encoding="utf-8")
+        shutil.rmtree(cache_extract_root, ignore_errors=True)
+        refresh_root.replace(cache_extract_root)
+    finally:
+        shutil.rmtree(refresh_root, ignore_errors=True)
+
+    return cache_extract_root
+
+
 def main() -> int:
     args = parse_args()
     require_tool("xorriso")
@@ -166,18 +222,29 @@ def main() -> int:
     if output_iso.exists():
         output_iso.unlink()
 
-    temp_root = output_iso.parent / ".overlay-staging"
-    extract_root = output_iso.parent / ".iso-extract"
+    cache_root = Path(args.cache_root).resolve() if args.cache_root else None
+    if cache_root is not None:
+        cache_root.mkdir(parents=True, exist_ok=True)
+        temp_root = cache_root / "overlay-staging"
+        extract_root = cache_root / "work-extract"
+    else:
+        temp_root = output_iso.parent / ".overlay-staging"
+        extract_root = output_iso.parent / ".iso-extract"
+
     if temp_root.exists():
         shutil.rmtree(temp_root)
     if extract_root.exists():
         shutil.rmtree(extract_root)
     temp_root.mkdir(parents=True)
-    extract_root.mkdir(parents=True)
 
     try:
         staged_files = stage_overlay_files(temp_root)
-        extract_iso_tree(input_iso, extract_root)
+        if cache_root is not None:
+            source_extract_root = ensure_cached_extract(input_iso, cache_root)
+            clone_tree(source_extract_root, extract_root)
+        else:
+            extract_root.mkdir(parents=True)
+            extract_iso_tree(input_iso, extract_root)
         apply_overlay(extract_root, staged_files)
         build_repacked_iso(input_iso, extract_root, output_iso)
     finally:

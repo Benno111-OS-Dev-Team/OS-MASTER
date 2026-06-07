@@ -5,6 +5,7 @@ param(
     [string]$FreebsdImageBasename = "dvd1.iso",
     [string]$BuildDir = "build/freebsd",
     [string]$OutputDir = "image",
+    [string]$WslCacheRoot = "~/.cache/os-master-freebsd",
     [switch]$SkipDependencyInstall
 )
 
@@ -21,6 +22,8 @@ Require-Command "wsl.exe"
 
 $repoWindowsPath = (Get-Location).Path
 $repoWslPath = (wsl.exe -e wslpath -a $repoWindowsPath).Trim()
+$cacheKey = "$FreebsdRelease-$FreebsdArch-$FreebsdImageBasename"
+$wslCachePath = "$WslCacheRoot/$cacheKey"
 
 if (-not $SkipDependencyInstall) {
     Write-Host "[SETUP] Installing local WSL build dependencies..."
@@ -50,10 +53,12 @@ FREEBSD_ARCH='$FreebsdArch' \
 FREEBSD_IMAGE_BASENAME='$FreebsdImageBasename' \
 BUILD_DIR='$BuildDir' \
 OUTPUT_DIR='$OutputDir' \
+FREEBSD_CACHE_DIR='$wslCachePath' \
 bash ./scripts/fetch-freebsd-release.sh
 "@
 
 Write-Host "[BUILD] Running FreeBSD image build in WSL..."
+Write-Host "[BUILD] Reusing cached source media from $wslCachePath when available."
 wsl.exe -e sh -lc $wslCommand
 if ($LASTEXITCODE -ne 0) {
     throw "WSL build failed with exit code $LASTEXITCODE"

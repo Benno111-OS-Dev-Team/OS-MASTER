@@ -11,6 +11,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-image}"
 FREEBSD_SERIES="${FREEBSD_SERIES:-${FREEBSD_RELEASE%%-RELEASE}}"
 FREEBSD_BASE_URL="${FREEBSD_BASE_URL:-https://download.freebsd.org/releases/ISO-IMAGES/${FREEBSD_SERIES}}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+FREEBSD_CACHE_DIR="${FREEBSD_CACHE_DIR:-${BUILD_DIR}}"
 
 artifact_xz="FreeBSD-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz"
 artifact_raw="${artifact_xz%.xz}"
@@ -21,8 +22,12 @@ output_prefix="${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAG
 output_iso="${OUTPUT_DIR}/${output_prefix}"
 output_xz="${OUTPUT_DIR}/${output_prefix}.xz"
 output_manifest="${OUTPUT_DIR}/${output_prefix}.txt"
+artifact_xz_path="${FREEBSD_CACHE_DIR}/${artifact_xz}"
+artifact_raw_path="${FREEBSD_CACHE_DIR}/${artifact_raw}"
+checksum_path="${FREEBSD_CACHE_DIR}/${checksum_file}"
+customize_cache_root="${FREEBSD_CACHE_DIR}/customize-cache/${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}"
 
-mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}"
+mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}" "${FREEBSD_CACHE_DIR}" "${customize_cache_root}"
 
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   echo "[ERROR] ${PYTHON_BIN} is required" >&2
@@ -34,14 +39,15 @@ if ! command -v xorriso >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[FETCH] ${artifact_url}"
-curl -fL --retry 3 --retry-delay 2 -o "${BUILD_DIR}/${artifact_xz}" "${artifact_url}"
-
-echo "[FETCH] ${checksum_url}"
-curl -fL --retry 3 --retry-delay 2 -o "${BUILD_DIR}/${checksum_file}" "${checksum_url}"
+if [ ! -f "${checksum_path}" ]; then
+  echo "[FETCH] ${checksum_url}"
+  curl -fL --retry 3 --retry-delay 2 -o "${checksum_path}" "${checksum_url}"
+else
+  echo "[CACHE] Reusing ${checksum_path}"
+fi
 
 expected_sha256="$(
-  grep -F "(${artifact_xz})" "${BUILD_DIR}/${checksum_file}" | awk '{print $4}'
+  grep -F "(${artifact_xz})" "${checksum_path}" | awk '{print $4}'
 )"
 
 if [ -z "${expected_sha256}" ]; then
@@ -49,7 +55,22 @@ if [ -z "${expected_sha256}" ]; then
   exit 1
 fi
 
-actual_sha256="$(sha256sum "${BUILD_DIR}/${artifact_xz}" | awk '{print $1}')"
+if [ -f "${artifact_xz_path}" ]; then
+  actual_sha256="$(sha256sum "${artifact_xz_path}" | awk '{print $1}')"
+  if [ "${actual_sha256}" = "${expected_sha256}" ]; then
+    echo "[CACHE] Reusing verified ${artifact_xz_path}"
+  else
+    echo "[CACHE] Cached archive checksum mismatch; refetching ${artifact_xz}"
+    rm -f "${artifact_xz_path}"
+  fi
+fi
+
+if [ ! -f "${artifact_xz_path}" ]; then
+  echo "[FETCH] ${artifact_url}"
+  curl -fL --retry 3 --retry-delay 2 -o "${artifact_xz_path}" "${artifact_url}"
+fi
+
+actual_sha256="$(sha256sum "${artifact_xz_path}" | awk '{print $1}')"
 
 if [ "${actual_sha256}" != "${expected_sha256}" ]; then
   echo "[ERROR] SHA256 mismatch for ${artifact_xz}" >&2
@@ -60,12 +81,17 @@ fi
 
 echo "[VERIFY] SHA256 OK"
 
-echo "[EXPAND] ${artifact_xz}"
-xz -dc "${BUILD_DIR}/${artifact_xz}" > "${BUILD_DIR}/${artifact_raw}"
+if [ -s "${artifact_raw_path}" ] && [ "${artifact_raw_path}" -nt "${artifact_xz_path}" ]; then
+  echo "[CACHE] Reusing expanded ${artifact_raw_path}"
+else
+  echo "[EXPAND] ${artifact_xz}"
+  xz -dc "${artifact_xz_path}" > "${artifact_raw_path}"
+fi
 
 echo "[CUSTOMIZE] ${artifact_raw}"
 "${PYTHON_BIN}" ./scripts/customize-freebsd-media.py \
-  --input "${BUILD_DIR}/${artifact_raw}" \
+  --input "${artifact_raw_path}" \
+  --cache-root "${customize_cache_root}" \
   --output "${output_iso}"
 
 echo "[COMPRESS] ${output_iso}"
@@ -85,12 +111,14 @@ Series: ${FREEBSD_SERIES}
 Source image URL: ${artifact_url}
 Source checksum URL: ${checksum_url}
 Source SHA256 (${artifact_xz}): ${actual_sha256}
+Source archive cache: ${artifact_xz_path}
+Source extraction cache: ${customize_cache_root}
 Customized SHA256 (${output_prefix}): ${custom_iso_sha256}
 Customized SHA256 (${output_prefix}.xz): ${custom_xz_sha256}
 Customization:
   - installer-side X11 hook
   - installed-system X11 hook
-  - seeded .xinitrc launching twm
+  - seeded .xinitrc launching os-master-session
 EOF
 
 echo "[DONE] Staged ${output_iso}"
