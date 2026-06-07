@@ -6,3 +6,10 @@ case ":${PATH:-}:" in
 esac
 
 export PATH
+
+if [ -z "${DISPLAY:-}" ] && [ -z "${SSH_TTY:-}" ] && [ -t 0 ] && [ -x /usr/local/bin/startx ] && [ ! -f /var/db/os-master/firstboot-setup-complete ]; then
+  if [ ! -f /tmp/os-master-autostartx.lock ]; then
+    : > /tmp/os-master-autostartx.lock
+    exec /usr/local/bin/startx
+  fi
+fi

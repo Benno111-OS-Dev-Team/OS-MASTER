@@ -199,6 +199,14 @@ os_master_enable_graphical_login() {
   mv "${temp_path}" "${ttys_path}"
 }
 
+os_master_activate_graphical_login() {
+  if command -v service >/dev/null 2>&1; then
+    service dbus onestart >/dev/null 2>&1 || true
+  fi
+
+  kill -HUP 1 >/dev/null 2>&1 || true
+}
+
 os_master_seed_desktop_login() {
   target_root="$1"
 
