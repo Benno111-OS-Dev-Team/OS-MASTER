@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Live Shell
+Exec=/usr/local/bin/os-master-launch live-shell
+Icon=/usr/local/share/os-master-desktop/icons/dock_terminal.png
+Terminal=false
+Categories=System;TerminalEmulator;

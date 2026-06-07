@@ -18,6 +18,8 @@ EXECUTABLE_RELATIVE_PATHS = {
     "root/os-master-x11-common.sh",
     "usr/libexec/bsdinstall/local.pre-everything",
     "usr/libexec/bsdinstall/local.post-configure",
+    "usr/local/bin/os-master-installer-session",
+    "usr/local/bin/os-master-installer-ui",
     "usr/local/bin/os-master-session",
     "usr/local/bin/os-master-launch",
     "usr/local/etc/rc.d/os_master_x11_firstboot",

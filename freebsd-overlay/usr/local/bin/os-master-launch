@@ -5,6 +5,12 @@ set -eu
 app_id="${1:-}"
 
 case "${app_id}" in
+  install)
+    exec xterm -fa "DejaVu Sans Mono" -fs 11 -geometry 132x38 -bg "#0f172a" -fg "#e5e7eb" -bc -title "OS-MASTER Installer" -e sh -lc 'clear; printf "\nOS-MASTER Graphical Installer\n"; printf "============================\n\n"; printf "The FreeBSD text installer will open in this window.\n"; printf "When it finishes, return here to review the result.\n\n"; /usr/sbin/bsdinstall; status=$?; printf "\nInstaller exited with status %s.\n" "$status"; printf "Press Enter to close this window."; read _; exit "$status"'
+    ;;
+  live-shell)
+    exec xterm -fa "DejaVu Sans Mono" -fs 11 -bg "#111827" -fg "#e5e7eb" -bc -title "Live Shell"
+    ;;
   terminal)
     exec xterm -fa "DejaVu Sans Mono" -fs 11 -bg "#111827" -fg "#e5e7eb" -bc -title "Terminal"
     ;;
@@ -27,6 +33,12 @@ case "${app_id}" in
     ;;
   help)
     exec xterm -fa "DejaVu Sans Mono" -fs 11 -bg "#111827" -fg "#e5e7eb" -bc -title "Help" -e sh -lc 'printf "Launch the desktop with:\n  startx\n\nDock and wallpaper are seeded automatically.\n\nPress Enter to close."; read _'
+    ;;
+  installer-help)
+    exec xterm -fa "DejaVu Sans Mono" -fs 11 -geometry 108x28 -bg "#111827" -fg "#e5e7eb" -bc -title "Installer Help" -e sh -lc 'printf "OS-MASTER Graphical Installer\n============================\n\n1. Choose Install OS-MASTER to launch bsdinstall in a graphical terminal.\n2. Complete the normal FreeBSD install steps.\n3. On the installed system, X11 will be installed during setup or retried on first boot.\n4. After login, launch the desktop with:\n   startx\n\nPress Enter to close."; read _'
+    ;;
+  reboot)
+    exec xterm -fa "DejaVu Sans Mono" -fs 11 -geometry 80x12 -bg "#111827" -fg "#e5e7eb" -bc -title "Reboot" -e sh -lc 'printf "Rebooting the live installer...\n"; sleep 1; exec /sbin/shutdown -r now'
     ;;
   *)
     exec xterm -fa "DejaVu Sans Mono" -fs 11 -bg "#111827" -fg "#e5e7eb" -bc -title "Launcher" -e sh -lc "printf 'Unknown launcher: %s\n' '${app_id}'; printf 'Press Enter to close.'; read _"

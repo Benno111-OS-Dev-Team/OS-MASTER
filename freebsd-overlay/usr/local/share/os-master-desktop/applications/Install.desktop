@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Install OS-MASTER
+Exec=/usr/local/bin/os-master-launch install
+Icon=/usr/local/share/os-master-desktop/icons/dock_settings.png
+Terminal=false
+Categories=System;

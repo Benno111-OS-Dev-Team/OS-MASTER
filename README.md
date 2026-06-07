@@ -41,17 +41,27 @@ The old in-tree OS implementation has been removed from this repository:
 If you need to inspect or recover the previous custom OS implementation, use
 git history.
 
-## X11 Behavior
+## Graphical Installer
 
-The staged installer image is customized to preinstall `xorg` in two places:
+The staged installer image now includes:
 
-- in the live installer environment
-- in the installed FreeBSD system during `bsdinstall`
+- a loader splash bitmap during boot
+- a live X11 installer session for the installer environment
+- X11 installation into the installed FreeBSD system during `bsdinstall`
+- a first-boot retry service if the installed-system X11 package step could
+  not complete during setup
 
-This uses official `bsdinstall` local hook files overlaid onto the media. The
-default source media is `dvd1.iso` because the FreeBSD Handbook describes it as
-including the files needed to install FreeBSD plus a set of popular binary
-packages for building a graphical workstation from the media.
+The live installer root session launches an OS-MASTER graphical installer
+desktop with shortcuts to:
+
+- install OS-MASTER with `bsdinstall` inside a graphical terminal
+- open a live shell
+- browse files
+- view installer help
+- reboot the installer environment
+
+This still uses official `bsdinstall` underneath, but it is wrapped in a
+graphical X11 session.
 
 After logging into either the installer shell or the installed system shell,
 you can launch the default X11 session with:
@@ -66,8 +76,8 @@ If the current shell has not reloaded its login profile yet, the direct path is:
 /usr/local/bin/startx
 ```
 
-The seeded default session launches the restored OS-MASTER desktop shell rather
-than plain `twm`.
+The seeded default installed session launches the restored OS-MASTER desktop
+shell rather than plain `twm`.
 
 ## Build
 
