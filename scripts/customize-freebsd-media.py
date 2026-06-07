@@ -20,6 +20,8 @@ EXECUTABLE_RELATIVE_PATHS = {
     "usr/libexec/bsdinstall/local.post-configure",
     "usr/local/bin/os-master-installer-session",
     "usr/local/bin/os-master-installer-ui",
+    "usr/local/bin/os-master-install",
+    "usr/local/bin/os-master-firstboot",
     "usr/local/bin/os-master-session",
     "usr/local/bin/os-master-xsession",
     "usr/local/bin/os-master-launch",

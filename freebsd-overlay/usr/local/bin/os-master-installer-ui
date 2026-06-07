@@ -9,7 +9,7 @@ show_xmessage_menu() {
       -default "Install OS-MASTER" \
       -buttons "Install OS-MASTER:10,Live Shell:20,Browse Files:30,Help:40,Reboot:50,Close:0" \
       -title "OS-MASTER Installer" \
-      "Welcome to the OS-MASTER graphical installer.\n\nChoose Install OS-MASTER to launch bsdinstall in a graphical terminal.\nThe installed system will seed the OS-MASTER desktop and X11 session."
+      "Welcome to the OS-MASTER graphical installer.\n\nChoose Install OS-MASTER to launch the OS-MASTER install flow in a graphical terminal.\nAccount and network setup now happen after first boot in the installed desktop."
 
     case $? in
       10) /usr/local/bin/os-master-launch install >/tmp/os-master-install.log 2>&1 & ;;

@@ -49,6 +49,7 @@ The staged installer image now includes:
 - a live X11 installer session for the installer environment
 - X11 installation into the installed FreeBSD system during `bsdinstall`
 - a graphical XDM login on the installed system
+- a first-boot desktop assistant for hostname, network, and user setup
 - a first-boot retry service if the installed-system X11 package step could
   not complete during setup
 
@@ -56,6 +57,7 @@ The live installer root session launches an OS-MASTER graphical installer
 desktop with shortcuts to:
 
 - install OS-MASTER with `bsdinstall` inside a graphical terminal
+- defer hostname, network, and user creation until first boot
 - open a live shell
 - browse files
 - view installer help
@@ -65,7 +67,9 @@ This still uses official `bsdinstall` underneath, but it is wrapped in a
 graphical X11 session.
 
 The installed system is configured to present a graphical login on `ttyv8`
-and launch the restored OS-MASTER desktop after sign-in.
+and launch the restored OS-MASTER desktop after sign-in. On first boot,
+sign in as `root` once and the desktop assistant will open so you can set the
+hostname, configure networking, and create your first user account.
 
 If you land in a shell instead, you can still launch the default X11 session
 manually with:

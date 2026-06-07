@@ -231,3 +231,14 @@ os_master_seed_installed_x11_retry() {
   mkdir -p "${target_root}/var/db/os-master"
   rm -f "${target_root}/var/db/os-master/x11-installed"
 }
+
+os_master_seed_firstboot_setup() {
+  target_root="$1"
+
+  if [ -z "${target_root}" ] || [ ! -d "${target_root}" ]; then
+    return 0
+  fi
+
+  mkdir -p "${target_root}/var/db/os-master"
+  rm -f "${target_root}/var/db/os-master/firstboot-setup-complete"
+}

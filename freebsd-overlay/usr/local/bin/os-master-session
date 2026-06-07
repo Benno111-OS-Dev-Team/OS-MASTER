@@ -43,9 +43,16 @@ start_desktop_services() {
   tint2 >/tmp/os-master-tint2.log 2>&1 &
 }
 
+maybe_launch_firstboot_setup() {
+  if [ -x /usr/local/bin/os-master-firstboot ] && [ ! -f /var/db/os-master/firstboot-setup-complete ]; then
+    /usr/local/bin/os-master-firstboot >/tmp/os-master-firstboot.log 2>&1 &
+  fi
+}
+
 mkdir -p "${CONFIG_HOME}"
 seed_user_config
 seed_desktop_launchers
 start_desktop_services
+maybe_launch_firstboot_setup
 
 exec openbox
