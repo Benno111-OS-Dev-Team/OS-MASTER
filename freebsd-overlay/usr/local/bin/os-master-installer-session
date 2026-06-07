@@ -4,6 +4,7 @@ set -eu
 
 DATA_DIR="/usr/local/share/os-master-desktop"
 INSTALLER_DIR="${DATA_DIR}/installer"
+BOOTSPLASH_HELPER="${DATA_DIR}/session/bootsplash-common.sh"
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 DESKTOP_DIR="${HOME}/Desktop"
 
@@ -42,10 +43,21 @@ start_installer_services() {
   tint2 >/tmp/os-master-installer-tint2.log 2>&1 &
 }
 
+if [ -r "${BOOTSPLASH_HELPER}" ]; then
+  . "${BOOTSPLASH_HELPER}"
+  os_master_bootsplash_start installer
+fi
+
 mkdir -p "${CONFIG_HOME}"
+os_master_bootsplash_progress installer 18
 seed_installer_config
+os_master_bootsplash_progress installer 42
 seed_installer_desktop
+os_master_bootsplash_progress installer 74
 start_installer_services
+os_master_bootsplash_progress installer 92
 /usr/local/bin/os-master-installer-ui >/tmp/os-master-installer-ui.log 2>&1 &
+os_master_bootsplash_progress installer 100
+os_master_bootsplash_complete installer
 
 exec openbox

@@ -31,6 +31,26 @@ LOGIN_BACKGROUND_OUTPUT_PATH = (
     / "login"
     / "background.png"
 )
+BOOTSPLASH_INSTALLER_DIR = (
+    ROOT
+    / "freebsd-overlay"
+    / "usr"
+    / "local"
+    / "share"
+    / "os-master-desktop"
+    / "bootsplash"
+    / "installer"
+)
+BOOTSPLASH_DESKTOP_DIR = (
+    ROOT
+    / "freebsd-overlay"
+    / "usr"
+    / "local"
+    / "share"
+    / "os-master-desktop"
+    / "bootsplash"
+    / "desktop"
+)
 
 
 def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -124,10 +144,81 @@ def generate_login_background() -> None:
     canvas.convert("RGB").save(LOGIN_BACKGROUND_OUTPUT_PATH)
 
 
+def render_dynamic_splash_frame(
+    output_dir: Path,
+    title: str,
+    subtitle: str,
+    accent: tuple[int, int, int, int],
+) -> None:
+    canvas_size = (1600, 900)
+    frame_count = 9
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    logo = Image.open(LOGO_PATH).convert("RGBA")
+    target_logo_width = 260
+    scale = target_logo_width / logo.width
+    logo = logo.resize((target_logo_width, int(logo.height * scale)), Image.LANCZOS)
+
+    for index in range(frame_count):
+        progress = index / (frame_count - 1)
+        canvas = Image.new("RGBA", canvas_size, (3, 7, 16, 255))
+
+        if BOOTSCREEN_PATH.exists():
+            background = Image.open(BOOTSCREEN_PATH).convert("RGBA")
+            background = cover_resize(background, canvas_size)
+            background = background.filter(ImageFilter.GaussianBlur(radius=18))
+            background.putalpha(118)
+            canvas.alpha_composite(background)
+
+        overlay = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        draw.rectangle((0, 0, canvas_size[0], canvas_size[1]), fill=(4, 9, 18, 168))
+        draw.ellipse((1060, -140, 1740, 520), fill=(accent[0], accent[1], accent[2], 72))
+        draw.ellipse((-260, 460, 500, 1180), fill=(239, 68, 68, 48))
+        draw.rounded_rectangle((430, 200, 1170, 700), radius=42, fill=(10, 15, 27, 196))
+        canvas.alpha_composite(overlay)
+
+        logo_pos = ((canvas_size[0] - logo.width) // 2, 250)
+        canvas.alpha_composite(logo, logo_pos)
+
+        draw = ImageDraw.Draw(canvas)
+        draw.text((595, 430), title, fill=(248, 250, 252, 255))
+        draw.text((470, 478), subtitle, fill=(203, 213, 225, 255))
+
+        bar_left = 540
+        bar_top = 575
+        bar_right = 1060
+        bar_bottom = 597
+        fill_right = int(bar_left + (bar_right - bar_left) * progress)
+
+        draw.rounded_rectangle((bar_left, bar_top, bar_right, bar_bottom), radius=11, fill=(26, 32, 44, 220))
+        draw.rounded_rectangle((bar_left, bar_top, fill_right, bar_bottom), radius=11, fill=accent)
+        draw.text((688, 625), f"{int(progress * 100):d}% ready", fill=(226, 232, 240, 255))
+
+        frame_path = output_dir / f"frame-{index:02d}.png"
+        canvas.convert("RGB").save(frame_path)
+
+
+def generate_dynamic_bootsplash_frames() -> None:
+    render_dynamic_splash_frame(
+        BOOTSPLASH_INSTALLER_DIR,
+        "OS-MASTER Installer",
+        "Preparing the graphical installer environment.",
+        (245, 245, 247, 255),
+    )
+    render_dynamic_splash_frame(
+        BOOTSPLASH_DESKTOP_DIR,
+        "OS-MASTER Desktop",
+        "Preparing the restored desktop session.",
+        (56, 189, 248, 255),
+    )
+
+
 def main() -> int:
     generate_boot_splash()
     generate_installer_wallpaper()
     generate_login_background()
+    generate_dynamic_bootsplash_frames()
     return 0
 
 

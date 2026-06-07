@@ -3,6 +3,7 @@
 set -eu
 
 DATA_DIR="/usr/local/share/os-master-desktop"
+BOOTSPLASH_HELPER="${DATA_DIR}/session/bootsplash-common.sh"
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 STATE_DIR="${CONFIG_HOME}/os-master-desktop"
 DESKTOP_DIR="${HOME}/Desktop"
@@ -49,10 +50,21 @@ maybe_launch_firstboot_setup() {
   fi
 }
 
+if [ -r "${BOOTSPLASH_HELPER}" ]; then
+  . "${BOOTSPLASH_HELPER}"
+  os_master_bootsplash_start desktop
+fi
+
 mkdir -p "${CONFIG_HOME}"
+os_master_bootsplash_progress desktop 16
 seed_user_config
+os_master_bootsplash_progress desktop 40
 seed_desktop_launchers
+os_master_bootsplash_progress desktop 76
 start_desktop_services
+os_master_bootsplash_progress desktop 92
 maybe_launch_firstboot_setup
+os_master_bootsplash_progress desktop 100
+os_master_bootsplash_complete desktop
 
 exec openbox
