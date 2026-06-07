@@ -20,6 +20,8 @@ EXECUTABLE_RELATIVE_PATHS = {
     "usr/libexec/bsdinstall/local.post-configure",
     "usr/local/bin/os-master-session",
     "usr/local/bin/os-master-launch",
+    "usr/local/etc/rc.d/os_master_x11_firstboot",
+    "usr/local/libexec/os-master-x11-common.sh",
 }
 
 ADDITIONAL_FILES: list[tuple[Path, str, int]] = []

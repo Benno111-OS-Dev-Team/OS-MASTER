@@ -139,14 +139,3 @@ os_master_add_video_users() {
     chroot "${target_root}" pw groupmod video -m "${user_name}" || true
   done
 }
-
-os_master_seed_installed_x11_retry() {
-  target_root="$1"
-
-  if [ -z "${target_root}" ] || [ ! -d "${target_root}" ]; then
-    return 0
-  fi
-
-  mkdir -p "${target_root}/var/db/os-master"
-  rm -f "${target_root}/var/db/os-master/x11-installed"
-}
