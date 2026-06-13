@@ -3,6 +3,12 @@
 set -eu
 
 SESSION_BIN="/usr/local/bin/os-master-session"
+BOOTSPLASH_HELPER="/usr/local/share/os-master-desktop/session/bootsplash-common.sh"
+
+if [ -r "${BOOTSPLASH_HELPER}" ]; then
+  . "${BOOTSPLASH_HELPER}"
+  os_master_bootsplash_start desktop
+fi
 
 if [ ! -x "${SESSION_BIN}" ]; then
   exec /usr/local/bin/openbox-session

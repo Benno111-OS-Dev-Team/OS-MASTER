@@ -20,13 +20,6 @@ DEFAULT_PACKAGES = [
     "pcmanfm",
     "xterm",
     "feh",
-    "firefox",
-    "gtk3",
-    "adwaita-icon-theme",
-    "hicolor-icon-theme",
-    "desktop-file-utils",
-    "shared-mime-info",
-    "gvfs",
     "dejavu",
     "liberation-fonts-ttf",
 ]
