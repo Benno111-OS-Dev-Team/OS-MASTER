@@ -107,13 +107,6 @@ os_master_install_x11() {
     pcmanfm \
     xterm \
     feh \
-    firefox \
-    gtk3 \
-    adwaita-icon-theme \
-    hicolor-icon-theme \
-    desktop-file-utils \
-    shared-mime-info \
-    gvfs \
     dejavu \
     liberation-fonts-ttf
 }
@@ -123,6 +116,13 @@ os_master_seed_xinitrc() {
 
   cat > "${target_root}/root/.xinitrc" <<'EOF'
 #!/bin/sh
+
+BOOTSPLASH_HELPER="/usr/local/share/os-master-desktop/session/bootsplash-common.sh"
+if [ -r "${BOOTSPLASH_HELPER}" ]; then
+  . "${BOOTSPLASH_HELPER}"
+  os_master_bootsplash_start desktop
+fi
+
 exec /usr/local/bin/os-master-session
 EOF
   chmod 0644 "${target_root}/root/.xinitrc"
@@ -130,6 +130,13 @@ EOF
   if [ -d "${target_root}/usr/share/skel" ]; then
     cat > "${target_root}/usr/share/skel/dot.xinitrc" <<'EOF'
 #!/bin/sh
+
+BOOTSPLASH_HELPER="/usr/local/share/os-master-desktop/session/bootsplash-common.sh"
+if [ -r "${BOOTSPLASH_HELPER}" ]; then
+  . "${BOOTSPLASH_HELPER}"
+  os_master_bootsplash_start desktop
+fi
+
 exec /usr/local/bin/os-master-session
 EOF
     chmod 0644 "${target_root}/usr/share/skel/dot.xinitrc"

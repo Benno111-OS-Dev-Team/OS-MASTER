@@ -8,6 +8,7 @@ frame_root="/usr/local/share/os-master-desktop/bootsplash/${mode}"
 current_frame="${runtime_dir}/current.png"
 progress_file="${runtime_dir}/progress"
 complete_file="${runtime_dir}/complete"
+pid_file="${runtime_dir}/pid"
 
 if [ ! -d "${frame_root}" ] || ! command -v feh >/dev/null 2>&1; then
   exit 0
@@ -35,6 +36,7 @@ cleanup() {
     wait "${viewer_pid}" 2>/dev/null || true
   fi
   rm -f "${current_frame}"
+  rm -f "${pid_file}"
 }
 
 trap cleanup EXIT INT TERM
