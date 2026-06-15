@@ -1,4 +1,4 @@
-name: FreeBSD X11 Release Staging
+name: CI Build
 
 on:
   push:
@@ -7,80 +7,93 @@ on:
     branches: [ main, master, develop ]
 
 jobs:
-  stage-freebsd:
-    name: Stage FreeBSD X11 Installer Media
+
+  Build:
+    name: Draft Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      PRODUCT_NAME: os-master-freebsd
-      FREEBSD_RELEASE: 14.4-RELEASE
-      FREEBSD_ARCH: amd64
-      FREEBSD_IMAGE_BASENAME: dvd1.iso
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install staging dependencies
+      - name: Set up release build environment
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            curl \
-            xz-utils \
-            file \
+            ccache \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            dosfstools \
+            fdisk \
+            mtools \
+            qemu-system-x86 \
+            qemu-system-arm \
+            qemu-system-aarch64 \
+            qemu-efi-aarch64 \
+            qemu-utils \
+            xorriso \
             make \
-            python3 \
-            xorriso
+            lld \
+            llvm \
+            nasm
+          sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
-      - name: Stage customized FreeBSD image
+      - name: Build x86_64 ISO
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_BRANCH: ${{ github.ref_name }}
         run: |
           set -euxo pipefail
-          make image
+          export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
+          make -f Makefile.multiarch ARCH=x86_64 image
 
-      - name: Verify staged outputs
+      - name: Build x86_64 Installer ISO
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_BRANCH: ${{ github.ref_name }}
         run: |
           set -euxo pipefail
-          OUTPUT_PREFIX="image/${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}"
-          ls -lh "${OUTPUT_PREFIX}" "${OUTPUT_PREFIX}.xz" "${OUTPUT_PREFIX}.txt"
-          file "${OUTPUT_PREFIX}"
-          file "${OUTPUT_PREFIX}.xz"
+          export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
+          make -f Makefile.multiarch ARCH=x86_64 installer-image
 
-      - name: Prepare release-sized assets
+      - name: Verify release files
         run: |
           set -euxo pipefail
-          OUTPUT_PREFIX="image/${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}"
-          PART_PREFIX="${OUTPUT_PREFIX}.xz.part-"
-          split -b 1900m -d -a 3 "${OUTPUT_PREFIX}.xz" "${PART_PREFIX}"
-          ls -lh "${OUTPUT_PREFIX}.xz".part-*
+          ls -lh image/os8-x86_64.iso*
+          file image/os8-x86_64.iso
+          if [ -f image/os8-x86_64.iso.xz ]; then
+            file image/os8-x86_64.iso.xz
+          fi
+          ls -lh image/os8-x86_64-installer.iso image/os8-x86_64-system.img
+          file image/os8-x86_64-installer.iso
+          file image/os8-x86_64-system.img
+          if [ -f image/os8-x86_64-installer.iso.xz ]; then
+            file image/os8-x86_64-installer.iso.xz
+          fi
+          ls -lh image/os8-x86_64-installer.iso.7z
+          file image/os8-x86_64-installer.iso.7z
 
       - name: Generate release notes
         run: |
           cat > release_notes.md << EOF
-          # OS-MASTER FreeBSD X11 Draft
+          # os CI Draft
 
-          This draft stages a customized FreeBSD installer image with X11 hooks for the installer and the installed system.
+          Automatic draft release generated from CI.
 
-          ## Base
+          ## Build Status
 
-          - FreeBSD release: \`${FREEBSD_RELEASE}\`
-          - Architecture: \`${FREEBSD_ARCH}\`
-          - Image: \`${FREEBSD_IMAGE_BASENAME}\`
-          - Customization: `xorg` preinstall in installer and target system
+          - ARM64 ISO: skipped for now
+          - x86_64 ISO: success
+          - x86_64 Installer ISO: success
 
-          ## Files
+          ## Bootable Media
 
-          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz.part-000\`
-          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz.part-001\`
-          - additional \`.xz.part-*\` files when required
-          - \`${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.txt\`
-
-          ## Notes
-
-          - The raw \`.iso\` is built during CI validation.
-          - GitHub Releases cannot store assets larger than 2 GiB, so the compressed DVD image is split into \`.xz.part-*\` chunks for publishing.
-          - Reassemble the compressed image with: \`cat ${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz.part-* > ${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz\`
-          - Then expand it with: \`xz -d ${PRODUCT_NAME}-${FREEBSD_RELEASE}-${FREEBSD_ARCH}-${FREEBSD_IMAGE_BASENAME}.xz\`
+          - \`os8-x86_64.iso\`
+          - \`os8-x86_64.iso.xz\`
+          - \`os8-x86_64-installer.iso\`
+          - \`os8-x86_64-installer.iso.7z\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
@@ -92,14 +105,16 @@ jobs:
       - name: Create or update draft release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: os-master-freebsd-draft
+          tag_name: os-ci-draft
           target_commitish: ${{ github.sha }}
-          name: OS-MASTER FreeBSD X11 Draft
+          name: os CI Draft
           body_path: release_notes.md
-          draft: false
-          prerelease: false
+          draft: False ##Auto-draft is not working, so we set it to false and update the release with the files
+          prerelease: False ## Set to true if you want to mark this release as a prerelease
           files: |
-            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.xz.part-*
-            image/os-master-freebsd-14.4-RELEASE-amd64-dvd1.iso.txt
+            image/os8-x86_64.iso
+            image/os8-x86_64.iso.xz
+            image/os8-x86_64-installer.iso
+            image/os8-x86_64-installer.iso.7z
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
