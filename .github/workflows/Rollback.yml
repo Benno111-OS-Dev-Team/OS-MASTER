@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type ROLLBACK to confirm rewriting main'
+        description: 'Type ROLLBACK to confirm restoring main'
         required: true
         type: string
 
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   rollback:
-    name: Force main back to target commit
+    name: Restore main content to target commit
     runs-on: ubuntu-latest
 
     steps:
@@ -66,14 +66,15 @@ jobs:
             exit 1
           fi
 
-      - name: Roll back main
+      - name: Restore main content
         shell: bash
         run: |
           TARGET_COMMIT="48489aa3113b49f9eeb64af51cae57d92761d105"
 
-          echo "Resetting main to $TARGET_COMMIT"
+          echo "Restoring main content to match $TARGET_COMMIT"
+          echo "Workflow files are preserved from the current main branch because GITHUB_TOKEN cannot update workflow files."
 
-          git checkout main
-          git reset --hard "$TARGET_COMMIT"
+          git restore --source "$TARGET_COMMIT" --staged --worktree .
+          git restore --source HEAD --staged --worktree .github/workflows
 
           git push https://x-access-token:${{ secrets.ROLLBACK_TOKEN }}@github.com/${{ github.repository }} HEAD:main --force-with-lease
