@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Notes
-Exec=/usr/local/bin/os-master-launch notes
-Icon=/usr/local/share/os-master-desktop/icons/dock_notes.png
-Terminal=false
-Categories=Utility;

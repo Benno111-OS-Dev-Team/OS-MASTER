@@ -1,0 +1,1253 @@
+
+
+=== OS8 ===
+Kernel entry point reached!
+Boot IDT installed
+Limine base revision OK
+Framebuffer acquired:
+  Address: 0xFFFF8000E0000000
+  Width: 0x0000000000000400
+  Height: 0x0000000000000300
+  Pitch: 0x0000000000001000
+  BPP: 0x0000000000000020
+  RSDP: 0x0000000000000000
+  HHDM: 0x0000000000000000
+  Cmdline ptr: 0xFFFF80000FFA8000
+Calling kernel_main...
+
+OS 8
+
+OS8 v8.0.0 - x86_64 bring-up
+A Unix-like operating system for x86_64
+Copyright (c) 2026 OS8 Project
+Build UUID: 0c8372cf-18eb-8de4-fd41-0bb4cc14bd53
+Build Number: 604
+Branch: main
+Compiled: 2026-05-20 16:22:08Z
+
+[INIT] architecture early init
+x86_64: Early initialization complete (legacy PIC/PIT mode)
+[INIT] architecture MMU init
+x86_64: MMU already enabled
+[INIT] x86_64 early bring-up
+  Using conservative Limine framebuffer path
+BOOT: Cmdline parsed - verbose=0 debug=0 splash=1 usb=1 installer=1 xhci=0
+FB: Initializing framebuffer
+FB: Using Limine framebuffer 1024x768 at 0xffff8000e0000000
+x86_64: initializing ACPI tables
+ACPI: no RSDP provided by bootloader
+x86_64: ACPI CPU topology reports 1 CPU(s)
+x86_64: framebuffer bring-up stable, continuing boot
+[INIT] Phase 1: Core Hardware
+  Parsing device tree...
+  Initializing interrupt controller...
+x86_64: IDT loaded for exceptions and IRQs
+x86_64: Initializing legacy PIC for bring-up
+  Initializing timer...
+PIT: Initializing at 100 Hz (divisor=11931)
+PIT: Initialized
+[INIT] Phase 2: Memory Management
+  Initializing physical memory manager...
+PMM: Starting init
+PMM: Memory configured
+PMM: Free lists cleared
+PMM: Skipping bitmap clear (BSS pre-zeroed)
+PMM: Got kernel addresses
+PMM: Kernel pages marked
+PMM: Init complete
+  About to init VMM...
+  Initializing virtual memory manager...
+VMM: Initializing virtual memory manager
+VMM: Using Limine paging on x86_64 bring-up path
+  Initializing kernel heap...
+KMALLOC: Heap at 0xffffffff816a3000 - 0xffffffff896a3000 (131072 KB)
+[INIT] Phase 3: Process Management
+  Initializing scheduler...
+SCHED: Initializing scheduler
+SCHED: Scheduler initialized
+  Initializing process subsystem...
+[PROC] Process subsystem initialized (max 16 processes)
+[PROC] Program load area: 0x44000000+
+[PROC] kernel_context at: 0xffffffff816903a8
+[INIT] Phase 4: Filesystems
+  Initializing VFS...
+  Initializing VFS...
+VFS: Initializing virtual filesystem
+VFS: Registered filesystem 'fat32'
+VFS: Initialized
+  Initializing RamFS...
+RAMFS: Registering ramfs filesystem
+VFS: Registered filesystem 'ramfs'
+  Mounting root filesystem...
+VFS: mount('ramfs', '/', 'ramfs')
+RAMFS: Mounting ramfs
+RAMFS: Mounted successfully
+VFS: Mounted 'ramfs' on '/'
+RAMFS: Created directory '/Documents'
+RAMFS: Created directory '/Downloads'
+RAMFS: Created directory '/Pictures'
+RAMFS: Created directory '/assets'
+RAMFS: Created directory '/assets/wallpapers'
+RAMFS: Created directory '/System'
+RAMFS: Created directory '/Desktop'
+RAMFS: Created directory '/System/Apps'
+RAMFS: Created directory '/Desktop/System Apps'
+RAMFS: Created directory '/Desktop/Projects'
+RAMFS: Created file '/Desktop/notes.txt'
+RAMFS: Created file '/Desktop/readme.txt'
+RAMFS: Created file '/readme.txt'
+RAMFS: Created file '/todo.txt'
+RAMFS: Created file '/sample.mp3' (37206 bytes)
+RAMFS: Created file '/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/bin'
+RAMFS: Created directory '/sbin'
+RAMFS: Created directory '/usr'
+RAMFS: Created directory '/usr/bin'
+RAMFS: Created file '/sbin/init' (24632 bytes)
+RAMFS: Created file '/bin/login' (23216 bytes)
+RAMFS: Created file '/bin/sh' (3848 bytes)
+RAMFS: Created directory '/examples'
+RAMFS: Created file '/examples/hello.py'
+RAMFS: Created file '/examples/fibonacci.py'
+RAMFS: Created file '/examples/hello.nano'
+RAMFS: Created file '/examples/calculator.nano'
+INSTALL: looking for staged system image at /install/system-image
+INSTALL: staged system image not found
+RAMFS: Created directory '/install'
+RAMFS: Created directory '/install/system-image'
+RAMFS: Created directory '/install/system-image/boot'
+RAMFS: Created directory '/install/system-image/EFI'
+RAMFS: Created directory '/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/install/system-image/limine'
+RAMFS: Created directory '/install/system-image/Documents'
+RAMFS: Created directory '/install/system-image/Downloads'
+RAMFS: Created directory '/install/system-image/Pictures'
+RAMFS: Created directory '/install/system-image/assets'
+RAMFS: Created directory '/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/install/system-image/System'
+RAMFS: Created directory '/install/system-image/Desktop'
+RAMFS: Created directory '/install/system-image/System/Apps'
+RAMFS: Created directory '/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/install/system-image/Desktop/Projects'
+RAMFS: Created file '/install/system-image/Desktop/notes.txt'
+RAMFS: Created file '/install/system-image/Desktop/readme.txt'
+RAMFS: Created file '/install/system-image/readme.txt'
+RAMFS: Created file '/install/system-image/todo.txt'
+RAMFS: Created file '/install/system-image/sample.mp3' (37206 bytes)
+RAMFS: Created file '/install/system-image/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/install/system-image/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/install/system-image/bin'
+RAMFS: Created directory '/install/system-image/sbin'
+RAMFS: Created directory '/install/system-image/usr'
+RAMFS: Created directory '/install/system-image/usr/bin'
+RAMFS: Created file '/install/system-image/sbin/init' (24632 bytes)
+RAMFS: Created file '/install/system-image/bin/login' (23216 bytes)
+RAMFS: Created file '/install/system-image/bin/sh' (3848 bytes)
+RAMFS: Created directory '/install/system-image/examples'
+RAMFS: Created file '/install/system-image/examples/hello.py'
+RAMFS: Created file '/install/system-image/examples/fibonacci.py'
+RAMFS: Created file '/install/system-image/examples/hello.nano'
+RAMFS: Created file '/install/system-image/examples/calculator.nano'
+RAMFS: Created directory '/setup'
+RAMFS: Created directory '/setup/boot'
+RAMFS: Created directory '/setup/EFI'
+RAMFS: Created directory '/setup/EFI/BOOT'
+RAMFS: Created directory '/setup/limine'
+RAMFS: Created directory '/setup/install'
+RAMFS: Created directory '/setup/install/system-image'
+RAMFS: Created directory '/setup/install/system-image/boot'
+RAMFS: Created directory '/setup/install/system-image/EFI'
+RAMFS: Created directory '/setup/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/setup/install/system-image/limine'
+RAMFS: Created directory '/setup/install/system-image/Documents'
+RAMFS: Created directory '/setup/install/system-image/Downloads'
+RAMFS: Created directory '/setup/install/system-image/Pictures'
+RAMFS: Created directory '/setup/install/system-image/assets'
+RAMFS: Created directory '/setup/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/setup/install/system-image/System'
+RAMFS: Created directory '/setup/install/system-image/Desktop'
+RAMFS: Created directory '/setup/install/system-image/System/Apps'
+RAMFS: Created directory '/setup/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/setup/install/system-image/Desktop/Projects'
+RAMFS: Created file '/setup/install/system-image/Desktop/notes.txt'
+RAMFS: Created file '/setup/install/system-image/Desktop/readme.txt'
+RAMFS: Created file '/setup/install/system-image/readme.txt'
+RAMFS: Created file '/setup/install/system-image/todo.txt'
+RAMFS: Created file '/setup/install/system-image/sample.mp3' (37206 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/setup/install/system-image/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/setup/install/system-image/bin'
+RAMFS: Created directory '/setup/install/system-image/sbin'
+RAMFS: Created directory '/setup/install/system-image/usr'
+RAMFS: Created directory '/setup/install/system-image/usr/bin'
+RAMFS: Created file '/setup/install/system-image/sbin/init' (24632 bytes)
+RAMFS: Created file '/setup/install/system-image/bin/login' (23216 bytes)
+RAMFS: Created file '/setup/install/system-image/bin/sh' (3848 bytes)
+RAMFS: Created directory '/setup/install/system-image/examples'
+RAMFS: Created file '/setup/install/system-image/examples/hello.py'
+RAMFS: Created file '/setup/install/system-image/examples/fibonacci.py'
+RAMFS: Created file '/setup/install/system-image/examples/hello.nano'
+RAMFS: Created file '/setup/install/system-image/examples/calculator.nano'
+INSTALL: failed to seed setup media payload
+  Mounting procfs...
+  Mounting sysfs...
+  Mounting devfs...
+[INIT] Phase 5: Device Drivers
+  Loading framebuffer driver...
+FB: Initializing framebuffer
+FB: Using Limine framebuffer 1024x768 at 0xffff8000e0000000
+  Initializing PCI bus...
+PCI: Initializing x86 config-space scan...
+PCI: Found 8086:1237 at 00:00.0
+PCI: Found 8086:7000 at 00:01.0
+PCI: Found 8086:7010 at 00:01.1
+STORAGE: Loading IDE driver for 00:01.1
+STORAGE: Registered disk IDE Hard Disk at hd0
+STORAGE: Registered disk ATAPI CD-ROM at cd1
+STORAGE: Registered IDE/PATA controller via pci
+PCI: Found 80ee:beef at 00:02.0
+PCI: Found 1022:2000 at 00:03.0
+PCI: Found 80ee:cafe at 00:04.0
+PCI: Found 8086:2415 at 00:05.0
+PCI: Found 8086:7113 at 00:07.0
+PCI: Found 8086:1e31 at 00:0c.0
+PCI: Found xHCI USB controller at 00:0c.0
+PCI: xHCI deferred on x86 bring-up path
+PCI: xHCI remains disabled on x86 bring-up path (set cmdline: xhci=on to enable)
+PCI: Scan complete (9 devices found).
+  Initializing GPU driver...
+  GPU: No virtio-gpu found (software rendering)
+  Initializing GUI...
+GUI: Initializing windowing system
+GUI: Created window 'Installer' (944x688)
+GUI: Display 1024x768 initialized
+TERM: Created terminal 48x15
+  Loading keyboard driver...
+  Loading NVMe driver...
+  Loading USB driver...
+  Loading network driver...
+  Loading Wi-Fi drivers...
+NET: Initializing network stack
+NET: Loopback interface configured
+NET: TCP/IP stack initialized
+NET: Initializing virtio-net...
+NET: virtio-mmio network probe skipped on PC platform
+VBOX-NET: Probing VirtualBox PCNet adapter...
+VBOX-NET: Found VirtualBox PCNet at 00:03.0 IO=0xd020 MAC=08:00:27:22:e7:11
+NET: Added interface eth0
+VBOX-NET: Software-backed network interface ready
+WIFI: Loading wireless drivers...
+WIFI: No supported PCI Wi-Fi adapter detected
+  GUI desktop ready!
+[INIT] Enabling interrupts...
+x86_64: leaving interrupts disabled on the desktop bring-up path
+[INIT] Kernel initialization complete!
+
+All subsystems initialized successfully
+Starting init process...
+
+x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
+System ready.
+
+INPUT: Initializing PS/2 keyboard and mouse
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 ready
+GUI: Event loop started - type in terminal!\nRAMFS: Created directory '/External'
+RAMFS: Created directory '/Media'
+RAMFS: Created directory '/External/cd1'
+RAMFS: Created directory '/Media/cd1'
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/boot'
+RAMFS: Created directory '/External/cd1/install'
+RAMFS: Created directory '/External/cd1/install/system-image'
+RAMFS: Created directory '/External/cd1/install/system-image/examples'
+RAMFS: Created directory '/External/cd1/install/system-image/usr'
+RAMFS: Created directory '/External/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/External/cd1/install/system-image/sbin'
+RAMFS: Created directory '/External/cd1/install/system-image/bin'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/External/cd1/install/system-image/System'
+RAMFS: Created directory '/External/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/External/cd1/install/system-image/assets'
+RAMFS: Created directory '/External/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/External/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/External/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/External/cd1/install/system-image/Documents'
+RAMFS: Created directory '/External/cd1/install/system-image/limine'
+RAMFS: Created directory '/External/cd1/install/system-image/EFI'
+RAMFS: Created directory '/External/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/install/system-image/boot'
+RAMFS: Created directory '/External/cd1/limine'
+RAMFS: Created directory '/External/cd1/EFI'
+RAMFS: Created directory '/External/cd1/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+
+
+=== OS8 ===
+Kernel entry point reached!
+Boot IDT installed
+Limine base revision OK
+Framebuffer acquired:
+  Address: 0xFFFF8000E0000000
+  Width: 0x0000000000000400
+  Height: 0x0000000000000300
+  Pitch: 0x0000000000001000
+  BPP: 0x0000000000000020
+  RSDP: 0x0000000000000000
+  HHDM: 0x0000000000000000
+  Cmdline ptr: 0xFFFF80000FFAC000
+Calling kernel_main...
+
+OS 8
+
+OS8 v8.0.0 - x86_64 bring-up
+A Unix-like operating system for x86_64
+Copyright (c) 2026 OS8 Project
+Build UUID: 0c8372cf-18eb-8de4-fd41-0bb4cc14bd53
+Build Number: 605
+Branch: main
+Compiled: 2026-05-22 20:59:12Z
+
+[INIT] architecture early init
+x86_64: Early initialization complete (legacy PIC/PIT mode)
+[INIT] architecture MMU init
+x86_64: MMU already enabled
+[INIT] x86_64 early bring-up
+  Using conservative Limine framebuffer path
+BOOT: Cmdline parsed - verbose=0 debug=0 splash=1 usb=1 installer=1 xhci=0
+FB: Initializing framebuffer
+FB: Using Limine framebuffer 1024x768 at 0xffff8000e0000000
+x86_64: initializing ACPI tables
+ACPI: no RSDP provided by bootloader
+x86_64: ACPI CPU topology reports 1 CPU(s)
+x86_64: framebuffer bring-up stable, continuing boot
+[INIT] Phase 1: Core Hardware
+  Parsing device tree...
+  Initializing interrupt controller...
+x86_64: IDT loaded for exceptions and IRQs
+x86_64: Initializing legacy PIC for bring-up
+  Initializing timer...
+PIT: Initializing at 100 Hz (divisor=11931)
+PIT: Initialized
+[INIT] Phase 2: Memory Management
+  Initializing physical memory manager...
+PMM: Starting init
+PMM: Memory configured
+PMM: Free lists cleared
+PMM: Skipping bitmap clear (BSS pre-zeroed)
+PMM: Got kernel addresses
+PMM: Kernel pages marked
+PMM: Init complete
+  About to init VMM...
+  Initializing virtual memory manager...
+VMM: Initializing virtual memory manager
+VMM: Using Limine paging on x86_64 bring-up path
+  Initializing kernel heap...
+KMALLOC: Heap at 0xffffffff816a3000 - 0xffffffff896a3000 (131072 KB)
+[INIT] Phase 3: Process Management
+  Initializing scheduler...
+SCHED: Initializing scheduler
+SCHED: Scheduler initialized
+  Initializing process subsystem...
+[PROC] Process subsystem initialized (max 16 processes)
+[PROC] Program load area: 0x44000000+
+[PROC] kernel_context at: 0xffffffff816903a8
+[INIT] Phase 4: Filesystems
+  Initializing VFS...
+  Initializing VFS...
+VFS: Initializing virtual filesystem
+VFS: Registered filesystem 'fat32'
+VFS: Initialized
+  Initializing RamFS...
+RAMFS: Registering ramfs filesystem
+VFS: Registered filesystem 'ramfs'
+  Mounting root filesystem...
+VFS: mount('ramfs', '/', 'ramfs')
+RAMFS: Mounting ramfs
+RAMFS: Mounted successfully
+VFS: Mounted 'ramfs' on '/'
+RAMFS: Created directory '/Documents'
+RAMFS: Created directory '/Downloads'
+RAMFS: Created directory '/Pictures'
+RAMFS: Created directory '/assets'
+RAMFS: Created directory '/assets/wallpapers'
+RAMFS: Created directory '/System'
+RAMFS: Created directory '/Desktop'
+RAMFS: Created directory '/System/Apps'
+RAMFS: Created directory '/Desktop/System Apps'
+RAMFS: Created directory '/Desktop/Projects'
+RAMFS: Created file '/Desktop/notes.txt'
+RAMFS: Created file '/Desktop/readme.txt'
+RAMFS: Created file '/readme.txt'
+RAMFS: Created file '/todo.txt'
+RAMFS: Created file '/sample.mp3' (37206 bytes)
+RAMFS: Created file '/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/bin'
+RAMFS: Created directory '/sbin'
+RAMFS: Created directory '/usr'
+RAMFS: Created directory '/usr/bin'
+RAMFS: Created file '/sbin/init' (24632 bytes)
+RAMFS: Created file '/bin/login' (23216 bytes)
+RAMFS: Created file '/bin/sh' (3848 bytes)
+RAMFS: Created directory '/examples'
+RAMFS: Created file '/examples/hello.py'
+RAMFS: Created file '/examples/fibonacci.py'
+RAMFS: Created file '/examples/hello.nano'
+RAMFS: Created file '/examples/calculator.nano'
+INSTALL: looking for staged system image at /install/system-image
+INSTALL: staged system image not found
+RAMFS: Created directory '/install'
+RAMFS: Created directory '/install/system-image'
+RAMFS: Created directory '/install/system-image/boot'
+RAMFS: Created directory '/install/system-image/EFI'
+RAMFS: Created directory '/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/install/system-image/limine'
+RAMFS: Created directory '/install/system-image/Documents'
+RAMFS: Created directory '/install/system-image/Downloads'
+RAMFS: Created directory '/install/system-image/Pictures'
+RAMFS: Created directory '/install/system-image/assets'
+RAMFS: Created directory '/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/install/system-image/System'
+RAMFS: Created directory '/install/system-image/Desktop'
+RAMFS: Created directory '/install/system-image/System/Apps'
+RAMFS: Created directory '/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/install/system-image/Desktop/Projects'
+RAMFS: Created file '/install/system-image/Desktop/notes.txt'
+RAMFS: Created file '/install/system-image/Desktop/readme.txt'
+RAMFS: Created file '/install/system-image/readme.txt'
+RAMFS: Created file '/install/system-image/todo.txt'
+RAMFS: Created file '/install/system-image/sample.mp3' (37206 bytes)
+RAMFS: Created file '/install/system-image/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/install/system-image/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/install/system-image/bin'
+RAMFS: Created directory '/install/system-image/sbin'
+RAMFS: Created directory '/install/system-image/usr'
+RAMFS: Created directory '/install/system-image/usr/bin'
+RAMFS: Created file '/install/system-image/sbin/init' (24632 bytes)
+RAMFS: Created file '/install/system-image/bin/login' (23216 bytes)
+RAMFS: Created file '/install/system-image/bin/sh' (3848 bytes)
+RAMFS: Created directory '/install/system-image/examples'
+RAMFS: Created file '/install/system-image/examples/hello.py'
+RAMFS: Created file '/install/system-image/examples/fibonacci.py'
+RAMFS: Created file '/install/system-image/examples/hello.nano'
+RAMFS: Created file '/install/system-image/examples/calculator.nano'
+RAMFS: Created directory '/setup'
+RAMFS: Created directory '/setup/boot'
+RAMFS: Created directory '/setup/EFI'
+RAMFS: Created directory '/setup/EFI/BOOT'
+RAMFS: Created directory '/setup/limine'
+RAMFS: Created directory '/setup/install'
+RAMFS: Created directory '/setup/install/system-image'
+RAMFS: Created directory '/setup/install/system-image/boot'
+RAMFS: Created directory '/setup/install/system-image/EFI'
+RAMFS: Created directory '/setup/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/setup/install/system-image/limine'
+RAMFS: Created directory '/setup/install/system-image/Documents'
+RAMFS: Created directory '/setup/install/system-image/Downloads'
+RAMFS: Created directory '/setup/install/system-image/Pictures'
+RAMFS: Created directory '/setup/install/system-image/assets'
+RAMFS: Created directory '/setup/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/setup/install/system-image/System'
+RAMFS: Created directory '/setup/install/system-image/Desktop'
+RAMFS: Created directory '/setup/install/system-image/System/Apps'
+RAMFS: Created directory '/setup/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/setup/install/system-image/Desktop/Projects'
+RAMFS: Created file '/setup/install/system-image/Desktop/notes.txt'
+RAMFS: Created file '/setup/install/system-image/Desktop/readme.txt'
+RAMFS: Created file '/setup/install/system-image/readme.txt'
+RAMFS: Created file '/setup/install/system-image/todo.txt'
+RAMFS: Created file '/setup/install/system-image/sample.mp3' (37206 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/setup/install/system-image/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/setup/install/system-image/bin'
+RAMFS: Created directory '/setup/install/system-image/sbin'
+RAMFS: Created directory '/setup/install/system-image/usr'
+RAMFS: Created directory '/setup/install/system-image/usr/bin'
+RAMFS: Created file '/setup/install/system-image/sbin/init' (24632 bytes)
+RAMFS: Created file '/setup/install/system-image/bin/login' (23216 bytes)
+RAMFS: Created file '/setup/install/system-image/bin/sh' (3848 bytes)
+RAMFS: Created directory '/setup/install/system-image/examples'
+RAMFS: Created file '/setup/install/system-image/examples/hello.py'
+RAMFS: Created file '/setup/install/system-image/examples/fibonacci.py'
+RAMFS: Created file '/setup/install/system-image/examples/hello.nano'
+RAMFS: Created file '/setup/install/system-image/examples/calculator.nano'
+INSTALL: failed to seed setup media payload
+  Mounting procfs...
+  Mounting sysfs...
+  Mounting devfs...
+[INIT] Phase 5: Device Drivers
+  Loading framebuffer driver...
+FB: Initializing framebuffer
+FB: Using Limine framebuffer 1024x768 at 0xffff8000e0000000
+  Initializing PCI bus...
+PCI: Initializing x86 config-space scan...
+PCI: Found 8086:1237 at 00:00.0
+PCI: Found 8086:7000 at 00:01.0
+PCI: Found 8086:7010 at 00:01.1
+STORAGE: Loading IDE driver for 00:01.1
+STORAGE: Registered disk IDE Hard Disk at hd0
+STORAGE: Registered disk ATAPI CD-ROM at cd1
+STORAGE: Registered IDE/PATA controller via pci
+PCI: Found 80ee:beef at 00:02.0
+PCI: Found 1022:2000 at 00:03.0
+PCI: Found 80ee:cafe at 00:04.0
+PCI: Found 8086:2415 at 00:05.0
+PCI: Found 8086:7113 at 00:07.0
+PCI: Found 8086:1e31 at 00:0c.0
+PCI: Found xHCI USB controller at 00:0c.0
+PCI: xHCI deferred on x86 bring-up path
+PCI: xHCI remains disabled on x86 bring-up path (set cmdline: xhci=on to enable)
+PCI: Scan complete (9 devices found).
+  Initializing GPU driver...
+  GPU: No virtio-gpu found (software rendering)
+  Initializing GUI...
+GUI: Initializing windowing system
+GUI: Created window 'Installer' (944x688)
+GUI: Display 1024x768 initialized
+TERM: Created terminal 48x15
+  Loading keyboard driver...
+  Loading NVMe driver...
+  Loading USB driver...
+  Loading network driver...
+  Loading Wi-Fi drivers...
+NET: Initializing network stack
+NET: Loopback interface configured
+NET: TCP/IP stack initialized
+NET: Initializing virtio-net...
+NET: virtio-mmio network probe skipped on PC platform
+VBOX-NET: Probing VirtualBox PCNet adapter...
+VBOX-NET: Found VirtualBox PCNet at 00:03.0 IO=0xd020 MAC=08:00:27:22:e7:11
+NET: Added interface eth0
+VBOX-NET: Software-backed network interface ready
+WIFI: Loading wireless drivers...
+WIFI: No supported PCI Wi-Fi adapter detected
+  GUI desktop ready!
+[INIT] Enabling interrupts...
+x86_64: leaving interrupts disabled on the desktop bring-up path
+[INIT] Kernel initialization complete!
+
+All subsystems initialized successfully
+Starting init process...
+
+x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
+System ready.
+
+INPUT: Initializing PS/2 keyboard and mouse
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 ready
+GUI: Event loop started - type in terminal!\nRAMFS: Created directory '/External'
+RAMFS: Created directory '/Media'
+RAMFS: Created directory '/External/cd1'
+RAMFS: Created directory '/Media/cd1'
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/boot'
+RAMFS: Created directory '/External/cd1/install'
+RAMFS: Created directory '/External/cd1/install/system-image'
+RAMFS: Created directory '/External/cd1/install/system-image/examples'
+RAMFS: Created directory '/External/cd1/install/system-image/usr'
+RAMFS: Created directory '/External/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/External/cd1/install/system-image/sbin'
+RAMFS: Created directory '/External/cd1/install/system-image/bin'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/External/cd1/install/system-image/System'
+RAMFS: Created directory '/External/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/External/cd1/install/system-image/assets'
+RAMFS: Created directory '/External/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/External/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/External/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/External/cd1/install/system-image/Documents'
+RAMFS: Created directory '/External/cd1/install/system-image/limine'
+RAMFS: Created directory '/External/cd1/install/system-image/EFI'
+RAMFS: Created directory '/External/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/install/system-image/boot'
+RAMFS: Created directory '/External/cd1/limine'
+RAMFS: Created directory '/External/cd1/EFI'
+RAMFS: Created directory '/External/cd1/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+GUI: Created window 'Partition Manager' (560x360)
+STORAGE: Created Data partition on disk hd0 (4096 MiB)
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/limine-bios.sys
+[INSTALL] install payload missing: /install/system-image/boot/limine-bios.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+GUI: Created window 'Partition Manager' (560x360)
+STORAGE: Created Data partition on disk hd0 (4096 MiB)
+GUI: Created window 'File Manager - /' (450x350)
+
+
+=== OS8 ===
+Kernel entry point reached!
+Boot IDT installed
+Limine base revision OK
+Framebuffer acquired:
+  Address: 0xFFFF8000E0000000
+  Width: 0x0000000000000400
+  Height: 0x0000000000000300
+  Pitch: 0x0000000000001000
+  BPP: 0x0000000000000020
+  RSDP: 0x0000000000000000
+  HHDM: 0x0000000000000000
+  Cmdline ptr: 0xFFFF80000FF96000
+Calling kernel_main...
+
+OS 8
+
+OS8 v8.0.0 - x86_64 bring-up
+A Unix-like operating system for x86_64
+Copyright (c) 2026 OS8 Project
+Build UUID: 8c62249c-402f-9797-000e-82169ad2cc3a
+Build Number: 606
+Branch: main
+Compiled: 2026-05-22 21:12:22Z
+
+[INIT] architecture early init
+x86_64: Early initialization complete (legacy PIC/PIT mode)
+[INIT] architecture MMU init
+x86_64: MMU already enabled
+[INIT] x86_64 early bring-up
+  Using conservative Limine framebuffer path
+BOOT: Cmdline parsed - verbose=0 debug=0 splash=1 usb=1 installer=1 xhci=0
+FB: Initializing framebuffer
+FB: Using Limine framebuffer 1024x768 at 0xffff8000e0000000
+x86_64: initializing ACPI tables
+ACPI: no RSDP provided by bootloader
+x86_64: ACPI CPU topology reports 1 CPU(s)
+x86_64: framebuffer bring-up stable, continuing boot
+[INIT] Phase 1: Core Hardware
+  Parsing device tree...
+  Initializing interrupt controller...
+x86_64: IDT loaded for exceptions and IRQs
+x86_64: Initializing legacy PIC for bring-up
+  Initializing timer...
+PIT: Initializing at 100 Hz (divisor=11931)
+PIT: Initialized
+[INIT] Phase 2: Memory Management
+  Initializing physical memory manager...
+PMM: Starting init
+PMM: Memory configured
+PMM: Free lists cleared
+PMM: Skipping bitmap clear (BSS pre-zeroed)
+PMM: Got kernel addresses
+PMM: Kernel pages marked
+PMM: Init complete
+  About to init VMM...
+  Initializing virtual memory manager...
+VMM: Initializing virtual memory manager
+VMM: Using Limine paging on x86_64 bring-up path
+  Initializing kernel heap...
+KMALLOC: Heap at 0xffffffff816a3000 - 0xffffffff896a3000 (131072 KB)
+[INIT] Phase 3: Process Management
+  Initializing scheduler...
+SCHED: Initializing scheduler
+SCHED: Scheduler initialized
+  Initializing process subsystem...
+[PROC] Process subsystem initialized (max 16 processes)
+[PROC] Program load area: 0x44000000+
+[PROC] kernel_context at: 0xffffffff816903a8
+[INIT] Phase 4: Filesystems
+  Initializing VFS...
+  Initializing VFS...
+VFS: Initializing virtual filesystem
+VFS: Registered filesystem 'fat32'
+VFS: Initialized
+  Initializing RamFS...
+RAMFS: Registering ramfs filesystem
+VFS: Registered filesystem 'ramfs'
+  Mounting root filesystem...
+VFS: mount('ramfs', '/', 'ramfs')
+RAMFS: Mounting ramfs
+RAMFS: Mounted successfully
+VFS: Mounted 'ramfs' on '/'
+RAMFS: Created directory '/Documents'
+RAMFS: Created directory '/Downloads'
+RAMFS: Created directory '/Pictures'
+RAMFS: Created directory '/assets'
+RAMFS: Created directory '/assets/wallpapers'
+RAMFS: Created directory '/System'
+RAMFS: Created directory '/Desktop'
+RAMFS: Created directory '/System/Apps'
+RAMFS: Created directory '/Desktop/System Apps'
+RAMFS: Created directory '/Desktop/Projects'
+RAMFS: Created file '/Desktop/notes.txt'
+RAMFS: Created file '/Desktop/readme.txt'
+RAMFS: Created file '/readme.txt'
+RAMFS: Created file '/todo.txt'
+RAMFS: Created file '/sample.mp3' (37206 bytes)
+RAMFS: Created file '/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/bin'
+RAMFS: Created directory '/sbin'
+RAMFS: Created directory '/usr'
+RAMFS: Created directory '/usr/bin'
+RAMFS: Created file '/sbin/init' (24632 bytes)
+RAMFS: Created file '/bin/login' (23216 bytes)
+RAMFS: Created file '/bin/sh' (3848 bytes)
+RAMFS: Created directory '/examples'
+RAMFS: Created file '/examples/hello.py'
+RAMFS: Created file '/examples/fibonacci.py'
+RAMFS: Created file '/examples/hello.nano'
+RAMFS: Created file '/examples/calculator.nano'
+INSTALL: looking for staged system image at /install/system-image
+INSTALL: staged system image not found
+RAMFS: Created directory '/install'
+RAMFS: Created directory '/install/system-image'
+RAMFS: Created directory '/install/system-image/boot'
+RAMFS: Created directory '/install/system-image/EFI'
+RAMFS: Created directory '/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/install/system-image/limine'
+RAMFS: Created directory '/install/system-image/Documents'
+RAMFS: Created directory '/install/system-image/Downloads'
+RAMFS: Created directory '/install/system-image/Pictures'
+RAMFS: Created directory '/install/system-image/assets'
+RAMFS: Created directory '/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/install/system-image/System'
+RAMFS: Created directory '/install/system-image/Desktop'
+RAMFS: Created directory '/install/system-image/System/Apps'
+RAMFS: Created directory '/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/install/system-image/Desktop/Projects'
+RAMFS: Created file '/install/system-image/Desktop/notes.txt'
+RAMFS: Created file '/install/system-image/Desktop/readme.txt'
+RAMFS: Created file '/install/system-image/readme.txt'
+RAMFS: Created file '/install/system-image/todo.txt'
+RAMFS: Created file '/install/system-image/sample.mp3' (37206 bytes)
+RAMFS: Created file '/install/system-image/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/install/system-image/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/install/system-image/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/install/system-image/bin'
+RAMFS: Created directory '/install/system-image/sbin'
+RAMFS: Created directory '/install/system-image/usr'
+RAMFS: Created directory '/install/system-image/usr/bin'
+RAMFS: Created file '/install/system-image/sbin/init' (24632 bytes)
+RAMFS: Created file '/install/system-image/bin/login' (23216 bytes)
+RAMFS: Created file '/install/system-image/bin/sh' (3848 bytes)
+RAMFS: Created directory '/install/system-image/examples'
+RAMFS: Created file '/install/system-image/examples/hello.py'
+RAMFS: Created file '/install/system-image/examples/fibonacci.py'
+RAMFS: Created file '/install/system-image/examples/hello.nano'
+RAMFS: Created file '/install/system-image/examples/calculator.nano'
+RAMFS: Created directory '/setup'
+RAMFS: Created directory '/setup/boot'
+RAMFS: Created directory '/setup/bootimage'
+RAMFS: Created directory '/setup/EFI'
+RAMFS: Created directory '/setup/EFI/BOOT'
+RAMFS: Created directory '/setup/limine'
+RAMFS: Created directory '/setup/install'
+RAMFS: Created directory '/setup/install/system-image'
+RAMFS: Created directory '/setup/bootimage/boot'
+RAMFS: Created directory '/setup/bootimage/EFI'
+RAMFS: Created directory '/setup/bootimage/EFI/BOOT'
+RAMFS: Created directory '/setup/bootimage/limine'
+RAMFS: Created directory '/setup/install/system-image/boot'
+RAMFS: Created directory '/setup/install/system-image/EFI'
+RAMFS: Created directory '/setup/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/setup/install/system-image/limine'
+RAMFS: Created directory '/setup/install/system-image/Documents'
+RAMFS: Created directory '/setup/install/system-image/Downloads'
+RAMFS: Created directory '/setup/install/system-image/Pictures'
+RAMFS: Created directory '/setup/install/system-image/assets'
+RAMFS: Created directory '/setup/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/setup/install/system-image/System'
+RAMFS: Created directory '/setup/install/system-image/Desktop'
+RAMFS: Created directory '/setup/install/system-image/System/Apps'
+RAMFS: Created directory '/setup/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/setup/install/system-image/Desktop/Projects'
+RAMFS: Created file '/setup/install/system-image/Desktop/notes.txt'
+RAMFS: Created file '/setup/install/system-image/Desktop/readme.txt'
+RAMFS: Created file '/setup/install/system-image/readme.txt'
+RAMFS: Created file '/setup/install/system-image/todo.txt'
+RAMFS: Created file '/setup/install/system-image/sample.mp3' (37206 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/logo.png' (34597 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/landscape.png' (5087335 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/nature.jpg' (13497 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/city.jpg' (14076 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/portrait.jpg' (3889 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/square.jpg' (2158 bytes)
+RAMFS: Created file '/setup/install/system-image/assets/wallpapers/default.jpg' (84323 bytes)
+RAMFS: Created file '/setup/install/system-image/Pictures/test.png' (48941 bytes)
+RAMFS: Created directory '/setup/install/system-image/bin'
+RAMFS: Created directory '/setup/install/system-image/sbin'
+RAMFS: Created directory '/setup/install/system-image/usr'
+RAMFS: Created directory '/setup/install/system-image/usr/bin'
+RAMFS: Created file '/setup/install/system-image/sbin/init' (24632 bytes)
+RAMFS: Created file '/setup/install/system-image/bin/login' (23216 bytes)
+RAMFS: Created file '/setup/install/system-image/bin/sh' (3848 bytes)
+RAMFS: Created directory '/setup/install/system-image/examples'
+RAMFS: Created file '/setup/install/system-image/examples/hello.py'
+RAMFS: Created file '/setup/install/system-image/examples/fibonacci.py'
+RAMFS: Created file '/setup/install/system-image/examples/hello.nano'
+RAMFS: Created file '/setup/install/system-image/examples/calculator.nano'
+INSTALL: failed to seed setup media payload
+  Mounting procfs...
+  Mounting sysfs...
+  Mounting devfs...
+[INIT] Phase 5: Device Drivers
+  Loading framebuffer driver...
+FB: Initializing framebuffer
+FB: Using Limine framebuffer 1024x768 at 0xffff8000e0000000
+  Initializing PCI bus...
+PCI: Initializing x86 config-space scan...
+PCI: Found 8086:1237 at 00:00.0
+PCI: Found 8086:7000 at 00:01.0
+PCI: Found 8086:7010 at 00:01.1
+STORAGE: Loading IDE driver for 00:01.1
+STORAGE: Registered disk IDE Hard Disk at hd0
+STORAGE: Registered disk ATAPI CD-ROM at cd1
+STORAGE: Registered IDE/PATA controller via pci
+PCI: Found 80ee:beef at 00:02.0
+PCI: Found 1022:2000 at 00:03.0
+PCI: Found 80ee:cafe at 00:04.0
+PCI: Found 8086:2415 at 00:05.0
+PCI: Found 8086:7113 at 00:07.0
+PCI: Found 8086:1e31 at 00:0c.0
+PCI: Found xHCI USB controller at 00:0c.0
+PCI: xHCI deferred on x86 bring-up path
+PCI: xHCI remains disabled on x86 bring-up path (set cmdline: xhci=on to enable)
+PCI: Scan complete (9 devices found).
+  Initializing GPU driver...
+  GPU: No virtio-gpu found (software rendering)
+  Initializing GUI...
+GUI: Initializing windowing system
+GUI: Created window 'Installer' (944x688)
+GUI: Display 1024x768 initialized
+TERM: Created terminal 48x15
+  Loading keyboard driver...
+  Loading NVMe driver...
+  Loading USB driver...
+  Loading network driver...
+  Loading Wi-Fi drivers...
+NET: Initializing network stack
+NET: Loopback interface configured
+NET: TCP/IP stack initialized
+NET: Initializing virtio-net...
+NET: virtio-mmio network probe skipped on PC platform
+VBOX-NET: Probing VirtualBox PCNet adapter...
+VBOX-NET: Found VirtualBox PCNet at 00:03.0 IO=0xd020 MAC=08:00:27:22:e7:11
+NET: Added interface eth0
+VBOX-NET: Software-backed network interface ready
+WIFI: Loading wireless drivers...
+WIFI: No supported PCI Wi-Fi adapter detected
+  GUI desktop ready!
+[INIT] Enabling interrupts...
+x86_64: leaving interrupts disabled on the desktop bring-up path
+[INIT] Kernel initialization complete!
+
+All subsystems initialized successfully
+Starting init process...
+
+x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
+System ready.
+
+INPUT: Initializing PS/2 keyboard and mouse
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 extended pointer detected (id=0x3)
+INPUT: PS/2 ready
+GUI: Event loop started - type in terminal!\nGUI: Created window 'Partition Manager' (560x360)
+GUI: Created window 'File Manager - /' (450x350)
+RAMFS: Created directory '/External'
+RAMFS: Created directory '/Media'
+RAMFS: Created directory '/External/cd1'
+RAMFS: Created directory '/Media/cd1'
+ISO9660: Copying 'cd1' to '/Media/cd1' using primary catalog
+RAMFS: Created directory '/Media/cd1/install'
+RAMFS: Created directory '/Media/cd1/install/system-image'
+RAMFS: Created directory '/Media/cd1/install/system-image/examples'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr'
+RAMFS: Created directory '/Media/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/sbin'
+RAMFS: Created directory '/Media/cd1/install/system-image/bin'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/Media/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/System'
+RAMFS: Created directory '/Media/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets'
+RAMFS: Created directory '/Media/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/Media/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/Media/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/Media/cd1/install/system-image/Documents'
+RAMFS: Created directory '/Media/cd1/install/system-image/limine'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI'
+RAMFS: Created directory '/Media/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/install/system-image/boot'
+RAMFS: Created directory '/Media/cd1/limine'
+RAMFS: Created directory '/Media/cd1/EFI'
+RAMFS: Created directory '/Media/cd1/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/bootimage'
+RAMFS: Created directory '/Media/cd1/bootimage/limine'
+RAMFS: Created directory '/Media/cd1/bootimage/EFI'
+RAMFS: Created directory '/Media/cd1/bootimage/EFI/BOOT'
+RAMFS: Created directory '/Media/cd1/bootimage/boot'
+RAMFS: Created directory '/Media/cd1/boot'
+RAMFS: Created directory '/External/cd1/install'
+RAMFS: Created directory '/External/cd1/install/system-image'
+RAMFS: Created directory '/External/cd1/install/system-image/examples'
+RAMFS: Created directory '/External/cd1/install/system-image/usr'
+RAMFS: Created directory '/External/cd1/install/system-image/usr/bin'
+RAMFS: Created directory '/External/cd1/install/system-image/sbin'
+RAMFS: Created directory '/External/cd1/install/system-image/bin'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop/Projects'
+RAMFS: Created directory '/External/cd1/install/system-image/Desktop/System Apps'
+RAMFS: Created directory '/External/cd1/install/system-image/System'
+RAMFS: Created directory '/External/cd1/install/system-image/System/Apps'
+RAMFS: Created directory '/External/cd1/install/system-image/assets'
+RAMFS: Created directory '/External/cd1/install/system-image/assets/wallpapers'
+RAMFS: Created directory '/External/cd1/install/system-image/Pictures'
+RAMFS: Created directory '/External/cd1/install/system-image/Downloads'
+RAMFS: Created directory '/External/cd1/install/system-image/Documents'
+RAMFS: Created directory '/External/cd1/install/system-image/limine'
+RAMFS: Created directory '/External/cd1/install/system-image/EFI'
+RAMFS: Created directory '/External/cd1/install/system-image/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/install/system-image/boot'
+RAMFS: Created directory '/External/cd1/limine'
+RAMFS: Created directory '/External/cd1/EFI'
+RAMFS: Created directory '/External/cd1/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/bootimage'
+RAMFS: Created directory '/External/cd1/bootimage/limine'
+RAMFS: Created directory '/External/cd1/bootimage/EFI'
+RAMFS: Created directory '/External/cd1/bootimage/EFI/BOOT'
+RAMFS: Created directory '/External/cd1/bootimage/boot'
+RAMFS: Created directory '/External/cd1/boot'
+STORAGE: external storage views refreshed under /External
+INSTALL: starting system image install
+[INSTALL] starting system image install
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+INSTALL: install payload missing: /install/system-image/boot/main.sys
+[INSTALL] install payload missing: /install/system-image/boot/main.sys
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+INSTALL: install blocked: boot payload incomplete
+[INSTALL] install blocked: boot payload incomplete
+SYNC: sync flush unavailable: /System/install.log
+SYNC: sync write complete: /System/install.log
+SYNC: sync flush unavailable: /Installed/hd0/install.log
+SYNC: sync write complete: /Installed/hd0/install.log
+

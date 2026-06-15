@@ -1,0 +1,9 @@
+name=OS
+root_path=C:\Users\Benno111\Desktop\OS
+project_type=Console Application
+build_target=OS
+build_config=Debug
+git_enabled=true
+git_root=C:/Users/Benno111/Desktop/OS
+git_branch=master
+git_auto_init=true

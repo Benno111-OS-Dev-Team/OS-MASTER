@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Files
-Exec=/usr/local/bin/os-master-launch files
-Icon=/usr/local/share/os-master-desktop/icons/dock_folder.png
-Terminal=false
-Categories=System;

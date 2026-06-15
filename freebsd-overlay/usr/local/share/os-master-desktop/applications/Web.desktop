@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Web
-Exec=/usr/local/bin/os-master-launch web
-Icon=/usr/local/share/os-master-desktop/icons/dock_web.png
-Terminal=false
-Categories=Network;

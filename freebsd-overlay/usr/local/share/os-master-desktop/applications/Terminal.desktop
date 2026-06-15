@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=Terminal
-Exec=/usr/local/bin/os-master-launch terminal
-Icon=/usr/local/share/os-master-desktop/icons/dock_terminal.png
-Terminal=false
-Categories=System;TerminalEmulator;
