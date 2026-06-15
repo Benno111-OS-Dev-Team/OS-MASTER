@@ -29,12 +29,23 @@ jobs:
             exit 1
           fi
 
+      - name: Require rollback token
+        shell: bash
+        env:
+          ROLLBACK_TOKEN: ${{ secrets.ROLLBACK_TOKEN }}
+        run: |
+          if [ -z "$ROLLBACK_TOKEN" ]; then
+            echo "ROLLBACK_TOKEN secret is required."
+            echo "Use a fine-grained PAT or GitHub App token that can write contents and workflows."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.ROLLBACK_TOKEN }}
 
       - name: Configure git identity
         shell: bash
@@ -65,4 +76,4 @@ jobs:
           git checkout main
           git reset --hard "$TARGET_COMMIT"
 
-          git push origin main --force-with-lease
+          git push https://x-access-token:${{ secrets.ROLLBACK_TOKEN }}@github.com/${{ github.repository }} HEAD:main --force-with-lease
