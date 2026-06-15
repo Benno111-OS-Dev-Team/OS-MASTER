@@ -1,0 +1,68 @@
+name: Roll back main to fixed commit
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type ROLLBACK to confirm rewriting main'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rollback-main
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Force main back to target commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check confirmation
+        shell: bash
+        run: |
+          if [ "${{ inputs.confirm }}" != "ROLLBACK" ]; then
+            echo "You must type ROLLBACK to continue."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Verify target commit exists
+        shell: bash
+        run: |
+          TARGET_COMMIT="48489aa3113b49f9eeb64af51cae57d92761d105"
+
+          git fetch origin "$TARGET_COMMIT"
+
+          if ! git cat-file -e "$TARGET_COMMIT^{commit}"; then
+            echo "Target commit does not exist:"
+            echo "$TARGET_COMMIT"
+            exit 1
+          fi
+
+      - name: Roll back main
+        shell: bash
+        run: |
+          TARGET_COMMIT="48489aa3113b49f9eeb64af51cae57d92761d105"
+
+          echo "Resetting main to $TARGET_COMMIT"
+
+          git checkout main
+          git reset --hard "$TARGET_COMMIT"
+
+          git push origin main --force-with-lease
