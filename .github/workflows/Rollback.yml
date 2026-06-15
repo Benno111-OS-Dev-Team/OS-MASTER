@@ -29,23 +29,11 @@ jobs:
             exit 1
           fi
 
-      - name: Require rollback token
-        shell: bash
-        env:
-          ROLLBACK_TOKEN: ${{ secrets.ROLLBACK_TOKEN }}
-        run: |
-          if [ -z "$ROLLBACK_TOKEN" ]; then
-            echo "ROLLBACK_TOKEN secret is required."
-            echo "Use a fine-grained PAT or GitHub App token that can write contents and workflows."
-            exit 1
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: main
-          token: ${{ secrets.ROLLBACK_TOKEN }}
 
       - name: Configure git identity
         shell: bash
@@ -77,4 +65,10 @@ jobs:
           git restore --source "$TARGET_COMMIT" --staged --worktree .
           git restore --source HEAD --staged --worktree .github/workflows
 
-          git push https://x-access-token:${{ secrets.ROLLBACK_TOKEN }}@github.com/${{ github.repository }} HEAD:main --force-with-lease
+          if git diff --cached --quiet; then
+            echo "Main already matches the rollback target outside .github/workflows; nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Restore main content to rollback target"
+          git push origin HEAD:main
