@@ -5,6 +5,7 @@
 #include "arch/arch.h"
 #include "acpi.h"
 #include "printk.h"
+#include "sandbox/sandbox.h"
 #include "types.h"
 
 /* ===================================================================== */
@@ -537,6 +538,21 @@ static void exception_append_hex(char **dst, size_t *remaining, uint64_t value)
     }
 }
 
+static uint64_t sandbox_fault_type_from_exception(uint64_t int_no)
+{
+    switch (int_no) {
+    case 0:
+        return SANDBOX_FAULT_DIV0;
+    case 12:
+        return SANDBOX_FAULT_OVERFLOW;
+    case 13:
+    case 14:
+        return SANDBOX_FAULT_ACCESS;
+    default:
+        return SANDBOX_FAULT_UNKNOWN;
+    }
+}
+
 void handle_exception(interrupt_frame_t *frame)
 {
     char panic_msg[256];
@@ -554,6 +570,11 @@ void handle_exception(interrupt_frame_t *frame)
     if (frame->int_no == 14) {
         asm volatile("mov %%cr2, %0" : "=r"(cr2));
         cr2_valid = 1;
+    }
+
+    if (sandbox_is_active()) {
+        sandbox_handle_fault(cr2_valid ? cr2 : frame->rip,
+                             sandbox_fault_type_from_exception(frame->int_no));
     }
 
     panic_msg[0] = '\0';

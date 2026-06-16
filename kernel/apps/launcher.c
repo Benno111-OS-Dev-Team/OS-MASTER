@@ -9,6 +9,7 @@
 #include "drivers/storage.h"
 #include "fs/vfs.h"
 #include "printk.h"
+#include "sandbox/sandbox.h"
 #include "mm/kmalloc.h"
 #include "core/process.h"
 
@@ -1170,6 +1171,26 @@ static app_entry_t app_registry[] = {
     { NULL, NULL }
 };
 
+#define APP_RING_FENCE_STACK_SIZE (128 * 1024)
+
+typedef struct app_ring_fence_call {
+    app_main_fn main_fn;
+    kapi_t *api;
+    int argc;
+    char **argv;
+} app_ring_fence_call_t;
+
+static int app_ring_fence_entry(void *arg, void *result, size_t result_size) {
+    (void)result;
+    (void)result_size;
+
+    app_ring_fence_call_t *call = (app_ring_fence_call_t *)arg;
+    if (!call || !call->main_fn || !call->api)
+        return -1;
+
+    return call->main_fn(call->api, call->argc, call->argv);
+}
+
 /* Run an embedded application by name */
 int app_run(const char *name, int argc, char **argv) {
     printk(KERN_INFO "[APP] Running: %s\n", name);
@@ -1182,9 +1203,31 @@ int app_run(const char *name, int argc, char **argv) {
         const char *b = app_registry[i].name;
         while (*a && *b && *a == *b) { a++; b++; }
         if (*a == *b) {
-            /* Match found */
-            kapi_t *api = kapi_get();
-            return app_registry[i].main_fn(api, argc, argv);
+            sandbox_ctx_t ctx;
+            app_ring_fence_call_t call;
+            int ret;
+
+            call.main_fn = app_registry[i].main_fn;
+            call.api = kapi_get();
+            call.argc = argc;
+            call.argv = argv;
+
+            if (sandbox_init(&ctx, APP_RING_FENCE_STACK_SIZE, 0) != 0) {
+                printk(KERN_ERR "[APP] Ring fence unavailable for %s\n", name);
+                return -1;
+            }
+
+            ret = sandbox_execute(&ctx, app_ring_fence_entry, &call);
+            if (ctx.faulted) {
+                printk(KERN_WARNING
+                       "[APP] %s faulted inside ring fence; system kept running\n",
+                       name);
+            } else if (ret < 0) {
+                printk(KERN_WARNING "[APP] %s exited with error %d\n", name, ret);
+            }
+
+            sandbox_destroy(&ctx);
+            return ret;
         }
     }
     
