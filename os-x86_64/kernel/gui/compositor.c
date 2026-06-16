@@ -2873,7 +2873,58 @@ static int last_mouse_x = 0, last_mouse_y = 0;
 static struct { int x, y, w, h, valid; } dirty_regions[MAX_DIRTY_REGIONS];
 static int dirty_count = 0;
 
+static int dirty_rects_overlap(int ax, int ay, int aw, int ah,
+                               int bx, int by, int bw, int bh) {
+  return ax <= bx + bw && ax + aw >= bx && ay <= by + bh && ay + ah >= by;
+}
+
+static void dirty_rect_union(int *x, int *y, int *w, int *h,
+                             int bx, int by, int bw, int bh) {
+  int ax2 = *x + *w;
+  int ay2 = *y + *h;
+  int bx2 = bx + bw;
+  int by2 = by + bh;
+  int nx1 = *x < bx ? *x : bx;
+  int ny1 = *y < by ? *y : by;
+  int nx2 = ax2 > bx2 ? ax2 : bx2;
+  int ny2 = ay2 > by2 ? ay2 : by2;
+
+  *x = nx1;
+  *y = ny1;
+  *w = nx2 - nx1;
+  *h = ny2 - ny1;
+}
+
 static void mark_dirty(int x, int y, int w, int h) {
+  if (w <= 0 || h <= 0) return;
+
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > (int)screen_width) w = (int)screen_width - x;
+  if (y + h > (int)screen_height) h = (int)screen_height - y;
+  if (w <= 0 || h <= 0) return;
+
+  for (int i = 0; i < dirty_count;) {
+    if (!dirty_regions[i].valid) {
+      dirty_regions[i] = dirty_regions[dirty_count - 1];
+      dirty_count--;
+      continue;
+    }
+
+    if (dirty_rects_overlap(x, y, w, h,
+                            dirty_regions[i].x, dirty_regions[i].y,
+                            dirty_regions[i].w, dirty_regions[i].h)) {
+      dirty_rect_union(&x, &y, &w, &h,
+                       dirty_regions[i].x, dirty_regions[i].y,
+                       dirty_regions[i].w, dirty_regions[i].h);
+      dirty_regions[i] = dirty_regions[dirty_count - 1];
+      dirty_count--;
+      continue;
+    }
+
+    i++;
+  }
+
   if (dirty_count < MAX_DIRTY_REGIONS) {
     dirty_regions[dirty_count].x = x;
     dirty_regions[dirty_count].y = y;
@@ -2883,6 +2934,7 @@ static void mark_dirty(int x, int y, int w, int h) {
     dirty_count++;
   } else {
     full_redraw = 1;
+    dirty_count = 0;
   }
 }
 
@@ -3400,6 +3452,36 @@ static void gui_poll_input(void) {
   
   /* Handle window dragging */
   if (dragging_window != DRAG_NONE && left_held) {
+    int old_win_x = 0, old_win_y = 0, win_w = 0, win_h = 0;
+    switch (dragging_window) {
+      case DRAG_TERMINAL:
+        old_win_x = terminal.content_x; old_win_y = terminal.content_y;
+        win_w = terminal.width; win_h = terminal.height; break;
+      case DRAG_FILE_MANAGER:
+        old_win_x = file_manager.x; old_win_y = file_manager.y;
+        win_w = file_manager.width; win_h = file_manager.height; break;
+      case DRAG_CALCULATOR:
+        old_win_x = calc.x; old_win_y = calc.y;
+        win_w = calc.width; win_h = calc.height; break;
+      case DRAG_SNAKE:
+        old_win_x = snake.x; old_win_y = snake.y;
+        win_w = snake.width; win_h = snake.height; break;
+      case DRAG_NOTEPAD:
+        old_win_x = notepad.x; old_win_y = notepad.y;
+        win_w = notepad.width; win_h = notepad.height; break;
+      case DRAG_CLOCK:
+        old_win_x = analog_clock.x; old_win_y = analog_clock.y;
+        win_w = analog_clock.size; win_h = analog_clock.size; break;
+      case DRAG_HELP:
+        old_win_x = help_win.x; old_win_y = help_win.y;
+        win_w = help_win.width; win_h = help_win.height; break;
+      case DRAG_IMAGE_VIEWER:
+        old_win_x = img_viewer.x; old_win_y = img_viewer.y;
+        win_w = img_viewer.width; win_h = img_viewer.height; break;
+      case DRAG_TASK_MANAGER:
+        old_win_x = task_manager.x; old_win_y = task_manager.y;
+        win_w = task_manager.width; win_h = task_manager.height; break;
+    }
     int new_win_x = new_x - drag_offset_x;
     int new_win_y = new_y - drag_offset_y;
     
@@ -3449,8 +3531,12 @@ static void gui_poll_input(void) {
         task_manager.y = new_win_y;
         break;
     }
-    full_redraw = 1;
-    needs_redraw = 1;
+    if (new_win_x != old_win_x || new_win_y != old_win_y) {
+      int pad = UI_SCALE_VAL(6);
+      mark_dirty(old_win_x - pad, old_win_y - pad, win_w + pad * 2, win_h + pad * 2);
+      mark_dirty(new_win_x - pad, new_win_y - pad, win_w + pad * 2, win_h + pad * 2);
+      needs_redraw = 1;
+    }
   }
   
   /* Release dragging on mouse up */

@@ -48,6 +48,7 @@ static void start_init_process(void);
 static void populate_seed_filesystem(void);
 static void populate_installer_payload(void);
 static void import_staged_system_image(void);
+static int import_boot_media_assets_from(const char *media_root);
 static int staged_system_image_exists(void);
 void refresh_external_storage_views(void);
 static int boot_hdd_disk_index(void);
@@ -245,6 +246,7 @@ static void panic_fb_draw_wrapped(uint32_t *fb, uint32_t pitch_pixels,
 }
 
 static void panic_halt_forever(void) __attribute__((noreturn));
+static volatile int kernel_panic_fence_active = 0;
 
 static void panic_halt_forever(void) {
   for (;;) {
@@ -257,6 +259,26 @@ static void panic_halt_forever(void) {
     arch_halt();
 #endif
   }
+}
+
+static void panic_uart_put_hex(uint64_t value) {
+  static const char hex[] = "0123456789ABCDEF";
+  uart_puts("0x");
+  for (int shift = 60; shift >= 0; shift -= 4)
+    uart_putc(hex[(value >> shift) & 0xF]);
+}
+
+int kernel_panic_fence_is_active(void) { return kernel_panic_fence_active != 0; }
+
+void kernel_panic_fence_fault(uint64_t fault_addr, uint64_t fault_type) {
+  arch_irq_disable();
+  uart_puts("\nKERNEL PANIC FENCE: fault while rendering/reporting panic\n");
+  uart_puts("Fault address: ");
+  panic_uart_put_hex(fault_addr);
+  uart_puts(" type: ");
+  panic_uart_put_hex(fault_type);
+  uart_puts("\nHalting through panic fence.\n");
+  panic_halt_forever();
 }
 
 static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
@@ -526,7 +548,9 @@ static void populate_seed_filesystem(void) {
    * and copied back into /, making setup do a large duplicate tree copy.
    */
   import_staged_system_image();
+#if CONFIG_EMBED_INSTALLER_PAYLOAD
   populate_installer_payload();
+#endif
 }
 
 static int build_seed_path(char *dst, size_t dst_size, const char *prefix,
@@ -589,10 +613,12 @@ static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
 }
 
 static void populate_seed_tree_at(const char *prefix) {
+#if CONFIG_EMBED_SEED_ASSETS
   extern const unsigned char bootstrap_test_png[];
   extern const unsigned int bootstrap_test_png_len;
   extern const unsigned char bootstrap_logo_png[];
   extern const unsigned int bootstrap_logo_png_len;
+#endif
 
   seed_make_dir(prefix, "Documents");
   seed_make_dir(prefix, "Downloads");
@@ -616,6 +642,7 @@ static void populate_seed_tree_at(const char *prefix) {
   seed_write_text(prefix, "todo.txt", 0644,
                   "- Implement Browser\n- Fix Bugs\n- Sleep");
   seed_write_bytes(prefix, "sample.mp3", 0644, os_seed_mp3, os_seed_mp3_len);
+#if CONFIG_EMBED_SEED_ASSETS
   seed_write_bytes(prefix, "assets/logo.png", 0644, bootstrap_logo_png,
                    bootstrap_logo_png_len);
   seed_write_bytes(prefix, "assets/wallpapers/landscape.png", 0644,
@@ -634,6 +661,7 @@ static void populate_seed_tree_at(const char *prefix) {
                    bootstrap_default_jpg, bootstrap_default_jpg_len);
   seed_write_bytes(prefix, "Pictures/test.png", 0644, bootstrap_test_png,
                    bootstrap_test_png_len);
+#endif
 
   seed_make_dir(prefix, "bin");
   seed_make_dir(prefix, "sbin");
@@ -814,6 +842,26 @@ static void import_staged_system_image(void) {
   }
 }
 
+static int g_boot_media_assets_imported = 0;
+
+static int import_boot_media_assets_from(const char *media_root) {
+  char asset_root[160];
+
+  if (g_boot_media_assets_imported || !media_root || !media_root[0])
+    return g_boot_media_assets_imported ? 0 : -1;
+
+  if (build_seed_path(asset_root, sizeof(asset_root), media_root, "assets") != 0)
+    return -1;
+
+  if (copy_tree_to_prefix(asset_root, "/assets", 0, 0) != 0)
+    return -1;
+
+  g_boot_media_assets_imported = 1;
+  printk(KERN_INFO "ASSETS: imported boot media assets from %s\n", asset_root);
+  boot_splash_prepare();
+  return 0;
+}
+
 static int staged_system_image_exists(void) {
   struct file *dir = vfs_open("/install/system-image", O_RDONLY, 0);
   if (!dir)
@@ -867,9 +915,11 @@ void refresh_external_storage_views(void) {
       if (vfs_mount(location, media_root, "iso9660", 0, NULL) == 0) {
         printk(KERN_INFO "STORAGE: mounted CD-ROM '%s' on '%s'\n", location,
                media_root);
+        import_boot_media_assets_from(media_root);
         continue;
       }
       if (iso9660_copy_to_ramfs(location, media_root) == 0) {
+        import_boot_media_assets_from(media_root);
         continue;
       }
       if (boot_is_installer_mode()) {
@@ -903,7 +953,7 @@ void refresh_external_storage_views(void) {
 }
 
 static void populate_installer_payload(void) {
-#ifdef ARCH_X86_64
+#if defined(ARCH_X86_64) && CONFIG_EMBED_INSTALLER_PAYLOAD
   extern int boot_is_installer_mode(void);
   extern void *limine_get_kernel_file_addr(void);
   extern uint64_t limine_get_kernel_file_size(void);
@@ -1341,6 +1391,7 @@ static void init_subsystems(void *dtb) {
   /* Discover PCI GPUs before GUI startup so Intel handoff is ready in time. */
   printk(KERN_INFO "  Initializing PCI bus...\n");
   storage_init();
+  refresh_external_storage_views();
   pci_init();
 
   printk(KERN_INFO "  Initializing GPU driver...\n");
@@ -1720,6 +1771,7 @@ void panic_with_context(const char *msg, uintptr_t caller_hint,
     panic_halt_forever();
   }
   panic_in_progress = 1;
+  kernel_panic_fence_active = 1;
 
   printk(KERN_EMERG "\n");
   printk(KERN_EMERG "============================================\n");

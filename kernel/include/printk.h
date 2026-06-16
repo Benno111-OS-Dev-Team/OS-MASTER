@@ -56,6 +56,8 @@ int vprintk(const char *fmt, __builtin_va_list args);
 void panic(const char *msg) __noreturn;
 void panic_with_context(const char *msg, uintptr_t caller_hint,
                         uintptr_t stack_hint) __noreturn;
+int kernel_panic_fence_is_active(void);
+void kernel_panic_fence_fault(uint64_t fault_addr, uint64_t fault_type) __noreturn;
 
 /* ===================================================================== */
 /* Early boot console (before full driver init) */

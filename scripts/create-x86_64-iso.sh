@@ -19,8 +19,9 @@ BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
 LIMINE_SRC_DIR="${BOOT_MANAGER_DIR}"
 LIMINE_TOOL_PATH="${LIMINE_SRC_DIR}/limine"
-LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installer-text.conf}"
+LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine.conf}"
 INSTALL_LIMINE_CFG="${INSTALL_LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installed.conf}"
+INCLUDE_INSTALLER="${INCLUDE_INSTALLER:-0}"
 INSTALL_ROOT="${ISO_ROOT}/install/system-image"
 SYSTEM_IMAGE_ROOT="${SYSTEM_IMAGE_ROOT:-${BUILD_DIR}/system-image}"
 SYSTEM_IMAGE_ARCHIVE="${SYSTEM_IMAGE_ARCHIVE:-${BUILD_DIR}/system-image.zip}"
@@ -173,7 +174,9 @@ resolve_limine_tool() {
 
 require_file "$KERNEL_PATH"
 require_file "$LIMINE_CFG"
-require_file "$INSTALL_LIMINE_CFG"
+if [ "$INCLUDE_INSTALLER" = "1" ]; then
+    require_file "$INSTALL_LIMINE_CFG"
+fi
 require_file "$LIMINE_BIN_DIR/BOOTX64.EFI"
 require_file "$LIMINE_BIN_DIR/limine-bios.sys"
 require_file "$LIMINE_BIN_DIR/limine-bios-cd.bin"
@@ -186,30 +189,32 @@ rm -rf "$ISO_ROOT"
 log "Preparing ISO root at $ISO_ROOT"
 mkdir -p "$ISO_ROOT/install"
 
-env BOOT_PROFILE=installer LIMINE_CFG_SOURCE="$LIMINE_CFG" \
+env BOOT_PROFILE=live LIMINE_CFG_SOURCE="$LIMINE_CFG" \
     bash "$BOOT_FILES_SCRIPT" "$BUILD_DIR" "$ISO_ROOT"
-env BOOT_LIMINE_CFG="$INSTALL_LIMINE_CFG" \
-    bash "$SYSTEM_IMAGE_SCRIPT" "$BUILD_DIR" "$SYSTEM_IMAGE_ROOT"
-rm -rf "$INSTALL_ROOT"
-cp -R "$SYSTEM_IMAGE_ROOT" "$INSTALL_ROOT"
-cp "$SYSTEM_IMAGE_ARCHIVE" "$ISO_ROOT/install/system-image.zip"
-if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
-    cp "$BOOT_IMAGE_ARCHIVE" "$ISO_ROOT/install/boot-files.zip"
-fi
-if [ -f "$SYSTEM_DISK_IMAGE" ]; then
-    cp "$SYSTEM_DISK_IMAGE" "$ISO_ROOT/install/system.img"
-fi
-if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
-    cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/OSINST.COM"
-fi
-if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
-    cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/OSSYS.IMG"
-fi
-if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
-    cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/README.TXT"
-fi
-if [ -f "${DOS_ENV_IMAGE}" ]; then
-    cp "${DOS_ENV_IMAGE}" "$ISO_ROOT/DOSENV.IMG"
+if [ "$INCLUDE_INSTALLER" = "1" ]; then
+    env BOOT_LIMINE_CFG="$INSTALL_LIMINE_CFG" \
+        bash "$SYSTEM_IMAGE_SCRIPT" "$BUILD_DIR" "$SYSTEM_IMAGE_ROOT"
+    rm -rf "$INSTALL_ROOT"
+    cp -R "$SYSTEM_IMAGE_ROOT" "$INSTALL_ROOT"
+    cp "$SYSTEM_IMAGE_ARCHIVE" "$ISO_ROOT/install/system-image.zip"
+    if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
+        cp "$BOOT_IMAGE_ARCHIVE" "$ISO_ROOT/install/boot-files.zip"
+    fi
+    if [ -f "$SYSTEM_DISK_IMAGE" ]; then
+        cp "$SYSTEM_DISK_IMAGE" "$ISO_ROOT/install/system.img"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+        cp "${DOS_INSTALLER_DIR}/OSINST.COM" "$ISO_ROOT/OSINST.COM"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+        cp "${DOS_INSTALLER_DIR}/OSSYS.IMG" "$ISO_ROOT/OSSYS.IMG"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+        cp "${DOS_INSTALLER_DIR}/README.TXT" "$ISO_ROOT/README.TXT"
+    fi
+    if [ -f "${DOS_ENV_IMAGE}" ]; then
+        cp "${DOS_ENV_IMAGE}" "$ISO_ROOT/DOSENV.IMG"
+    fi
 fi
 LIMINE_TOOL="$(resolve_limine_tool)"
 
@@ -236,7 +241,9 @@ xorriso -as mkisofs \
 
 "$LIMINE_TOOL" bios-install "$ISO_PATH" >/dev/null 2>&1 || true
 compress_iso "$ISO_PATH"
-compress_installer_7z "$ISO_PATH"
+if [ "$INCLUDE_INSTALLER" = "1" ]; then
+    compress_installer_7z "$ISO_PATH"
+fi
 
 log "Validating ISO contents..."
 ISO_CONTENTS_FILE="${ISO_ROOT}/iso-contents.txt"
@@ -262,40 +269,41 @@ require_iso_path "/EFI/BOOT/BOOTX64.EFI"
 require_iso_path "/limine.conf"
 require_iso_path "/boot/limine.conf"
 require_iso_path "/EFI/BOOT/limine.conf"
-require_iso_path "/INSTALLERS.TXT"
-require_iso_path "/install/system-image.zip"
-if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
-    require_iso_path "/install/boot-files.zip"
+if [ "$INCLUDE_INSTALLER" = "1" ]; then
+    require_iso_path "/INSTALLERS.TXT"
+    require_iso_path "/install/system-image.zip"
+    if [ -f "$BOOT_IMAGE_ARCHIVE" ]; then
+        require_iso_path "/install/boot-files.zip"
+    fi
+    if [ -f "$SYSTEM_DISK_IMAGE" ]; then
+        require_iso_path "/install/system.img"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
+        require_iso_path "/OSINST.COM"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
+        require_iso_path "/OSSYS.IMG"
+    fi
+    if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
+        require_iso_path "/README.TXT"
+    fi
+    if [ -f "${DOS_ENV_IMAGE}" ]; then
+        require_iso_path "/DOSENV.IMG"
+    fi
+    require_iso_path "/install/system-image/INSTALLERS.TXT"
+    require_iso_path "/install/system-image/boot/bootloader.sys"
+    require_iso_path "/install/system-image/boot/main.sys"
+    require_iso_path "/install/system-image/boot/raw/manifest.txt"
+    require_iso_path "/install/system-image/limine.conf"
+    require_iso_path "/install/system-image/boot/limine.conf"
+    require_iso_path "/install/system-image/limine/limine.conf"
+    require_iso_path "/install/system-image/EFI/BOOT/limine.conf"
+    require_iso_path "/install/system-image/boot/limine-bios.sys"
+    require_iso_path "/install/system-image/boot/limine-bios-cd.bin"
+    require_iso_path "/install/system-image/boot/limine-uefi-cd.bin"
+    require_iso_path "/install/system-image/EFI/BOOT/BOOTX64.EFI"
+    require_iso_path "/install/system-image/IMAGE_INFO.txt"
 fi
-if [ -f "$SYSTEM_DISK_IMAGE" ]; then
-    require_iso_path "/install/system.img"
-fi
-if [ -f "${DOS_INSTALLER_DIR}/OSINST.COM" ]; then
-    require_iso_path "/OSINST.COM"
-fi
-if [ -f "${DOS_INSTALLER_DIR}/OSSYS.IMG" ]; then
-    require_iso_path "/OSSYS.IMG"
-fi
-if [ -f "${DOS_INSTALLER_DIR}/README.TXT" ]; then
-    require_iso_path "/README.TXT"
-fi
-if [ -f "${DOS_ENV_IMAGE}" ]; then
-    require_iso_path "/DOSENV.IMG"
-fi
-require_iso_path "/install/system-image/INSTALLERS.TXT"
-require_iso_path "/install/system-image/boot/bootloader.sys"
-require_iso_path "/install/system-image/boot/main.sys"
-require_iso_path "/install/system-image/boot/raw/manifest.txt"
-require_iso_path "/install/system-image/limine.conf"
-require_iso_path "/install/system-image/boot/limine.conf"
-require_iso_path "/install/system-image/limine/limine.conf"
-require_iso_path "/install/system-image/EFI/BOOT/limine.conf"
-require_iso_path "/install/system-image/boot/limine-bios.sys"
-require_iso_path "/install/system-image/boot/limine-bios-cd.bin"
-require_iso_path "/install/system-image/boot/limine-uefi-cd.bin"
-require_iso_path "/install/system-image/EFI/BOOT/BOOTX64.EFI"
-require_iso_path "/install/system-image/IMAGE_INFO.txt"
-
 log "ISO created successfully: $ISO_PATH"
 ls -lh "$ISO_PATH"
 if [ -f "${ISO_PATH}.xz" ]; then

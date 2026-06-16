@@ -6,6 +6,7 @@
 
 #include "mm/kmalloc.h"
 #include "printk.h"
+#include "sandbox/sandbox.h"
 #include "types.h"
 
 /* Forward declarations */
@@ -57,6 +58,88 @@ struct application {
 #define MAX_APPS 32
 static struct application apps[MAX_APPS];
 static int app_count = 0;
+
+#define APP_CALLBACK_RING_FENCE_STACK_SIZE (64 * 1024)
+
+typedef enum app_callback_kind {
+  APP_CALLBACK_INIT,
+  APP_CALLBACK_UPDATE,
+  APP_CALLBACK_DRAW,
+  APP_CALLBACK_EXIT
+} app_callback_kind_t;
+
+typedef struct app_callback_call {
+  struct application *app;
+  app_callback_kind_t kind;
+} app_callback_call_t;
+
+static int app_callback_ring_entry(void *arg, void *result, size_t result_size) {
+  (void)result;
+  (void)result_size;
+
+  app_callback_call_t *call = (app_callback_call_t *)arg;
+  struct application *app = call ? call->app : NULL;
+  if (!app)
+    return -1;
+
+  switch (call->kind) {
+  case APP_CALLBACK_INIT:
+    return app->on_init ? app->on_init(app) : 0;
+  case APP_CALLBACK_UPDATE:
+    if (app->on_update)
+      app->on_update(app);
+    return 0;
+  case APP_CALLBACK_DRAW:
+    if (app->on_draw)
+      app->on_draw(app);
+    return 0;
+  case APP_CALLBACK_EXIT:
+    if (app->on_exit)
+      app->on_exit(app);
+    return 0;
+  }
+
+  return -1;
+}
+
+static int app_run_callback_ring_fenced(struct application *app,
+                                        app_callback_kind_t kind) {
+  sandbox_ctx_t ctx;
+  app_callback_call_t call;
+  int ret;
+
+  if (!app)
+    return -1;
+
+  call.app = app;
+  call.kind = kind;
+
+  if (sandbox_init(&ctx, APP_CALLBACK_RING_FENCE_STACK_SIZE, 0) != 0) {
+    printk(KERN_ERR "APP: Ring fence unavailable for '%s'\n", app->name);
+    return -1;
+  }
+
+  ret = sandbox_execute(&ctx, app_callback_ring_entry, &call);
+  if (ctx.faulted) {
+    printk(KERN_WARNING "APP: '%s' faulted in callback %d; closing app\n",
+           app->name, (int)kind);
+    ret = -1;
+  }
+
+  sandbox_destroy(&ctx);
+  return ret;
+}
+
+static void app_disable_after_fault(struct application *app) {
+  if (!app || app->id <= 0)
+    return;
+
+  if (app->main_window) {
+    gui_destroy_window(app->main_window);
+    app->main_window = NULL;
+  }
+  app->id = 0;
+}
 
 /* ===================================================================== */
 /* Built-in Applications */
@@ -402,7 +485,8 @@ struct application *app_launch(const char *name, app_type_t type) {
 
   /* Initialize */
   if (app->on_init) {
-    if (app->on_init(app) < 0) {
+    if (app_run_callback_ring_fenced(app, APP_CALLBACK_INIT) < 0) {
+      app_disable_after_fault(app);
       app_count--;
       return NULL;
     }
@@ -418,7 +502,7 @@ void app_close(struct application *app) {
     return;
 
   if (app->on_exit) {
-    app->on_exit(app);
+    (void)app_run_callback_ring_fenced(app, APP_CALLBACK_EXIT);
   }
 
   if (app->main_window) {
@@ -431,7 +515,8 @@ void app_close(struct application *app) {
 void app_update_all(void) {
   for (int i = 0; i < app_count; i++) {
     if (apps[i].id > 0 && apps[i].on_update) {
-      apps[i].on_update(&apps[i]);
+      if (app_run_callback_ring_fenced(&apps[i], APP_CALLBACK_UPDATE) < 0)
+        app_disable_after_fault(&apps[i]);
     }
   }
 }
@@ -439,7 +524,8 @@ void app_update_all(void) {
 void app_draw_all(void) {
   for (int i = 0; i < app_count; i++) {
     if (apps[i].id > 0 && apps[i].on_draw) {
-      apps[i].on_draw(&apps[i]);
+      if (app_run_callback_ring_fenced(&apps[i], APP_CALLBACK_DRAW) < 0)
+        app_disable_after_fault(&apps[i]);
     }
   }
 }
