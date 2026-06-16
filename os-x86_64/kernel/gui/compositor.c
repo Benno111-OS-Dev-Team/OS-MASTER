@@ -2873,6 +2873,28 @@ static int last_mouse_x = 0, last_mouse_y = 0;
 static struct { int x, y, w, h, valid; } dirty_regions[MAX_DIRTY_REGIONS];
 static int dirty_count = 0;
 
+static int dirty_rects_overlap(int ax, int ay, int aw, int ah,
+                               int bx, int by, int bw, int bh) {
+  return ax <= bx + bw && ax + aw >= bx && ay <= by + bh && ay + ah >= by;
+}
+
+static void dirty_rect_union(int *x, int *y, int *w, int *h,
+                             int bx, int by, int bw, int bh) {
+  int ax2 = *x + *w;
+  int ay2 = *y + *h;
+  int bx2 = bx + bw;
+  int by2 = by + bh;
+  int nx1 = *x < bx ? *x : bx;
+  int ny1 = *y < by ? *y : by;
+  int nx2 = ax2 > bx2 ? ax2 : bx2;
+  int ny2 = ay2 > by2 ? ay2 : by2;
+
+  *x = nx1;
+  *y = ny1;
+  *w = nx2 - nx1;
+  *h = ny2 - ny1;
+}
+
 static void mark_dirty(int x, int y, int w, int h) {
   if (w <= 0 || h <= 0) return;
 
@@ -2882,25 +2904,25 @@ static void mark_dirty(int x, int y, int w, int h) {
   if (y + h > (int)screen_height) h = (int)screen_height - y;
   if (w <= 0 || h <= 0) return;
 
-  int x2 = x + w;
-  int y2 = y + h;
-  for (int i = 0; i < dirty_count; i++) {
-    if (!dirty_regions[i].valid) continue;
-    int rx1 = dirty_regions[i].x;
-    int ry1 = dirty_regions[i].y;
-    int rx2 = rx1 + dirty_regions[i].w;
-    int ry2 = ry1 + dirty_regions[i].h;
-    if (x <= rx2 && x2 >= rx1 && y <= ry2 && y2 >= ry1) {
-      int nx1 = x < rx1 ? x : rx1;
-      int ny1 = y < ry1 ? y : ry1;
-      int nx2 = x2 > rx2 ? x2 : rx2;
-      int ny2 = y2 > ry2 ? y2 : ry2;
-      dirty_regions[i].x = nx1;
-      dirty_regions[i].y = ny1;
-      dirty_regions[i].w = nx2 - nx1;
-      dirty_regions[i].h = ny2 - ny1;
-      return;
+  for (int i = 0; i < dirty_count;) {
+    if (!dirty_regions[i].valid) {
+      dirty_regions[i] = dirty_regions[dirty_count - 1];
+      dirty_count--;
+      continue;
     }
+
+    if (dirty_rects_overlap(x, y, w, h,
+                            dirty_regions[i].x, dirty_regions[i].y,
+                            dirty_regions[i].w, dirty_regions[i].h)) {
+      dirty_rect_union(&x, &y, &w, &h,
+                       dirty_regions[i].x, dirty_regions[i].y,
+                       dirty_regions[i].w, dirty_regions[i].h);
+      dirty_regions[i] = dirty_regions[dirty_count - 1];
+      dirty_count--;
+      continue;
+    }
+
+    i++;
   }
 
   if (dirty_count < MAX_DIRTY_REGIONS) {
