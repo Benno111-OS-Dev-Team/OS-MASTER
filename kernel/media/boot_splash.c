@@ -12,6 +12,7 @@ static media_image_t g_boot_logo;
 static int g_boot_logo_state;
 
 int boot_splash_prepare(void) {
+#if CONFIG_EMBED_SEED_ASSETS
   if (g_boot_logo_state == 1)
     return 0;
 
@@ -23,6 +24,10 @@ int boot_splash_prepare(void) {
            g_boot_logo.height);
     return 0;
   }
+#else
+  (void)g_boot_logo;
+  (void)g_boot_logo_state;
+#endif
 
   return -EINVAL;
 }

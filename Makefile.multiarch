@@ -14,6 +14,9 @@ BUILD_DIR := $(ROOT_DIR)/build/$(ARCH)
 GENERATED_DIR := $(BUILD_DIR)/generated
 ASSETS_DIR := $(ROOT_DIR)/assets
 BUILD_ASSETS_DIR := $(BUILD_DIR)/assets
+EMBED_SEED_ASSETS ?= 0
+EMBED_INSTALLER_PAYLOAD ?= 0
+STRIP_KERNEL ?= 1
 BOOT_DIR := $(ROOT_DIR)/boot
 BOOTMANAGER_DIR := $(ROOT_DIR)/bootmanager
 KERNEL_DIR := $(ROOT_DIR)/kernel
@@ -164,9 +167,22 @@ KERNEL_SOURCES_C := $(filter-out \
 	$(KERNEL_DIR)/media/hd_wallpaper_city.c, \
 	$(KERNEL_SOURCES_C))
 
+ifeq ($(EMBED_SEED_ASSETS),1)
+    CFLAGS_KERNEL += -DCONFIG_EMBED_SEED_ASSETS=1
+else
+    KERNEL_SOURCES_C := $(filter-out $(KERNEL_DIR)/media/bootstrap_%.c,$(KERNEL_SOURCES_C))
+endif
+
+ifeq ($(EMBED_INSTALLER_PAYLOAD),1)
+    CFLAGS_KERNEL += -DCONFIG_EMBED_INSTALLER_PAYLOAD=1
+endif
+
 # Architecture-specific sources
 KERNEL_SOURCES_C += $(shell find $(KERNEL_DIR)/arch/$(ARCH) -name '*.c' 2>/dev/null)
 KERNEL_SOURCES_ASM := $(shell find $(KERNEL_DIR)/arch/$(ARCH) -name '*.S' 2>/dev/null)
+ifneq ($(EMBED_INSTALLER_PAYLOAD),1)
+    KERNEL_SOURCES_ASM := $(filter-out $(KERNEL_DIR)/arch/x86_64/installer_payload.S,$(KERNEL_SOURCES_ASM))
+endif
 
 # Driver sources (exclude uart for x86_64/x86 as they have arch-specific versions)
 DRIVER_SOURCES := $(shell find $(DRIVERS_DIR) -name '*.c' 2>/dev/null)
@@ -404,6 +420,15 @@ $(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c | $(BUILD_PREPARED_STAMP)
 $(KERNEL_BINARY): $(ALL_OBJECTS)
 	@echo "[LD] $@"
 	@$(LD) $(LDFLAGS_KERNEL) -o $@ $^
+	@if [ "$(STRIP_KERNEL)" = "1" ]; then \
+		if command -v $(OBJCOPY) >/dev/null 2>&1 && $(OBJCOPY) --strip-debug $@ >/dev/null 2>&1; then \
+			echo "[STRIP] Removed debug sections from $@ with $(OBJCOPY)"; \
+		elif command -v strip >/dev/null 2>&1 && strip --strip-debug $@ >/dev/null 2>&1; then \
+			echo "[STRIP] Removed debug sections from $@ with strip"; \
+		else \
+			echo "[STRIP] No working strip tool found, keeping debug sections in $@"; \
+		fi; \
+	fi
 	@if command -v $(OBJDUMP) >/dev/null 2>&1; then \
 		$(OBJDUMP) -h $@ > $(BUILD_DIR)/kernel/sections.txt; \
 		echo "[INFO] Kernel sections written to $(BUILD_DIR)/kernel/sections.txt"; \
