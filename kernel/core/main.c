@@ -48,6 +48,7 @@ static void start_init_process(void);
 static void populate_seed_filesystem(void);
 static void populate_installer_payload(void);
 static void import_staged_system_image(void);
+static int import_boot_media_assets_from(const char *media_root);
 static int staged_system_image_exists(void);
 void refresh_external_storage_views(void);
 static int boot_hdd_disk_index(void);
@@ -841,6 +842,26 @@ static void import_staged_system_image(void) {
   }
 }
 
+static int g_boot_media_assets_imported = 0;
+
+static int import_boot_media_assets_from(const char *media_root) {
+  char asset_root[160];
+
+  if (g_boot_media_assets_imported || !media_root || !media_root[0])
+    return g_boot_media_assets_imported ? 0 : -1;
+
+  if (build_seed_path(asset_root, sizeof(asset_root), media_root, "assets") != 0)
+    return -1;
+
+  if (copy_tree_to_prefix(asset_root, "/assets", 0, 0) != 0)
+    return -1;
+
+  g_boot_media_assets_imported = 1;
+  printk(KERN_INFO "ASSETS: imported boot media assets from %s\n", asset_root);
+  boot_splash_prepare();
+  return 0;
+}
+
 static int staged_system_image_exists(void) {
   struct file *dir = vfs_open("/install/system-image", O_RDONLY, 0);
   if (!dir)
@@ -894,9 +915,11 @@ void refresh_external_storage_views(void) {
       if (vfs_mount(location, media_root, "iso9660", 0, NULL) == 0) {
         printk(KERN_INFO "STORAGE: mounted CD-ROM '%s' on '%s'\n", location,
                media_root);
+        import_boot_media_assets_from(media_root);
         continue;
       }
       if (iso9660_copy_to_ramfs(location, media_root) == 0) {
+        import_boot_media_assets_from(media_root);
         continue;
       }
       if (boot_is_installer_mode()) {
@@ -1368,6 +1391,7 @@ static void init_subsystems(void *dtb) {
   /* Discover PCI GPUs before GUI startup so Intel handoff is ready in time. */
   printk(KERN_INFO "  Initializing PCI bus...\n");
   storage_init();
+  refresh_external_storage_views();
   pci_init();
 
   printk(KERN_INFO "  Initializing GPU driver...\n");
