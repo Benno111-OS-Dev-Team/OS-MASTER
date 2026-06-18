@@ -8,6 +8,8 @@ param(
 
     [int]$MemoryMb = 4096,
 
+    [int]$Jobs = 1,
+
     [switch]$IncludeInstaller,
 
     [switch]$SkipBios,
@@ -98,6 +100,7 @@ ARCH='__ARCH__'
 ITERATIONS='__ITERATIONS__'
 BOOT_SECONDS='__BOOT_SECONDS__'
 MEMORY_MB='__MEMORY_MB__'
+MAKE_JOBS='__MAKE_JOBS__'
 INCLUDE_INSTALLER='__INCLUDE_INSTALLER__'
 RUN_BIOS='__RUN_BIOS__'
 RUN_UEFI='__RUN_UEFI__'
@@ -133,6 +136,18 @@ resolve_ovmf() {
     return 1
 }
 
+resolve_ovmf_vars() {
+    if [ -f /usr/share/OVMF/OVMF_VARS.fd ]; then
+        printf '%s\n' /usr/share/OVMF/OVMF_VARS.fd
+        return 0
+    fi
+    if [ -f /usr/share/OVMF/OVMF_VARS_4M.fd ]; then
+        printf '%s\n' /usr/share/OVMF/OVMF_VARS_4M.fd
+        return 0
+    fi
+    return 1
+}
+
 normalize_script() {
     local src="\$1"
     local dst="\$2"
@@ -159,6 +174,7 @@ write_environment_report() {
         echo "iterations=\$ITERATIONS"
         echo "boot_seconds=\$BOOT_SECONDS"
         echo "memory_mb=\$MEMORY_MB"
+        echo "make_jobs=\$MAKE_JOBS"
         echo "include_installer=\$INCLUDE_INSTALLER"
         echo "run_bios=\$RUN_BIOS"
         echo "run_uefi=\$RUN_UEFI"
@@ -201,7 +217,7 @@ prepare_lf_scripts() {
 
 build_kernel() {
     log "Building \$ARCH kernel"
-    make -C "\$ROOT_DIR" -f Makefile.multiarch ARCH="\$ARCH" kernel > "\$BUILD_LOG" 2>&1
+    make -C "\$ROOT_DIR" -f Makefile.multiarch ARCH="\$ARCH" kernel -j"\$MAKE_JOBS" > "\$BUILD_LOG" 2>&1
 }
 
 build_iso() {
@@ -232,23 +248,28 @@ collect_iso_diagnostics() {
 run_qemu_case() {
     local mode="\$1"
     local ovmf_path="\${2:-}"
+    local ovmf_vars_path="\${3:-}"
     local args=()
     local qemu_log
     local serial_log
     local exit_file
     local cmd_file
+    local vars_copy
     local rc
 
     args=(-M q35 -cpu qemu64 -m "\$MEMORY_MB" -nographic -serial mon:stdio -no-reboot -no-shutdown -d guest_errors -cdrom "\$ISO_PATH")
-    if [ "\$mode" = 'uefi' ]; then
-        args=(-M q35 -cpu qemu64 -m "\$MEMORY_MB" -nographic -serial mon:stdio -no-reboot -no-shutdown -d guest_errors -bios "\$ovmf_path" -cdrom "\$ISO_PATH")
-    fi
 
     for iter in \$(seq 1 "\$ITERATIONS"); do
         qemu_log="\$DIAG_DIR/qemu-\$mode-\$iter-debug.log"
         serial_log="\$DIAG_DIR/qemu-\$mode-\$iter-serial.log"
         exit_file="\$DIAG_DIR/qemu-\$mode-\$iter-exit.txt"
         cmd_file="\$DIAG_DIR/qemu-\$mode-\$iter-command.txt"
+        vars_copy="\$DIAG_DIR/qemu-\$mode-vars-\$iter.fd"
+
+        if [ "\$mode" = 'uefi' ]; then
+            cp "\$ovmf_vars_path" "\$vars_copy"
+            args=(-M q35 -cpu qemu64 -m "\$MEMORY_MB" -nographic -serial mon:stdio -no-reboot -no-shutdown -d guest_errors -drive "if=pflash,format=raw,readonly=on,file=\$ovmf_path" -drive "if=pflash,format=raw,file=\$vars_copy" -cdrom "\$ISO_PATH")
+        fi
 
         {
             printf 'timeout --signal=TERM %ss qemu-system-x86_64 ' "\$BOOT_SECONDS"
@@ -336,7 +357,8 @@ main() {
     if [ "\$RUN_UEFI" = '1' ]; then
         log "Running UEFI stress loop"
         OVMF_PATH="\$(resolve_ovmf)"
-        run_qemu_case uefi "\$OVMF_PATH"
+        OVMF_VARS_PATH="\$(resolve_ovmf_vars)"
+        run_qemu_case uefi "\$OVMF_PATH" "\$OVMF_VARS_PATH"
     fi
 
     collect_keyword_hits
@@ -354,6 +376,7 @@ $helperScript = $helperScript.Replace('__ARCH__', $Arch)
 $helperScript = $helperScript.Replace('__ITERATIONS__', [string]$Iterations)
 $helperScript = $helperScript.Replace('__BOOT_SECONDS__', [string]$BootSeconds)
 $helperScript = $helperScript.Replace('__MEMORY_MB__', [string]$MemoryMb)
+$helperScript = $helperScript.Replace('__MAKE_JOBS__', [string]$Jobs)
 $helperScript = $helperScript.Replace('__INCLUDE_INSTALLER__', $includeInstallerFlag)
 $helperScript = $helperScript.Replace('__RUN_BIOS__', $runBiosFlag)
 $helperScript = $helperScript.Replace('__RUN_UEFI__', $runUefiFlag)
