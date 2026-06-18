@@ -619,11 +619,44 @@ static void populate_seed_tree_at(const char *prefix) {
   extern const unsigned char bootstrap_logo_png[];
   extern const unsigned int bootstrap_logo_png_len;
 #endif
+  static const char dark_theme_text[] =
+      "# OS8 theme preset\n"
+      "name=Dark Theme\n"
+      "mode=dark\n"
+      "app_bg=1A1A2E\n"
+      "app_fg=E4E4E7\n"
+      "accent=6366F1\n"
+      "accent_soft=EC4899\n"
+      "surface=27272A\n"
+      "surface_alt=1F2937\n"
+      "card=252535\n"
+      "border=52525B\n"
+      "settings_bg=141824\n"
+      "settings_panel=1F2937\n"
+      "settings_text=F2F2F2\n"
+      "settings_subtext=F8F8F8\n";
+  static const char light_theme_text[] =
+      "# OS8 theme preset\n"
+      "name=Light Theme\n"
+      "mode=light\n"
+      "app_bg=F4F7FB\n"
+      "app_fg=172033\n"
+      "accent=2563EB\n"
+      "accent_soft=DB2777\n"
+      "surface=E9EEF5\n"
+      "surface_alt=F6F9FC\n"
+      "card=FFFFFF\n"
+      "border=C9D4E5\n"
+      "settings_bg=ECF3FA\n"
+      "settings_panel=D7E2EF\n"
+      "settings_text=1B2430\n"
+      "settings_subtext=627084\n";
 
   seed_make_dir(prefix, "Documents");
   seed_make_dir(prefix, "Downloads");
   seed_make_dir(prefix, "Pictures");
   seed_make_dir(prefix, "assets");
+  seed_make_dir(prefix, "assets/themes");
   seed_make_dir(prefix, "assets/wallpapers");
   seed_make_dir(prefix, "System");
   seed_make_dir(prefix, "Desktop");
@@ -641,6 +674,8 @@ static void populate_seed_tree_at(const char *prefix) {
                   "Welcome to OS8!\nThis is a real file in RamFS.");
   seed_write_text(prefix, "todo.txt", 0644,
                   "- Implement Browser\n- Fix Bugs\n- Sleep");
+  seed_write_text(prefix, "assets/themes/dark.theme", 0644, dark_theme_text);
+  seed_write_text(prefix, "assets/themes/light.theme", 0644, light_theme_text);
   seed_write_bytes(prefix, "sample.mp3", 0644, os_seed_mp3, os_seed_mp3_len);
 #if CONFIG_EMBED_SEED_ASSETS
   seed_write_bytes(prefix, "assets/logo.png", 0644, bootstrap_logo_png,
