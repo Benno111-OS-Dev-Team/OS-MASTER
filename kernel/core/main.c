@@ -1481,15 +1481,26 @@ static void init_subsystems(void *dtb) {
 
     /* Create demo windows with working terminal */
     extern struct window *gui_create_file_manager(int x, int y);
-    //gui_create_window("Terminal", 50, 50, 400, 300); unwanted for now since it's just a placeholder with no real functionality
 
-    /* Create and set active terminal so keyboard input works */
+    /* Create and focus a visible terminal window so keyboard input has a target. */
     {
       extern struct terminal *term_create(int x, int y, int cols, int rows);
-      extern void term_set_active(struct terminal * term);
-      struct terminal *term = term_create(52, 80, 48, 15);
-      if (term) {
-        term_set_active(term);
+      extern void term_set_active(struct terminal *term);
+      extern void term_set_content_pos(struct terminal *term, int x, int y);
+      extern void gui_set_window_userdata(struct window *win, void *data);
+      extern void gui_focus_window(struct window *win);
+
+      struct window *term_win = gui_create_window("Terminal", 50, 50, 450, 320);
+      if (term_win) {
+        int content_x = 50 + 2;
+        int content_y = 50 + 28;
+        struct terminal *term = term_create(content_x, content_y, 55, 16);
+        if (term) {
+          gui_set_window_userdata(term_win, term);
+          term_set_active(term);
+          term_set_content_pos(term, content_x, content_y);
+          gui_focus_window(term_win);
+        }
       }
     }
 
