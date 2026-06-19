@@ -4,10 +4,6 @@
 #include "mm/vmm.h"
 #include "printk.h"
 
-#if defined(ARCH_X86_64) || defined(ARCH_X86)
-extern void io_wait(void);
-#endif
-
 #define STORAGE_MAX_CONTROLLERS 16
 #define STORAGE_MAX_DISKS 16
 #define STORAGE_MAX_PARTITIONS 8
@@ -57,6 +53,12 @@ static int storage_initialized = 0;
 
 static void storage_load_partitions(int disk_index);
 static void storage_load_mbr_partitions(int disk_index);
+
+static inline void storage_io_wait(void) {
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+  io_wait();
+#endif
+}
 
 #define STORAGE_IO_TIMEOUT_MS 1000
 #define AHCI_SECTOR_SIZE 512
@@ -865,7 +867,7 @@ static int storage_ide_wait(uint16_t io_base, uint8_t mask, uint8_t value,
     uint8_t status = inb(io_base + 7);
     if ((status & mask) == value)
       return status;
-    io_wait();
+    storage_io_wait();
   }
   return -1;
 }
@@ -912,7 +914,7 @@ static int storage_ide_read_sector(const storage_disk_t *disk, uint32_t lba,
 
   outb(io_base + 6,
        (uint8_t)(0xE0 | drive_select | ((lba >> 24) & 0x0F)));
-  io_wait();
+  storage_io_wait();
   outb(io_base + 1, 0);
   outb(io_base + 2, 1);
   outb(io_base + 3, (uint8_t)(lba & 0xFF));
@@ -943,7 +945,7 @@ static int storage_ide_read_atapi_packet(uint16_t io_base, uint8_t drive_select,
     return -1;
 
   outb(io_base + 6, (uint8_t)(0xA0 | drive_select));
-  io_wait();
+  storage_io_wait();
   outb(io_base + 1, 0);
   outb(io_base + 4, 0x00);
   outb(io_base + 5, 0x08);
@@ -1030,7 +1032,7 @@ static int storage_ide_write_sector(const storage_disk_t *disk, uint32_t lba,
 
   outb(io_base + 6,
        (uint8_t)(0xE0 | drive_select | ((lba >> 24) & 0x0F)));
-  io_wait();
+  storage_io_wait();
   outb(io_base + 1, 0);
   outb(io_base + 2, 1);
   outb(io_base + 3, (uint8_t)(lba & 0xFF));
@@ -1063,13 +1065,13 @@ static void storage_probe_ide_channel(int controller_index, uint16_t io_base,
   storage_ide_atapi_ctx_t *ide_ctx;
 
   outb(io_base + 6, (uint8_t)(0xA0 | drive_select));
-  io_wait();
+  storage_io_wait();
   outb(io_base + 2, 0);
   outb(io_base + 3, 0);
   outb(io_base + 4, 0);
   outb(io_base + 5, 0);
   outb(io_base + 7, 0xEC);
-  io_wait();
+  storage_io_wait();
 
   status = inb(io_base + 7);
   if (status == 0)
@@ -1151,7 +1153,7 @@ static int storage_wait_for_bit32(volatile uint32_t *reg, uint32_t mask,
   while (arch_timer_get_ms() <= deadline) {
     if ((*reg & mask) == value)
       return 0;
-    io_wait();
+    storage_io_wait();
   }
   return -1;
 }
@@ -1217,7 +1219,7 @@ static int storage_ahci_port_wait_ready(storage_ahci_port_ctx_t *ctx) {
   while (arch_timer_get_ms() <= deadline) {
     if ((port[0x20 / 4] & (0x80 | 0x08)) == 0)
       return 0;
-    io_wait();
+    storage_io_wait();
   }
   return -1;
 }

@@ -26,11 +26,13 @@ static char vbox_name[40] = "VirtualBox AMD PCnet";
 static int vbox_warned_probe = 0;
 static uint32_t vbox_server_seq = 0x20000000;
 
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
 static inline uint8_t vbox_inb(uint16_t port) {
   uint8_t value;
   __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
   return value;
 }
+#endif
 
 static uint16_t vbox_checksum(const void *data, size_t len) {
   const uint16_t *ptr = (const uint16_t *)data;
