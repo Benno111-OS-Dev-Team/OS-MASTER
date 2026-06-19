@@ -295,6 +295,7 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
   char line3[128];
   char line4[128];
   char line5[128];
+  char stop_code_line[160];
   char log_buf[768];
   size_t log_size;
   size_t log_offset;
@@ -344,6 +345,16 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
                     (uint64_t)(uintptr_t)__kernel_end, sizeof(uintptr_t) * 2);
   panic_make_kv_hex(line5, sizeof(line5), "Framebuffer",
                     (uint64_t)(uintptr_t)fb, sizeof(uintptr_t) * 2);
+  {
+    size_t stop_code_idx = 0;
+    const char *stop_code = (msg && msg[0]) ? msg : "KERNEL_PANIC";
+
+    stop_code_line[0] = '\0';
+    panic_append_str(stop_code_line, sizeof(stop_code_line), &stop_code_idx,
+                     "Stop code: ");
+    panic_append_str(stop_code_line, sizeof(stop_code_line), &stop_code_idx,
+                     stop_code);
+  }
 
   panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, 0, 0, (int)fb_w, (int)fb_h,
                      0x0078D7);
@@ -385,8 +396,9 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
   panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 150,
                         (panel_w - 36) / FONT_WIDTH, msg ? msg : "(no panic message)",
                         0xFFFFFF, 0x0078D7, 3);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 210,
-                       "Stop code: KERNEL_PANIC", 0xFFFFFF, 0x0078D7);
+  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 210,
+                        (panel_w - 36) / FONT_WIDTH, stop_code_line, 0xFFFFFF,
+                        0x0078D7, 2);
   panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 230,
                        "Build:", 0xEAF3FF, 0x0078D7);
   panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 74, panel_y + 230,
