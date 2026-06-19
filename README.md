@@ -140,6 +140,9 @@ Desktop's bundled Git, then performs `git add -A`, `git commit -m ...`, and
 `git push origin HEAD`.
 
 The Windows desktop launcher lives at `scripts/run-desktop.cmd`.
+It now opens a native Windows picker backed by `scripts/run-desktop-windows.ps1`,
+while `scripts/run-desktop.ps1` remains available as the terminal launcher
+engine and supports direct modes such as `-Mode x64-uefi`.
 
 For Linux host setup notes, see `docs/BUILD_LINUX.md`.
 

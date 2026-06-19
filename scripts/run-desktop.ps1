@@ -1,4 +1,8 @@
-param()
+param(
+    [ValidateSet("x64-uefi", "x64-bios", "arm64-gui", "arm64-text")]
+    [string]$Mode,
+    [switch]$NoPause
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -6,7 +10,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
 $x64Iso = Join-Path $repoRoot "image\os8-x86_64.iso"
-$arm64Kernel = Join-Path $repoRoot "build\kernel\unixos.elf"
+$arm64Kernel = Join-Path $repoRoot "build\arm64\kernel\os-arm64.elf"
 
 function Write-Header {
     Write-Host ""
@@ -243,18 +247,30 @@ function Start-Arm64Text {
 
 $launcher = Resolve-LauncherMode
 
-Write-Header
-$choice = Read-Host "Choose a launch mode"
+if ($Mode) {
+    switch ($Mode) {
+        "x64-uefi" { Start-X64Uefi $launcher }
+        "x64-bios" { Start-X64Bios $launcher }
+        "arm64-gui" { Start-Arm64Gui $launcher }
+        "arm64-text" { Start-Arm64Text $launcher }
+        default { throw "Unknown mode: $Mode" }
+    }
+} else {
+    Write-Header
+    $choice = Read-Host "Choose a launch mode"
 
-switch ($choice.ToUpperInvariant()) {
-    "1" { Start-X64Uefi $launcher }
-    "2" { Start-X64Bios $launcher }
-    "3" { Start-Arm64Gui $launcher }
-    "4" { Start-Arm64Text $launcher }
-    "Q" { exit 0 }
-    default { throw "Unknown option: $choice" }
+    switch ($choice.ToUpperInvariant()) {
+        "1" { Start-X64Uefi $launcher }
+        "2" { Start-X64Bios $launcher }
+        "3" { Start-Arm64Gui $launcher }
+        "4" { Start-Arm64Text $launcher }
+        "Q" { exit 0 }
+        default { throw "Unknown option: $choice" }
+    }
 }
 
-pause
+if (-not $NoPause) {
+    pause
+}
 
 
