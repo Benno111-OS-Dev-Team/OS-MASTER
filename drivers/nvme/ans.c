@@ -88,6 +88,19 @@ static bool ans_initialized = false;
 int ans_read_blocks(uint64_t lba, uint32_t count, void *buffer, void *ctx);
 int ans_write_blocks(uint64_t lba, uint32_t count, const void *buffer, void *ctx);
 
+static int ans_platform_supported(void) {
+#if defined(ARCH_ARM64)
+  uint64_t midr = 0;
+  uint32_t implementer;
+
+  asm volatile("mrs %0, midr_el1" : "=r"(midr));
+  implementer = (uint32_t)((midr >> 24) & 0xFFU);
+  return implementer == 0x61U ? 1 : 0;
+#else
+  return 0;
+#endif
+}
+
 /* ===================================================================== */
 /* MMIO Helpers */
 /* ===================================================================== */
@@ -250,10 +263,11 @@ static int ans_nvme_rw_one(uint64_t lba, void *buffer, int write) {
 int ans_nvme_init(void) {
   printk(KERN_INFO "ANS: Initializing Apple NVMe controller\n");
 
-#ifdef __QEMU__
-  printk(KERN_INFO "ANS: Running in QEMU, using virtio-blk instead\n");
-  return 0;
-#endif
+  if (!ans_platform_supported()) {
+    printk(KERN_INFO
+           "ANS: Apple NVMe probe skipped on non-Apple platform\n");
+    return -1;
+  }
 
   vmm_map_range(ANS_BASE, ANS_BASE, ANS_SIZE, VM_DEVICE);
   ans_ctx.regs = (volatile uint32_t *)ANS_BASE;
