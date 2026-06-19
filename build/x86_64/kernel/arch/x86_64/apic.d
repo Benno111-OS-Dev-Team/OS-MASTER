@@ -1,10 +1,10 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/arch/x86_64/apic.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/arch/x86_64/apic.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/acpi.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/acpi.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/arch/x86_64/apic.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/apic.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/acpi.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/acpi.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:

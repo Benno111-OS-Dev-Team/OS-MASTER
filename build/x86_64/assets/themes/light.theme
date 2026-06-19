@@ -1,0 +1,15 @@
+# OS8 theme preset
+name=Light Theme
+mode=light
+app_bg=F4F7FB
+app_fg=172033
+accent=2563EB
+accent_soft=DB2777
+surface=E9EEF5
+surface_alt=F6F9FC
+card=FFFFFF
+border=C9D4E5
+settings_bg=ECF3FA
+settings_panel=D7E2EF
+settings_text=1B2430
+settings_subtext=627084

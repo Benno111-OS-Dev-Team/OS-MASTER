@@ -1,6 +1,6 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/input/spi_trackpad.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/input/spi_trackpad.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/trackpad.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/trackpad.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/input/spi_trackpad.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/input/spi_trackpad.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/trackpad.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/trackpad.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:

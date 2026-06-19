@@ -1,24 +1,24 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/gui/terminal.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/gui/terminal.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/media/media.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/vbox_net.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/gui/gui.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/kmalloc.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/pmm.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/net/net.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/string.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/fs/vfs.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/media/media.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/vbox_net.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/gui/gui.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/kmalloc.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/pmm.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/net/net.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/string.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/fs/vfs.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/gui/terminal.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/terminal.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/media/media.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/vbox_net.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/gui/gui.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/kmalloc.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/pmm.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/net/net.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/fs/vfs.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/media/media.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/vbox_net.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/gui/gui.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/kmalloc.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/pmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/net/net.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/fs/vfs.h:

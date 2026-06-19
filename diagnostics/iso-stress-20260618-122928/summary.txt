@@ -1,0 +1,37 @@
+OS8 ISO Build + Stress Summary
+
+ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
+SHA256: 3a7fdfd95e220d51bebd213303f129661dc73fe9abd50800238f27bc5c2a530b
+Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122928/build.log
+ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122928/iso-build.log
+Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122928/environment.txt
+Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122928/tool-versions.txt
+ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122928/iso-contents.txt
+Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122928/keyword-hits.txt
+
+QEMU runs:
+- bios iteration 1: timeout (exit 124)
+
+Tail of serial logs:
+
+==> qemu-bios-1-serial.log <==
+[PROC] Program load area: 0x44000000+
+[PROC] kernel_context at: 0xffffffff800f17c8
+[INIT] Phase 4: Filesystems
+  Initializing VFS...
+  Initializing VFS...
+VFS: Initializing virtual filesystem
+VFS: Registered filesystem 'fat32'
+VFS: Initialized
+  Initializing RamFS...
+RAMFS: Registering ramfs filesystem
+VFS: Registered filesystem 'ramfs'
+VFS: Registered filesystem 'iso9660'
+  Mounting root filesystem...
+VFS: mount('ramfs', '/', 'ramfs')
+RAMFS: Mounting ramfs
+RAMFS: Mounted successfully
+VFS: Mounted 'ramfs' on '/'
+RAMFS: Created directory '/Documents'
+RAMFS: Created directory '/Downloads'
+RAMFqemu-system-x86_64: terminating on signal 15 from pid 3209 (timeout)

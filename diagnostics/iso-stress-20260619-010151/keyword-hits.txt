@@ -1,0 +1,5 @@
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260619-010151/qemu-bios-1-serial.log:9:Boot failed: could not read the boot disk
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260619-010151/qemu-bios-1-serial.log:55:x86_64: IDT loaded for exceptions and IRQs
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260619-010151/qemu-uefi-1-serial.log:46:x86_64: IDT loaded for exceptions and IRQs
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260619-010151/iso-build.log:11:[1;33m[OS-BOOT-MANAGER][0m Failed to refresh upstream release; reusing cached boot assets in /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260619-010151/iso-build.log:23:[1;33m[OS-BOOT-MANAGER][0m Failed to refresh upstream release; reusing cached boot assets in /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager

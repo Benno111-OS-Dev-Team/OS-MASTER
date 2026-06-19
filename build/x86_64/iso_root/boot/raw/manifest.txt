@@ -1,0 +1,12 @@
+OS8 x86_64 raw kernel parts
+
+These files are direct binary dumps of the bootable kernel ELF sections
+that Limine loads for the x86_64 image:
+
+- 00-limine-requests.bin
+- 10-text.bin
+- 20-rodata.bin
+- 30-data.bin
+
+bootloader.sys is the first-stage boot entry configured in Limine.
+main.sys remains the compatibility copy of the full kernel ELF payload.

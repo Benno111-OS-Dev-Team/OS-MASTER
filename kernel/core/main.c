@@ -355,107 +355,60 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
     panic_append_str(stop_code_line, sizeof(stop_code_line), &stop_code_idx,
                      stop_code);
   }
-
+//0x111273
   panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, 0, 0, (int)fb_w, (int)fb_h,
-                     0x0078D7);
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, 0, 0, (int)fb_w, 20,
-                     0x0063B1);
+                     0x111273);
 
-  panel_x = 24;
-  panel_y = 28;
-  panel_w = (int)fb_w - 48;
-  panel_h = (int)fb_h - 56;
+  panel_x = 0;
+  panel_y = 0;
+  panel_w = (int)fb_w - 0;
+  panel_h = (int)fb_h - 0;
   if (panel_w < 120 || panel_h < 120)
     return;
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y, panel_w,
-                     panel_h, 0x0078D7);
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y, panel_w, 2,
-                     0x9FD0FF);
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y, 2, panel_h,
-                     0x9FD0FF);
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, panel_x + panel_w - 2,
-                     panel_y, 2, panel_h, 0x9FD0FF);
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + panel_h - 2,
-                     panel_w, 2, 0x9FD0FF);
-
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 18,
-                       ":(", 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 42,
-                       "Your OS ran into a problem and needs to restart.",
-                       0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 66,
-                       "We're collecting some error info, and then we'll restart for you.",
-                       0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 98,
-                       "For more information about this issue and possible fixes,",
-                       0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 118,
-                       "capture the screen and the serial log.",
-                       0xEAF3FF, 0x0078D7);
-
-  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 150,
-                        (panel_w - 36) / FONT_WIDTH, msg ? msg : "(no panic message)",
-                        0xFFFFFF, 0x0078D7, 3);
-  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 210,
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 0,
+                       "OS ran into a problem and needed to stop.", 0xFFFFFF, 0x111273);
+                       
+  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 60,
                         (panel_w - 36) / FONT_WIDTH, stop_code_line, 0xFFFFFF,
-                        0x0078D7, 2);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 230,
-                       "Build:", 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 74, panel_y + 230,
-                       BUILD_UUID, 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 250,
-                       "Build #:", 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 90, panel_y + 250,
-                       BUILD_NUMBER, 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 270,
-                       "Branch:", 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 82, panel_y + 270,
-                       BUILD_BRANCH, 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 290,
-                       "Compiled:", 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 98, panel_y + 290,
-                       BUILD_COMPILE_TIME, 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 312,
-                       "Arch:", 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 74, panel_y + 312,
-                       ARCH_NAME, 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 334,
-                       "CPU:", 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 74, panel_y + 334,
-                        (panel_w - 92) / FONT_WIDTH, cpu_info, 0xFFFFFF, 0x0078D7,
+                        0x111273, 2);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 80, "OS Version: 8.0.0", 0xEAF3FF, 0x111273);
+
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 100,
+                       "Build #:", 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 72, panel_y + 100,
+                       BUILD_NUMBER, 0xFFFFFF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 120,
+                       "Branch:", 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 64, panel_y + 120,
+                       BUILD_BRANCH, 0xFFFFFF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 140,
+                       "Compiled:", 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 80, panel_y + 140,
+                       BUILD_COMPILE_TIME, 0xFFFFFF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 160,
+                       "Arch:", 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 44, panel_y + 160,
+                       ARCH_NAME, 0xFFFFFF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 180,
+                       "CPU:", 0xEAF3FF, 0x111273);
+  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 36, panel_y + 180,
+                        (panel_w - 92) / FONT_WIDTH, cpu_info, 0xFFFFFF, 0x111273,
                         2);
 
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 386,
-                       "Debug Info", 0xFFFFFF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 406,
-                       line0, 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 426,
-                       line1, 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 446,
-                       line2, 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 466,
-                       line3, 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 486,
-                       line4, 0xEAF3FF, 0x0078D7);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18, panel_y + 506,
-                       line5, 0xEAF3FF, 0x0078D7);
-
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18,
-                       panel_y + panel_h - 148,
-                       "Recent Kernel Log", 0xFFFFFF, 0x0078D7);
-  log_size = printk_log_size();
-  log_offset = log_size > sizeof(log_buf) - 1 ? log_size - (sizeof(log_buf) - 1) : 0;
-  copied = printk_log_read(log_buf, log_offset, sizeof(log_buf) - 1);
-  log_buf[copied] = '\0';
-  max_log_chars = (panel_w - 36) / FONT_WIDTH;
-  panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 18,
-                        panel_y + panel_h - 126,
-                        max_log_chars, log_buf, 0xEAF3FF, 0x0078D7, 6);
-
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x + 18,
-                       panel_y + panel_h - 26,
-                       "Troubleshooting: capture this screen and the serial log.",
-                       0xFFFFFF, 0x0078D7);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 220,
+                       "Debug Info", 0xFFFFFF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 240,
+                       line0, 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 240,
+                       line1, 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 260,
+                       line2, 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 260,
+                       line3, 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 280,
+                       line4, 0xEAF3FF, 0x111273);
+  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 280,
+                       line5, 0xEAF3FF, 0x111273);
 }
 
 /*
@@ -494,6 +447,7 @@ void kernel_main(void *dtb) {
   printk(KERN_INFO "Starting init process...\n\n");
 
   /* Start the first userspace process */
+  //panic("Debuging os kernel panic handler! to be commented out soon...");
   start_init_process();
 
   /* This point should never be reached */

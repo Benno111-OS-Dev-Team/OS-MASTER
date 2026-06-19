@@ -1,0 +1,22 @@
+OS8 System Image
+
+This image contains:
+- a staged OS install tree
+- Limine BIOS and UEFI boot files
+
+Primary payload files:
+- /boot/bootloader.sys
+- /boot/main.sys
+- /boot/raw/manifest.txt
+- /boot/raw/00-limine-requests.bin
+- /boot/raw/10-text.bin
+- /boot/raw/20-rodata.bin
+- /boot/raw/30-data.bin
+- /limine.conf
+- /boot/limine.conf
+- /limine/limine.conf
+- /EFI/BOOT/limine.conf
+- /boot/limine-bios.sys
+- /boot/limine-bios-cd.bin
+- /boot/limine-uefi-cd.bin
+- /EFI/BOOT/BOOTX64.EFI

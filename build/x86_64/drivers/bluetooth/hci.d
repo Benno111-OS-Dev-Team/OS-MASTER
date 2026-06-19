@@ -1,8 +1,8 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/bluetooth/hci.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/bluetooth/hci.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/kmalloc.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/kmalloc.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/bluetooth/hci.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/bluetooth/hci.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/kmalloc.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/kmalloc.h:

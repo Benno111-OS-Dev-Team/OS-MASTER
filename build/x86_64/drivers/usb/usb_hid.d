@@ -1,10 +1,10 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/usb/usb_hid.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/usb/usb_hid.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/usb/usb.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/kmalloc.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/usb/usb.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/kmalloc.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/usb/usb_hid.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_hid.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/usb/usb.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/kmalloc.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/usb/usb.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/kmalloc.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:

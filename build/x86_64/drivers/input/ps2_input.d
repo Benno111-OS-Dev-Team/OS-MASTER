@@ -1,8 +1,8 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/input/ps2_input.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/input/ps2_input.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/trackpad.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/trackpad.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/input/ps2_input.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/input/ps2_input.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/trackpad.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/trackpad.h:

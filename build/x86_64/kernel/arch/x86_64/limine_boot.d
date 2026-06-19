@@ -1,4 +1,6 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/arch/x86_64/limine_boot.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/arch/x86_64/limine_boot.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/arch/x86_64/limine_boot.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/limine_boot.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/x86_64/boot_handoff.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/x86_64/boot_handoff.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:

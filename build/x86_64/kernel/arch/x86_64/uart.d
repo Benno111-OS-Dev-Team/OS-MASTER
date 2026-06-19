@@ -1,8 +1,8 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/arch/x86_64/uart.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/arch/x86_64/uart.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/uart.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/uart.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/arch/x86_64/uart.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/uart.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/uart.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/uart.h:

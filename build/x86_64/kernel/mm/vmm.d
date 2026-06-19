@@ -1,10 +1,10 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/mm/vmm.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/vmm.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/vmm.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/pmm.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/vmm.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/pmm.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/mm/vmm.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/vmm.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/pmm.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/pmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:

@@ -1,0 +1,1 @@
+-rwxrwxrwx 1 benno111 benno111 38M Jun 19 00:58 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso

@@ -1,0 +1,115 @@
+[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  1.12M      0                              0100 860.3k 100 860.3k   0      0  1.06M      0                              0100 860.3k 100 860.3k   0      0  1.02M      0                              0
+[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
+[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
+[0;32m[X86_64-ISO][0m Preparing ISO root at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
+[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  1.08M      0                              0100 860.3k 100 860.3k   0      0  0.99M      0                              0100 860.3k 100 860.3k   0      0 937.3k      0                              0
+[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
+[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
+[0;32m[BOOT-FILES][0m Preparing boot payload at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
+[0;32m[BOOT-FILES][0m Boot files staged into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
+[0;32m[BOOT-FILES][0m Boot file archive: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-files.zip
+[0;32m[X86_64-ISO][0m Bundled Limine host tool is not runnable on this platform; building a native copy
+[0;32m[X86_64-ISO][0m Creating hybrid BIOS+UEFI ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
+xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
+
+Drive current: -outdev 'stdio:/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso'
+Media current: stdio file, overwriteable
+Media status : is blank
+Media summary: 0 sessions, 0 data blocks, 0 data,  585g free
+Added to ISO image: directory '/'='/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root'
+xorriso : UPDATE :      60 files added in 2 seconds
+xorriso : UPDATE :      60 files added in 2 seconds
+xorriso : UPDATE :  1.02% done
+xorriso : UPDATE :  5.97% done
+xorriso : UPDATE :  11.62% done
+xorriso : UPDATE :  18.48% done, estimate finish Thu Jun 18 12:29:47 2026
+xorriso : UPDATE :  24.99% done, estimate finish Thu Jun 18 12:29:47 2026
+xorriso : UPDATE :  30.52% done, estimate finish Thu Jun 18 12:29:48 2026
+xorriso : UPDATE :  35.74% done, estimate finish Thu Jun 18 12:29:48 2026
+xorriso : UPDATE :  41.97% done, estimate finish Thu Jun 18 12:29:48 2026
+xorriso : UPDATE :  46.12% done, estimate finish Thu Jun 18 12:29:49 2026
+xorriso : UPDATE :  52.18% done, estimate finish Thu Jun 18 12:29:49 2026
+xorriso : UPDATE :  58.25% done, estimate finish Thu Jun 18 12:29:49 2026
+xorriso : UPDATE :  63.45% done, estimate finish Thu Jun 18 12:29:49 2026
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/screenshots/wallpaper-system.png" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/themes/dark.theme" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: Error on file operation
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/themes/default.theme" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/themes/light.theme" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/city.jpg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: Error on file operation
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/default.jpg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/ducks.png" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/landscape.png" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+xorriso : UPDATE :  81.50% done, estimate finish Thu Jun 18 12:29:46 2026
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/nature.jpg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/portrait.jpg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/setup.png" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/assets/Wallpapers/square.jpg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/BOOTABLE.CFG" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/bootloader.sys" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/limine.conf" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/limine-bios.sys" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/main.sys" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/raw/00-limine-requests.bin" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/raw/10-text.bin" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/raw/20-rodata.bin" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/raw/30-data.bin" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/boot/raw/manifest.txt" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/BOOTABLE.CFG" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/EFI/BOOT/BOOTABLE.CFG" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/EFI/BOOT/BOOTX64.EFI" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/EFI/BOOT/limine.conf" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/IMAGE_INFO.txt" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/INSTALLERS.TXT" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/limine/limine.conf" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/limine.conf" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/System/efi-boot.cfg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/System/installer-state.txt" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+libisofs: MISHAP : File "/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root/System/mbr-boot.cfg" can't be opened. Filling with 0s.
+libisofs: NOTE :  > Caused by: The file does not exist in the filesystem
+ISO image produced: 19142 sectors
+Written to medium : 19142 sectors at LBA 0
+Writing to 'stdio:/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso' completed successfully.
+
+xorriso : NOTE : -return_with SORRY 32 triggered by problem severity MISHAP

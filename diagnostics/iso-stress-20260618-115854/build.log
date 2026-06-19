@@ -1,0 +1,258 @@
+make: Entering directory '/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER'
+[PREP] Resetting checked-in build outputs for x86_64...
+[META] Generating build UUID from code hash
+[ASSETS] Syncing repo assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/assets
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/core/main.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/core/main.c:1562:14: warning: unused variable 'g_active_terminal' [-Wunused-variable]
+ 1562 | static void *g_active_terminal = 0;
+      |              ^~~~~~~~~~~~~~~~~
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/core/printk.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/core/process.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/core/process.c:357:10: warning: cast to smaller integer type 'uint32_t' (aka 'unsigned int') from 'void *' [-Wvoid-pointer-to-int-cast]
+  357 |   return (uint32_t)current_process->stack_base + current_process->stack_size;
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/aslr.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/aslr.c:52:12: warning: unused variable 'pmc' [-Wunused-variable]
+   52 |   uint64_t pmc = 0;
+      |            ^~~
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/kmalloc.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/pmm.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/vmm.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/apfs.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/ext4.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/fat32.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/iso9660.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/ramfs.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/vfs.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/fs/vfs_compat.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/net/dns.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/net/socket.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/net/socket.c:243:51: warning: unused parameter 'len' [-Wunused-parameter]
+  243 | ssize_t socket_recv(int sockfd, void *buf, size_t len, int flags) {
+      |                                                   ^
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/net/tcp_ip.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/net/tcp_ip.c:757:14: warning: unused variable 'ack' [-Wunused-variable]
+  757 |     uint32_t ack = ntohl(tcp->ack);
+      |              ^~~
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/sched/fork.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/sched/sched.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/sched/signal.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/syscall/syscall.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/ipc/pipe.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/lib/stack_protector.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/lib/string.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/loader/elf.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/app.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/desktop.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/font.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/terminal.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/window.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/boot_splash.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/media.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:377:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  377 |       case 1: return ((-1)<<1) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:378:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  378 |       case 2: return ((-1)<<2) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:379:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  379 |       case 3: return ((-1)<<3) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:380:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  380 |       case 4: return ((-1)<<4) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:381:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  381 |       case 5: return ((-1)<<5) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:382:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  382 |       case 6: return ((-1)<<6) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:383:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  383 |       case 7: return ((-1)<<7) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:384:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  384 |       case 8: return ((-1)<<8) + 1; 
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:385:27: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  385 |       case 9: return ((-1)<<9) + 1;
+      |                       ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:386:28: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  386 |       case 10: return ((-1)<<10) + 1; 
+      |                        ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:387:28: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  387 |       case 11: return ((-1)<<11) + 1; 
+      |                        ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:388:28: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  388 |       case 12: return ((-1)<<12) + 1; 
+      |                        ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:389:28: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  389 |       case 13: return ((-1)<<13) + 1; 
+      |                        ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:390:28: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  390 |       case 14: return ((-1)<<14) + 1; 
+      |                        ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:391:28: warning: shifting a negative signed value is undefined [-Wshift-negative-value]
+  391 |       case 15: return ((-1)<<15) + 1;
+      |                        ~~~~^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:687:10: warning: variable 'spectral_start' set but not used [-Wunused-but-set-variable]
+  687 |    uint8 spectral_start, spectral_end, successive_high, successive_low;
+      |          ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:687:26: warning: variable 'spectral_end' set but not used [-Wunused-but-set-variable]
+  687 |    uint8 spectral_start, spectral_end, successive_high, successive_low;
+      |                          ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:687:40: warning: variable 'successive_high' set but not used [-Wunused-but-set-variable]
+  687 |    uint8 spectral_start, spectral_end, successive_high, successive_low;
+      |                                        ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:687:57: warning: variable 'successive_low' set but not used [-Wunused-but-set-variable]
+  687 |    uint8 spectral_start, spectral_end, successive_high, successive_low;
+      |                                                         ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:735:10: warning: variable 'bytes' set but not used [-Wunused-but-set-variable]
+  735 |    uint8 bytes = 0;
+      |          ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:1733:13: warning: unsequenced modification and access to 'pDstG' [-Wunsequenced]
+ 1733 |       *pDstG++ = subAndClamp(pDstG[0], cbG);
+      |             ^                ~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:1736:13: warning: unsequenced modification and access to 'pDstB' [-Wunsequenced]
+ 1736 |       *pDstB++ = addAndClamp(pDstB[0], cbB);
+      |             ^                ~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:1754:13: warning: unsequenced modification and access to 'pDstR' [-Wunsequenced]
+ 1754 |       *pDstR++ = addAndClamp(pDstR[0], crR);
+      |             ^                ~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/picojpeg.c:1757:13: warning: unsequenced modification and access to 'pDstG' [-Wunsequenced]
+ 1757 |       *pDstG++ = subAndClamp(pDstG[0], crG);
+      |             ^                ~~~~~
+24 warnings generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/seed_assets.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:473:26: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  473 |             for(i = 0; i < rowPixelWidth; ++i, iter+=4) {
+      |                        ~ ^ ~~~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:486:26: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  486 |             for(i = 0; i < rowPixelWidth; ++i, iter+=4) {
+      |                        ~ ^ ~~~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:559:26: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  559 |             for(i = 0; i < rowPixelWidth; ++i) {
+      |                        ~ ^ ~~~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:568:26: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  568 |             for(i = 0; i < rowPixelWidth; ++i) {
+      |                        ~ ^ ~~~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:582:26: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  582 |             for(i = 0; i < rowPixelWidth; ++i) {
+      |                        ~ ^ ~~~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:590:26: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  590 |             for(i = 0; i < rowPixelWidth; ++i) {
+      |                        ~ ^ ~~~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:619:21: warning: unused parameter 'image' [-Wunused-parameter]
+  619 |     tpng_image_t  * image, 
+      |                     ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:642:22: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  642 |         for(i = 0; i < Bpp; ++i) {
+      |                    ~ ^ ~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:651:22: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  651 |         for(i = 0; i < Bpp; ++i) {           
+      |                    ~ ^ ~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:802:18: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+  802 |     for(i = 0; i < rowWidth; ++i) {
+      |                ~ ^ ~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/media/tpng.c:1043:30: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+ 1043 |             for(row = 0; row < image->h; ++row) {
+      |                          ~~~ ^ ~~~~~~~~
+11 warnings generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/apps/embedded_apps.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/apps/launcher.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/apps/launcher.c:155:44: warning: unused parameter 'data' [-Wunused-parameter]
+  155 | static int kapi_sound_play_wav(const void *data, uint32_t size) {
+      |                                            ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/apps/launcher.c:155:59: warning: unused parameter 'size' [-Wunused-parameter]
+  155 | static int kapi_sound_play_wav(const void *data, uint32_t size) {
+      |                                                           ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/apps/launcher.c:135:12: warning: unused variable 'last_mouse_x' [-Wunused-variable]
+  135 | static int last_mouse_x = 0, last_mouse_y = 0;
+      |            ^~~~~~~~~~~~
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/apps/launcher.c:135:30: warning: unused variable 'last_mouse_y' [-Wunused-variable]
+  135 | static int last_mouse_x = 0, last_mouse_y = 0;
+      |                              ^~~~~~~~~~~~
+4 warnings generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/acpi.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/audio/intel_hda.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/audio/intel_hda.c:314:3: warning: '/*' within block comment [-Wcomment]
+  314 |   /* 3. Output Converter (Node 2) */
+      |   ^
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/intel_gfx.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/pci/pci.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/pci/pci.c:24:17: warning: unused variable 'next_mmio_base' [-Wunused-variable]
+   24 | static uint64_t next_mmio_base = 0x10000000;
+      |                 ^~~~~~~~~~~~~~
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/drivers/storage.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/sync/spinlock.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/sandbox/sandbox.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/apic.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/arch.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/arch.c:281:23: warning: comparison of integers of different signs: 'int' and 'unsigned long' [-Wsign-compare]
+  281 |     for (int i = 0; i < sizeof(cpu_context_t); i++) {
+      |                     ~ ^ ~~~~~~~~~~~~~~~~~~~~~
+1 warning generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/limine_boot.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/pit.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/uart.c
+[AS] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/boot.S
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/boot.S:111:16: warning: '.fill' directive with size greater than 8 has been truncated to 8
+    .fill 256, 16, 0
+               ^
+[AS] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/arch/x86_64/switch.S
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/bootmanager/bootmanager.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/bluetooth/hci.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/gpu/agx.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/gpu/virtio_gpu.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/input/i2c_trackpad.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/input/ps2_input.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/input/spi_trackpad.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/input/trackpad_core.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/network/vbox_net.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/network/virtio_net.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/network/wifi.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/nvme/ans.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/platform/rpi.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_hid.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_hid.c:20:37: warning: unused parameter 'dev' [-Wunused-parameter]
+   20 | int usb_hid_init(struct usb_device *dev) {
+      |                                     ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_hid.c:31:37: warning: unused parameter 'dev' [-Wunused-parameter]
+   31 | void usb_hid_irq(struct usb_device *dev) {
+      |                                     ^
+2 warnings generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_msd.c
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_msd.c:60:44: warning: unused parameter 'dev' [-Wunused-parameter]
+   60 | int usb_msd_read_sector(struct usb_device *dev, uint32_t lba, void *buf) {
+      |                                            ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_msd.c:60:69: warning: unused parameter 'buf' [-Wunused-parameter]
+   60 | int usb_msd_read_sector(struct usb_device *dev, uint32_t lba, void *buf) {
+      |                                                                     ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_msd.c:70:45: warning: unused parameter 'dev' [-Wunused-parameter]
+   70 | int usb_msd_write_sector(struct usb_device *dev, uint32_t lba, void *buf) {
+      |                                             ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_msd.c:70:70: warning: unused parameter 'buf' [-Wunused-parameter]
+   70 | int usb_msd_write_sector(struct usb_device *dev, uint32_t lba, void *buf) {
+      |                                                                      ^
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/usb_msd.c:43:17: warning: unused variable 'usb_msd_tag' [-Wunused-variable]
+   43 | static uint32_t usb_msd_tag = 1;
+      |                 ^~~~~~~~~~~
+5 warnings generated.
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/usb/xhci.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/video/bochs.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/video/fb.c
+[CC] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/video/ramfb.c
+[LD] /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/os-x86_64.elf
+[STRIP] Removed debug sections from /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/os-x86_64.elf with llvm-objcopy
+[INFO] Kernel sections written to /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/sections.txt
+[KERNEL] x86_64 build complete: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/os-x86_64.elf
+[KERNEL] x86_64 build complete: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/os-x86_64.elf
+make: Leaving directory '/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER'

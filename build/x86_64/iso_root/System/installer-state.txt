@@ -1,0 +1,4 @@
+installed=1
+profile=system-image
+source=live-iso
+first_boot_setup=0

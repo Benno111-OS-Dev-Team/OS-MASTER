@@ -1,8 +1,8 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/bootmanager/bootmanager.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/bootmanager/bootmanager.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/bootmanager.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/bootmanager.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/bootmanager/bootmanager.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/bootmanager/bootmanager.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/bootmanager.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/bootmanager.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:

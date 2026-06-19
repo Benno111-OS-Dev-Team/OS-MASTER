@@ -1,10 +1,10 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/sched/signal.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/sched/signal.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/sched/sched.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/vmm.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/sched/sched.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/vmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/sched/signal.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/sched/signal.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/sched/sched.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/sched/sched.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h:

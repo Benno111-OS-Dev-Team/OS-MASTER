@@ -1,6 +1,6 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/gui/font.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/gui/font.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/gui/font.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/gui/font.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/gui/font.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/font.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/font.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/font.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:

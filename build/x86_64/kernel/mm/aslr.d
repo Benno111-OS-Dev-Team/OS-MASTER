@@ -1,10 +1,10 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/kernel/mm/aslr.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/aslr.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/mm/aslr.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/mm/../types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/types.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/mm/aslr.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/mm/../types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/mm/../include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/mm/aslr.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/aslr.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/mm/aslr.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/mm/../types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/types.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/mm/aslr.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/mm/../types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/mm/../include/types.h:

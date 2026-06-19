@@ -1,0 +1,2 @@
+timeout --signal=TERM 25s qemu-system-x86_64 -M q35 -cpu qemu64 -m 4096 -nographic -serial mon:stdio -no-reboot -no-shutdown -d guest_errors -drive if=pflash\,format=raw\,readonly=on\,file=/usr/share/OVMF/OVMF_CODE_4M.fd -drive if=pflash\,format=raw\,file=/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-204158/qemu-uefi-vars-1.fd -cdrom /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso -D
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-204158/qemu-uefi-1-debug.log

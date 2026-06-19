@@ -1,8 +1,8 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/platform/rpi.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/platform/rpi.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/vmm.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/mm/vmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/platform/rpi.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/platform/rpi.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h:

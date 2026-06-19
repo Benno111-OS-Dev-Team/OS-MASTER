@@ -1,0 +1,15 @@
+Ubuntu clang version 21.1.8 (6ubuntu1)
+Ubuntu LLD 21.1.8 (compatible with GNU linkers)
+Ubuntu LLVM version 21.1.8
+llvm-objcopy, compatible with GNU objcopy
+Ubuntu LLVM version 21.1.8
+NASM version 3.01
+QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3)
+QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3)
+xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
+
+xorriso 1.5.6
+Python 3.14.4
+git version 2.53.0
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12

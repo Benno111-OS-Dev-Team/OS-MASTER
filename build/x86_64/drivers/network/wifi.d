@@ -1,14 +1,14 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/network/wifi.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/network/wifi.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/pci.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/wifi.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/bootmanager.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/string.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/pci.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/wifi.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/bootmanager.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/string.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/network/wifi.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/network/wifi.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/pci.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/wifi.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/bootmanager.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/pci.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/wifi.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/bootmanager.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h:

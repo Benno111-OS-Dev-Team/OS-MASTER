@@ -1,0 +1,15 @@
+# OS8 theme preset
+name=Default Theme
+mode=dark
+app_bg=1A1A2E
+app_fg=E4E4E7
+accent=6366F1
+accent_soft=EC4899
+surface=27272A
+surface_alt=1F2937
+card=252535
+border=52525B
+settings_bg=141824
+settings_panel=1F2937
+settings_text=F2F2F2
+settings_subtext=F8F8F8

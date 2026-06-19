@@ -1,14 +1,16 @@
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/build/x86_64/drivers/network/vbox_net.o: \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/drivers/network/vbox_net.c \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/pci.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/vbox_net.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/net/net.h \
-  /home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/arch/arch.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/types.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/pci.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/drivers/vbox_net.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/net/net.h:
-/home/runner/work/Benno111-UseLess/Benno111-UseLess/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/drivers/network/vbox_net.o: \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/drivers/network/vbox_net.c \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/pci.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/vbox_net.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/net/net.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/arch/arch.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/pci.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/drivers/vbox_net.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/net/net.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h:

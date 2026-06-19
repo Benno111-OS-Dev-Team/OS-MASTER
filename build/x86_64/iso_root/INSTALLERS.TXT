@@ -1,0 +1,7 @@
+OS8 Installer Types
+
+1. DOS Text Setup
+   Primary artifacts: DOSENV.IMG, OSINST.COM, and OSSYS.IMG.
+   DOSENV.IMG is built from the bundled DOS boot disk image, with a FreeDOS download fallback.
+   The DOS boot disk keeps OSINST.COM and OSSYS.IMG together in the root folder.
+   The ISO output is only a carrier for that same DOS boot disk and payload.

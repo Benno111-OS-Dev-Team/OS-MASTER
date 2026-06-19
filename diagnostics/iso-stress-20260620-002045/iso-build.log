@@ -1,0 +1,16 @@
+[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  2.26M      0                              0100 860.3k 100 860.3k   0      0  2.18M      0                              0100 860.3k 100 860.3k   0      0  2.10M      0                              0
+[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
+[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
+[0;32m[X86_64-ISO][0m Preparing ISO root at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
+[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  2.17M      0                              0100 860.3k 100 860.3k   0      0  2.08M      0                              0100 860.3k 100 860.3k   0      0  2.00M      0                              0
+[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager

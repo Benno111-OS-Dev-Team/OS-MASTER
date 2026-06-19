@@ -1,0 +1,15 @@
+timestamp_utc=2026-06-18T13:54:03Z
+pwd=/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER
+root_dir=/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER
+diag_dir=/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-155403
+arch=x86_64
+iterations=1
+boot_seconds=25
+memory_mb=4096
+make_jobs=1
+include_installer=0
+run_bios=1
+run_uefi=1
+uname=Linux DESKTOP-C9I1Q5E 6.6.114.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025 x86_64 GNU/Linux
+git_head=b3056d86c92da77090926a567d08312ba5ff8eee
+git_branch=main
