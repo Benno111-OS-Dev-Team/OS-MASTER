@@ -146,6 +146,21 @@ engine and supports direct modes such as `-Mode x64-uefi`.
 
 For Linux host setup notes, see `docs/BUILD_LINUX.md`.
 
+If you prefer compiling from Windows through WSL instead of trying to build
+with native Windows tooling, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-in-wsl.ps1 -Arch x86_64 -Target kernel
+```
+
+If your WSL distro still needs the Linux dependencies first, install a distro
+such as Ubuntu and then run:
+
+```powershell
+wsl --install -d Ubuntu
+powershell -ExecutionPolicy Bypass -File .\scripts\build-in-wsl.ps1 -SetupToolchain -Arch x86_64 -Target kernel
+```
+
 ## Quick Start
 
 ### x86_64 installer ISO
