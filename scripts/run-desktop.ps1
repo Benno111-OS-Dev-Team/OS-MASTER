@@ -142,6 +142,17 @@ function Invoke-WslCommand {
     }
 }
 
+function Get-X64GraphicalArguments {
+    return @(
+        "-display", "default",
+        "-serial", "stdio",
+        "-monitor", "none",
+        "-vga", "std",
+        "-device", "qemu-xhci",
+        "-device", "usb-tablet"
+    )
+}
+
 function Start-X64Uefi {
     param(
         [Parameter(Mandatory = $true)]
@@ -152,21 +163,21 @@ function Start-X64Uefi {
 
     if ($Launcher.Type -eq "native") {
         $fw = Resolve-NativeUefiFirmware
-        Invoke-NativeCommand "qemu-system-x86_64" @(
+        $args = @(
             "-M", "q35",
             "-cpu", "qemu64",
             "-m", "4G",
-            "-nographic",
-            "-serial", "mon:stdio",
             "-bios", $fw,
             "-cdrom", $x64Iso
         )
+        $args = $args + (Get-X64GraphicalArguments)
+        Invoke-NativeCommand "qemu-system-x86_64" $args
         return
     }
 
     $wslIso = Convert-ToWslPath $x64Iso
     $fw = Resolve-WslUefiFirmware $Launcher.Command
-    Invoke-WslCommand $Launcher.Command "qemu-system-x86_64 -M q35 -cpu qemu64 -m 4G -nographic -serial mon:stdio -bios '$fw' -cdrom '$wslIso'"
+    Invoke-WslCommand $Launcher.Command "qemu-system-x86_64 -M q35 -cpu qemu64 -m 4G -bios '$fw' -cdrom '$wslIso' -display default -serial stdio -monitor none -vga std -device qemu-xhci -device usb-tablet"
 }
 
 function Start-X64Bios {
@@ -178,19 +189,19 @@ function Start-X64Bios {
     Require-File $x64Iso "Missing x86_64 ISO: $x64Iso. Build the ISO first."
 
     if ($Launcher.Type -eq "native") {
-        Invoke-NativeCommand "qemu-system-x86_64" @(
+        $args = @(
             "-M", "q35",
             "-cpu", "qemu64",
             "-m", "4G",
-            "-nographic",
-            "-serial", "mon:stdio",
             "-cdrom", $x64Iso
         )
+        $args = $args + (Get-X64GraphicalArguments)
+        Invoke-NativeCommand "qemu-system-x86_64" $args
         return
     }
 
     $wslIso = Convert-ToWslPath $x64Iso
-    Invoke-WslCommand $Launcher.Command "qemu-system-x86_64 -M q35 -cpu qemu64 -m 4G -nographic -serial mon:stdio -cdrom '$wslIso'"
+    Invoke-WslCommand $Launcher.Command "qemu-system-x86_64 -M q35 -cpu qemu64 -m 4G -cdrom '$wslIso' -display default -serial stdio -monitor none -vga std -device qemu-xhci -device usb-tablet"
 }
 
 function Start-Arm64Gui {

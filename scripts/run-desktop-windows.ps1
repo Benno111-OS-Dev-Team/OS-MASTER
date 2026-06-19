@@ -122,7 +122,7 @@ $title.Size = New-Object System.Drawing.Size(300, 40)
 $form.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = "Launch the current OS8 images from Windows and build missing artifacts without leaving the desktop."
+$subtitle.Text = "Launch the current OS8 images from Windows with visible graphics and build missing artifacts without leaving the desktop."
 $subtitle.Location = New-Object System.Drawing.Point(28, 62)
 $subtitle.Size = New-Object System.Drawing.Size(650, 42)
 $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(70, 70, 70)
@@ -166,7 +166,7 @@ $tips = New-Object System.Windows.Forms.Label
 $tips.Location = New-Object System.Drawing.Point(28, 395)
 $tips.Size = New-Object System.Drawing.Size(660, 22)
 $tips.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
-$tips.Text = "Tip: the launch buttons open a separate PowerShell session so serial logs stay visible while this window remains open."
+$tips.Text = "Tip: x86_64 and ARM64 GUI launches open a graphics window and keep serial logs in the separate PowerShell session."
 $form.Controls.Add($tips)
 
 [void]$form.ShowDialog()
