@@ -4,6 +4,10 @@
 #include "mm/vmm.h"
 #include "printk.h"
 
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+extern void io_wait(void);
+#endif
+
 #define STORAGE_MAX_CONTROLLERS 16
 #define STORAGE_MAX_DISKS 16
 #define STORAGE_MAX_PARTITIONS 8
