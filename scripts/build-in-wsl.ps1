@@ -10,6 +10,43 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
+function Convert-FileToLf {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $content = [System.IO.File]::ReadAllText($Path)
+    $normalized = $content -replace "`r`n", "`n"
+    $normalized = $normalized -replace "`r", "`n"
+    if ($normalized -ne $content) {
+        [System.IO.File]::WriteAllText($Path, $normalized, (New-Object System.Text.UTF8Encoding($false)))
+        return $true
+    }
+
+    return $false
+}
+
+function Normalize-UnixScripts {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root
+    )
+
+    $files = Get-ChildItem -Path $Root -Recurse -File -Include *.sh
+    $updated = 0
+
+    foreach ($file in $files) {
+        if (Convert-FileToLf -Path $file.FullName) {
+            $updated++
+        }
+    }
+
+    if ($updated -gt 0) {
+        Write-Host "Normalized LF line endings for $updated shell script(s)." -ForegroundColor DarkYellow
+    }
+}
+
 function Convert-ToWslPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -70,6 +107,8 @@ if ($Distro -and ($distros -notcontains $Distro)) {
 
 $wslRepoRoot = Convert-ToWslPath $repoRoot
 $wslPrefix = Get-WslPrefix $Distro
+
+Normalize-UnixScripts -Root $repoRoot
 
 function Invoke-WslBash {
     param(
