@@ -9,6 +9,7 @@
 #include "drivers/storage.h"
 #include "drivers/intel_hda.h"
 #include "drivers/usb/usb.h"
+#include "acpi.h"
 #include "bootmanager.h"
 #include "arch/arch.h"
 #include "printk.h"
@@ -22,6 +23,10 @@ static int pci_generic_drivers_only = 0;
 
 /* MMIO allocation for unassigned BARs */
 static uint64_t next_mmio_base = 0x10000000;
+
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+extern uint64_t limine_get_hhdm_offset(void);
+#endif
 
 static int pci_is_xhci_controller(const pci_device_t *pci_dev) {
   if (!pci_dev)
@@ -74,8 +79,34 @@ static volatile uint32_t *pci_ecam_addr(uint8_t bus, uint8_t slot, uint8_t func,
   return (volatile uint32_t *)addr;
 }
 
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+static volatile uint32_t *pci_acpi_mcfg_addr(uint8_t bus, uint8_t slot,
+                                             uint8_t func, uint8_t offset) {
+  uint64_t hhdm = limine_get_hhdm_offset();
+  uint64_t base;
+  uint64_t addr;
+  uint8_t start_bus = 0;
+  uint8_t end_bus = 0;
+
+  if (!hhdm)
+    return NULL;
+
+  base = acpi_mcfg_get_base_for_bus(bus, &start_bus, &end_bus);
+  if (!base || bus < start_bus || bus > end_bus)
+    return NULL;
+
+  addr = base + ((uint64_t)(bus - start_bus) << 20) +
+         ((uint64_t)slot << 15) + ((uint64_t)func << 12) + (offset & 0xFFF);
+  return (volatile uint32_t *)(uintptr_t)(addr + hhdm);
+}
+#endif
+
 uint32_t pci_read32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
+  volatile uint32_t *addr = pci_acpi_mcfg_addr(bus, slot, func, offset);
+  if (addr)
+    return *addr;
+
   uint32_t address = 0x80000000U | ((uint32_t)bus << 16) |
                      ((uint32_t)slot << 11) | ((uint32_t)func << 8) |
                      (offset & 0xFC);
@@ -90,6 +121,12 @@ uint32_t pci_read32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
 void pci_write32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset,
                  uint32_t value) {
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
+  volatile uint32_t *addr = pci_acpi_mcfg_addr(bus, slot, func, offset);
+  if (addr) {
+    *addr = value;
+    return;
+  }
+
   uint32_t address = 0x80000000U | ((uint32_t)bus << 16) |
                      ((uint32_t)slot << 11) | ((uint32_t)func << 8) |
                      (offset & 0xFC);
@@ -264,9 +301,17 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
 void pci_init(void) {
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
   int allow_xhci_after_scan = 0;
+  uint8_t ecam_start = 0;
+  uint8_t ecam_end = 0;
+  uint64_t ecam_base = acpi_mcfg_get_base_for_bus(0, &ecam_start, &ecam_end);
 #endif
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
-  printk("PCI: Initializing x86 config-space scan...\n");
+  if (ecam_base) {
+    printk("PCI: Initializing x86 ACPI MCFG scan at 0x%llx (buses %u-%u)\n",
+           ecam_base, ecam_start, ecam_end);
+  } else {
+    printk("PCI: Initializing x86 legacy config-space scan...\n");
+  }
 #else
   printk("PCI: Initializing High ECAM scan at 0x%llx...\n", PCI_ECAM_BASE);
 #endif

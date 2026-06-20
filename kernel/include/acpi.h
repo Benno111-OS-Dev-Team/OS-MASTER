@@ -103,6 +103,28 @@ typedef struct {
 } __attribute__((packed)) acpi_madt_t;
 
 typedef struct {
+  acpi_sdt_header_t header;
+  uint64_t reserved;
+} __attribute__((packed)) acpi_mcfg_t;
+
+typedef struct {
+  uint64_t base_address;
+  uint16_t segment_group;
+  uint8_t start_bus;
+  uint8_t end_bus;
+  uint32_t reserved;
+} __attribute__((packed)) acpi_mcfg_allocation_t;
+
+typedef struct {
+  acpi_sdt_header_t header;
+  uint32_t event_timer_block_id;
+  acpi_gas_t base_address;
+  uint8_t hpet_number;
+  uint16_t min_tick;
+  uint8_t page_protection;
+} __attribute__((packed)) acpi_hpet_t;
+
+typedef struct {
   uint8_t type;
   uint8_t length;
 } __attribute__((packed)) acpi_madt_entry_header_t;
@@ -149,6 +171,9 @@ typedef struct {
   uint8_t pm1_cnt_len;
   uint16_t slp_typa;
   uint16_t slp_typb;
+  uint8_t slp_typa_raw;
+  uint8_t slp_typb_raw;
+  uint8_t hw_reduced;
   uint8_t reset_supported;
   acpi_gas_t reset_reg;
   uint8_t reset_value;
@@ -157,9 +182,13 @@ typedef struct {
 void acpi_init(void *rsdp_ptr);
 const acpi_madt_t *acpi_get_madt(void);
 const acpi_fadt_t *acpi_get_fadt(void);
+const acpi_mcfg_t *acpi_get_mcfg(void);
+const acpi_hpet_t *acpi_get_hpet(void);
 uint64_t acpi_madt_get_lapic_base(void);
 uint64_t acpi_madt_get_ioapic_base(uint32_t *gsi_base_out);
 uint32_t acpi_madt_get_cpu_count(void);
+uint64_t acpi_mcfg_get_base_for_bus(uint8_t bus, uint8_t *start_bus_out,
+                                    uint8_t *end_bus_out);
 int acpi_power_available(void);
 int acpi_reboot(void);
 int acpi_poweroff(void);

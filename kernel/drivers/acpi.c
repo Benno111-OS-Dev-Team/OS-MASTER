@@ -11,6 +11,8 @@
 
 static const acpi_madt_t *g_madt = NULL;
 static const acpi_fadt_t *g_fadt = NULL;
+static const acpi_mcfg_t *g_mcfg = NULL;
+static const acpi_hpet_t *g_hpet = NULL;
 static acpi_power_info_t g_power_info = {0};
 static int g_acpi_ready = 0;
 
@@ -26,6 +28,11 @@ static int checksum_ok(const uint8_t *ptr, uint32_t len) {
 
 static int sig_eq(const char *a, const char *b) {
   return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
+}
+
+static int sdt_valid(const acpi_sdt_header_t *hdr) {
+  return hdr && hdr->length >= sizeof(*hdr) &&
+         checksum_ok((const uint8_t *)hdr, hdr->length);
 }
 
 static const uint8_t *madt_entries_begin(const acpi_madt_t *madt) {
@@ -59,7 +66,7 @@ static const acpi_sdt_header_t *find_sdt(const acpi_rsdp_t *rsdp,
   if (rsdp->revision >= 2 && rsdp->xsdt_address) {
     const acpi_sdt_header_t *xsdt =
         (const acpi_sdt_header_t *)map_phys(rsdp->xsdt_address);
-    if (!xsdt || !checksum_ok((const uint8_t *)xsdt, xsdt->length)) {
+    if (!sdt_valid(xsdt)) {
       return NULL;
     }
 
@@ -70,8 +77,7 @@ static const acpi_sdt_header_t *find_sdt(const acpi_rsdp_t *rsdp,
     for (uint32_t i = 0; i < count; i++) {
       const acpi_sdt_header_t *hdr =
           (const acpi_sdt_header_t *)map_phys(entries[i]);
-      if (hdr && sig_eq(hdr->signature, sig) &&
-          checksum_ok((const uint8_t *)hdr, hdr->length)) {
+      if (sdt_valid(hdr) && sig_eq(hdr->signature, sig)) {
         return hdr;
       }
     }
@@ -80,7 +86,7 @@ static const acpi_sdt_header_t *find_sdt(const acpi_rsdp_t *rsdp,
   if (rsdp->rsdt_address) {
     const acpi_sdt_header_t *rsdt =
         (const acpi_sdt_header_t *)map_phys(rsdp->rsdt_address);
-    if (!rsdt || !checksum_ok((const uint8_t *)rsdt, rsdt->length)) {
+    if (!sdt_valid(rsdt)) {
       return NULL;
     }
 
@@ -91,8 +97,7 @@ static const acpi_sdt_header_t *find_sdt(const acpi_rsdp_t *rsdp,
     for (uint32_t i = 0; i < count; i++) {
       const acpi_sdt_header_t *hdr =
           (const acpi_sdt_header_t *)map_phys(entries[i]);
-      if (hdr && sig_eq(hdr->signature, sig) &&
-          checksum_ok((const uint8_t *)hdr, hdr->length)) {
+      if (sdt_valid(hdr) && sig_eq(hdr->signature, sig)) {
         return hdr;
       }
     }
@@ -106,6 +111,83 @@ static uint16_t gas_port(const acpi_gas_t *gas, uint32_t fallback) {
     return (uint16_t)gas->address;
   }
   return (uint16_t)fallback;
+}
+
+static int gas_write(const acpi_gas_t *gas, uint64_t value) {
+  volatile uint8_t *mem8;
+  volatile uint16_t *mem16;
+  volatile uint32_t *mem32;
+  volatile uint64_t *mem64;
+  void *mapped;
+  uint8_t width;
+
+  if (!gas || !gas->address)
+    return -1;
+
+  width = gas->bit_width;
+  if (!width) {
+    switch (gas->access_size) {
+    case 1:
+      width = 8;
+      break;
+    case 2:
+      width = 16;
+      break;
+    case 3:
+      width = 32;
+      break;
+    case 4:
+      width = 64;
+      break;
+    default:
+      width = 8;
+      break;
+    }
+  }
+
+  if (gas->address_space == 1) {
+    switch (width) {
+    case 8:
+      outb((uint16_t)gas->address, (uint8_t)value);
+      return 0;
+    case 16:
+      outw((uint16_t)gas->address, (uint16_t)value);
+      return 0;
+    case 32:
+      outl((uint16_t)gas->address, (uint32_t)value);
+      return 0;
+    default:
+      return -1;
+    }
+  }
+
+  if (gas->address_space != 0)
+    return -1;
+
+  mapped = map_phys(gas->address);
+  if (!mapped)
+    return -1;
+
+  switch (width) {
+  case 8:
+    mem8 = (volatile uint8_t *)mapped;
+    *mem8 = (uint8_t)value;
+    return 0;
+  case 16:
+    mem16 = (volatile uint16_t *)mapped;
+    *mem16 = (uint16_t)value;
+    return 0;
+  case 32:
+    mem32 = (volatile uint32_t *)mapped;
+    *mem32 = (uint32_t)value;
+    return 0;
+  case 64:
+    mem64 = (volatile uint64_t *)mapped;
+    *mem64 = (uint64_t)value;
+    return 0;
+  default:
+    return -1;
+  }
 }
 
 static uint8_t *find_s5_package(const acpi_fadt_t *fadt) {
@@ -169,8 +251,8 @@ static void populate_power_info(const acpi_fadt_t *fadt) {
   g_power_info.reset_reg = fadt->reset_reg;
   g_power_info.reset_value = fadt->reset_value;
   g_power_info.reset_supported =
-      (fadt->flags & (1u << 10)) && fadt->reset_reg.address_space == 1 &&
-      fadt->reset_reg.address != 0;
+      (fadt->flags & (1u << 10)) && fadt->reset_reg.address != 0;
+  g_power_info.hw_reduced = (uint8_t)((fadt->flags & (1u << 20)) != 0);
 
   s5 = find_s5_package(fadt);
   if (s5) {
@@ -182,6 +264,8 @@ static void populate_power_info(const acpi_fadt_t *fadt) {
     if (s5[idx] == 0x0A) {
       idx++;
     }
+    g_power_info.slp_typa_raw = val_a;
+    g_power_info.slp_typb_raw = s5[idx];
     g_power_info.slp_typa = ((uint16_t)val_a) << 10;
     g_power_info.slp_typb = ((uint16_t)s5[idx]) << 10;
   }
@@ -192,6 +276,8 @@ void acpi_init(void *rsdp_ptr) {
 
   g_madt = NULL;
   g_fadt = NULL;
+  g_mcfg = NULL;
+  g_hpet = NULL;
   g_power_info = (acpi_power_info_t){0};
   g_acpi_ready = 0;
 
@@ -216,17 +302,25 @@ void acpi_init(void *rsdp_ptr) {
 
   g_madt = (const acpi_madt_t *)find_sdt(rsdp, "APIC");
   g_fadt = (const acpi_fadt_t *)find_sdt(rsdp, "FACP");
+  g_mcfg = (const acpi_mcfg_t *)find_sdt(rsdp, "MCFG");
+  g_hpet = (const acpi_hpet_t *)find_sdt(rsdp, "HPET");
   if (g_fadt) {
     populate_power_info(g_fadt);
   }
 
   g_acpi_ready = 1;
-  printk(KERN_INFO "ACPI: initialized (MADT=%p, FADT=%p)\n", g_madt, g_fadt);
+  printk(KERN_INFO
+         "ACPI: initialized rev %u (MADT=%p, FADT=%p, MCFG=%p, HPET=%p)\n",
+         rsdp->revision, g_madt, g_fadt, g_mcfg, g_hpet);
 }
 
 const acpi_madt_t *acpi_get_madt(void) { return g_madt; }
 
 const acpi_fadt_t *acpi_get_fadt(void) { return g_fadt; }
+
+const acpi_mcfg_t *acpi_get_mcfg(void) { return g_mcfg; }
+
+const acpi_hpet_t *acpi_get_hpet(void) { return g_hpet; }
 
 uint64_t acpi_madt_get_lapic_base(void) {
   const uint8_t *ptr;
@@ -329,6 +423,37 @@ uint32_t acpi_madt_get_cpu_count(void) {
   return count;
 }
 
+uint64_t acpi_mcfg_get_base_for_bus(uint8_t bus, uint8_t *start_bus_out,
+                                    uint8_t *end_bus_out) {
+  const uint8_t *ptr;
+  const uint8_t *end;
+
+  if (start_bus_out)
+    *start_bus_out = 0;
+  if (end_bus_out)
+    *end_bus_out = 0;
+  if (!g_mcfg || g_mcfg->header.length < sizeof(*g_mcfg))
+    return 0;
+
+  ptr = (const uint8_t *)g_mcfg + sizeof(*g_mcfg);
+  end = (const uint8_t *)g_mcfg + g_mcfg->header.length;
+  while (ptr + sizeof(acpi_mcfg_allocation_t) <= end) {
+    const acpi_mcfg_allocation_t *entry =
+        (const acpi_mcfg_allocation_t *)ptr;
+    if (entry->segment_group == 0 && bus >= entry->start_bus &&
+        bus <= entry->end_bus && entry->base_address) {
+      if (start_bus_out)
+        *start_bus_out = entry->start_bus;
+      if (end_bus_out)
+        *end_bus_out = entry->end_bus;
+      return entry->base_address;
+    }
+    ptr += sizeof(acpi_mcfg_allocation_t);
+  }
+
+  return 0;
+}
+
 int acpi_power_available(void) {
   return g_acpi_ready && g_fadt != NULL;
 }
@@ -339,9 +464,10 @@ int acpi_reboot(void) {
   }
 
   if (g_power_info.reset_supported) {
-    outb((uint16_t)g_power_info.reset_reg.address, g_power_info.reset_value);
-    io_wait();
-    return 0;
+    if (gas_write(&g_power_info.reset_reg, g_power_info.reset_value) == 0) {
+      io_wait();
+      return 0;
+    }
   }
 
   return -1;
@@ -349,9 +475,18 @@ int acpi_reboot(void) {
 
 int acpi_poweroff(void) {
   uint16_t sleep_enable = (1u << 13);
+  uint8_t reduced_sleep_enable = (1u << 5);
 
   if (!acpi_power_available()) {
     return -1;
+  }
+
+  if (g_power_info.hw_reduced && g_fadt) {
+    uint8_t sleep_value =
+        (uint8_t)((g_power_info.slp_typa_raw << 2) | reduced_sleep_enable);
+    if (gas_write(&g_fadt->sleep_control_reg, sleep_value) == 0) {
+      return 0;
+    }
   }
 
   if (g_power_info.pm1a_cnt_port && g_power_info.slp_typa) {
@@ -376,6 +511,10 @@ const acpi_madt_t *acpi_get_madt(void) { return NULL; }
 
 const acpi_fadt_t *acpi_get_fadt(void) { return NULL; }
 
+const acpi_mcfg_t *acpi_get_mcfg(void) { return NULL; }
+
+const acpi_hpet_t *acpi_get_hpet(void) { return NULL; }
+
 uint64_t acpi_madt_get_lapic_base(void) { return 0; }
 
 uint64_t acpi_madt_get_ioapic_base(uint32_t *gsi_base_out) {
@@ -386,6 +525,18 @@ uint64_t acpi_madt_get_ioapic_base(uint32_t *gsi_base_out) {
 }
 
 uint32_t acpi_madt_get_cpu_count(void) { return 0; }
+
+uint64_t acpi_mcfg_get_base_for_bus(uint8_t bus, uint8_t *start_bus_out,
+                                    uint8_t *end_bus_out) {
+  (void)bus;
+  if (start_bus_out) {
+    *start_bus_out = 0;
+  }
+  if (end_bus_out) {
+    *end_bus_out = 0;
+  }
+  return 0;
+}
 
 int acpi_power_available(void) { return 0; }
 
