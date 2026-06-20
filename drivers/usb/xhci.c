@@ -457,8 +457,8 @@ static void xhci_enumerate_device(int port) {
   /* Checks would be based on bDeviceClass/bInterfaceClass */
 
   /* Attempt to load drivers */
-  // In a real implementation we would match against descriptors
-  // usb_hid_init(dev);
+  // In a real implementation we would match against descriptors first.
+  usb_hid_init(dev);
   // usb_msd_init(dev);
 }
 
@@ -514,6 +514,7 @@ static void xhci_check_port(int port) {
 
   if (!connected && xhci.ports[port].dev) {
     printk(KERN_INFO "XHCI: Port %d: Device disconnected\n", port + 1);
+    usb_hid_remove(xhci.ports[port].dev);
     kfree(xhci.ports[port].dev);
     xhci.ports[port].dev = NULL;
     xhci.ports[port].slot_id = 0;

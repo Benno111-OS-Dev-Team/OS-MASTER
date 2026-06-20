@@ -8,6 +8,7 @@
 #include "printk.h"
 #include "types.h"
 #include "drivers/trackpad.h"
+#include "drivers/usb/usb.h"
 
 /* ===================================================================== */
 /* Virtio MMIO registers (QEMU virt machine) */
@@ -836,10 +837,12 @@ int input_init(void) {
 
 void input_set_key_callback(void (*callback)(int key)) {
   key_callback = callback;
+  usb_hid_set_key_callback(callback);
 }
 
 void input_set_gui_key_callback(void (*callback)(int key)) {
   gui_key_callback = callback;
+  usb_hid_set_gui_key_callback(callback);
 }
 
 void input_set_mouse_bounds(int width, int height) {
@@ -878,6 +881,9 @@ void input_poll(void) {
 
   /* Poll virtio keyboard */
   keyboard_poll();
+
+  /* Poll registered USB HID keyboards when transport support is available. */
+  usb_hid_poll_keyboards();
 
   /* Poll registered I2C/SPI trackpads */
   trackpad_input_poll();

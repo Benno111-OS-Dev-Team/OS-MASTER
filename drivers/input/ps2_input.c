@@ -1,6 +1,7 @@
 #include "printk.h"
 #include "types.h"
 #include "drivers/trackpad.h"
+#include "drivers/usb/usb.h"
 
 #if defined(ARCH_X86) || defined(ARCH_X86_64)
 
@@ -538,10 +539,14 @@ int input_init(void) {
   return 0;
 }
 
-void input_set_key_callback(void (*callback)(int key)) { key_callback = callback; }
+void input_set_key_callback(void (*callback)(int key)) {
+  key_callback = callback;
+  usb_hid_set_key_callback(callback);
+}
 
 void input_set_gui_key_callback(void (*callback)(int key)) {
   gui_key_callback = callback;
+  usb_hid_set_gui_key_callback(callback);
 }
 
 void input_set_mouse_bounds(int width, int height) {
@@ -565,6 +570,7 @@ void input_set_mouse_scale(int scale) {
 
 void input_poll(void) {
   trackpad_input_poll();
+  usb_hid_poll_keyboards();
 
   for (int i = 0; i < 64; i++) {
     uint8_t status = inb(PS2_STATUS_PORT);

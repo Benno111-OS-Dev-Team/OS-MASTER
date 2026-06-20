@@ -47,5 +47,11 @@ int usb_device_info(int idx, uint16_t *vid, uint16_t *pid, char *name,
                     int name_len);
 int usb_msd_init(struct usb_device *dev);
 int usb_hid_init(struct usb_device *dev);
+void usb_hid_remove(struct usb_device *dev);
+void usb_hid_set_key_callback(void (*callback)(int key));
+void usb_hid_set_gui_key_callback(void (*callback)(int key));
+void usb_hid_poll_keyboards(void);
+int usb_hid_submit_boot_keyboard_report(struct usb_device *dev,
+                                        const uint8_t *report, size_t len);
 
 #endif /* _DRIVERS_USB_USB_H */
