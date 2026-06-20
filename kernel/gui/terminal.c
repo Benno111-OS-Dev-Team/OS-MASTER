@@ -968,6 +968,7 @@ void term_execute_command(struct terminal *term, const char *cmd) {
     term_puts(term, "  history   - Show command history\n");
     term_puts(term, "  free      - Memory usage\n");
     term_puts(term, "  ps        - Process list\n");
+    term_puts(term, "  panic [m] - Trigger debug panic with message\n");
     term_puts(term, "  clear     - Clear screen\n");
     term_puts(term, "  help      - This help message\n");
     term_puts(term, "\033[33mNetwork:\033[0m\n");
@@ -1075,6 +1076,18 @@ void term_execute_command(struct terminal *term, const char *cmd) {
     term_puts(term, "    1 ?        00:00:00 init\n");
     term_puts(term, "    2 ?        00:00:00 kthread\n");
     term_puts(term, "   10 tty1     00:00:00 shell\n");
+  } else if (str_starts_with(cmd, "panic") &&
+             (cmd[5] == '\0' || cmd[5] == ' ')) {
+    const char *panic_msg = cmd + 5;
+
+    while (*panic_msg == ' ')
+      panic_msg++;
+
+    if (*panic_msg == '\0') {
+      panic("Debug panic triggered from terminal");
+    } else {
+      panic(panic_msg);
+    }
   } else if (str_starts_with(cmd, "whoami")) {
     term_puts(term, "root\n");
   } else if (str_starts_with(cmd, "neofetch")) {
