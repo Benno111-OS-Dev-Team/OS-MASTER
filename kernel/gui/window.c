@@ -13315,8 +13315,7 @@ static void draw_window(struct window *win) {
     char resolution[32];
     char windows_info[32];
     char usb_ports[32];
-    char usb_name0[48];
-    char usb_name1[48];
+    char usb_names[4][48];
     char storage_overview[96];
     char storage_line0[80];
     char storage_line1[80];
@@ -13345,13 +13344,28 @@ static void draw_window(struct window *win) {
     build_windows_string(windows_info);
     build_device_ports_string(usb_ports, xhci_get_connected_count(),
                               xhci_get_port_count());
-    usb_name0[0] = '\0';
-    usb_name1[0] = '\0';
+    for (int i = 0; i < 4; i++)
+      usb_names[i][0] = '\0';
     usb_count = usb_device_count();
-    if (usb_count > 0)
-      usb_device_info(0, NULL, NULL, usb_name0, sizeof(usb_name0));
-    if (usb_count > 1)
-      usb_device_info(1, NULL, NULL, usb_name1, sizeof(usb_name1));
+    for (int i = 0; i < usb_count && i < 4; i++) {
+      usb_device_info(i, NULL, NULL, usb_names[i], sizeof(usb_names[i]));
+    }
+    if (usb_count > 4) {
+      int idx = 0;
+      int remaining = usb_count - 3;
+
+      str_copy_safe(usb_names[3], "+", sizeof(usb_names[3]));
+      while (usb_names[3][idx] && idx < (int)sizeof(usb_names[3]) - 1)
+        idx++;
+      append_decimal(usb_names[3], &idx, remaining);
+      if (remaining == 1) {
+        str_copy_safe(usb_names[3] + idx, " more device",
+                      (int)sizeof(usb_names[3]) - idx);
+      } else {
+        str_copy_safe(usb_names[3] + idx, " more devices",
+                      (int)sizeof(usb_names[3]) - idx);
+      }
+    }
     storage_build_overview(storage_overview, sizeof(storage_overview));
     storage_build_disk_overview(disk_overview, sizeof(disk_overview));
     if (storage_describe_controller(0, storage_line0, sizeof(storage_line0)) !=
@@ -13453,7 +13467,8 @@ static void draw_window(struct window *win) {
                     theme->card);
     yy += 62;
 
-    gui_draw_rect(content_x + 10, yy, content_w - 20, 84, theme->card);
+    gui_draw_rect(content_x + 10, yy, content_w - 20, usb_count > 2 ? 116 : 84,
+                  theme->card);
     gui_draw_string(content_x + 20, yy + 8, "USB Host Controller", 0x89B4FA,
                     theme->card);
     gui_draw_string(content_x + 20, yy + 28,
@@ -13469,14 +13484,17 @@ static void draw_window(struct window *win) {
       gui_draw_string(content_x + 20, yy + 48, "No USB devices enumerated",
                       theme->app_muted, theme->card);
     } else {
-      gui_draw_string(content_x + 20, yy + 48, usb_name0, theme->app_muted,
+      gui_draw_string(content_x + 20, yy + 48, usb_names[0], theme->app_muted,
                       theme->card);
-      if (usb_count > 1) {
-        gui_draw_string(content_x + 20, yy + 64, usb_name1, theme->app_muted,
-                        theme->card);
-      } else {
+      if (usb_count == 1) {
         gui_draw_string(content_x + 20, yy + 64, "1 device detected",
                         theme->app_muted, theme->card);
+      } else {
+        int usb_lines = usb_count > 4 ? 4 : usb_count;
+        for (int i = 1; i < usb_lines; i++) {
+          gui_draw_string(content_x + 20, yy + 48 + i * 16, usb_names[i],
+                          theme->app_muted, theme->card);
+        }
       }
     }
   }

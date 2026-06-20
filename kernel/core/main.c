@@ -1657,7 +1657,9 @@ static void start_init_process(void) {
   int last_mx = 0, last_my = 0;
   int last_buttons = 0;
   uint64_t last_kernel_slice_ms = arch_timer_get_ms();
+  uint64_t last_usb_scan_ms = last_kernel_slice_ms;
   const uint64_t KERNEL_SLICE_MS = 8; /* Kernel grants background runtime */
+  const uint64_t USB_SCAN_MS = 250;
   gui_frame_profile_t frame_profile = {0};
 
   {
@@ -1693,6 +1695,15 @@ static void start_init_process(void) {
     virtio_net_poll();
     vbox_net_poll();
     frame_profile.net_poll_us = profile_split_us(&step_start_us);
+
+    {
+      extern void xhci_poll_ports(void);
+      uint64_t now_for_usb = arch_timer_get_ms();
+      if (now_for_usb - last_usb_scan_ms >= USB_SCAN_MS) {
+        xhci_poll_ports();
+        last_usb_scan_ms = now_for_usb;
+      }
+    }
 
     /* Poll for keyboard input from UART as well */
     extern int uart_getc_nonblock(void);

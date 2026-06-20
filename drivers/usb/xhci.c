@@ -124,6 +124,8 @@ struct xhci_ep_ctx {
 /* Driver State */
 /* ===================================================================== */
 
+struct usb_device;
+
 struct xhci_device {
   volatile uint8_t *base;
   volatile uint8_t *op_base;
@@ -156,6 +158,7 @@ struct xhci_device {
     bool connected;
     uint8_t speed;
     uint8_t slot_id;
+    struct usb_device *dev;
   } ports[XHCI_MAX_PORTS];
 };
 
@@ -422,6 +425,13 @@ static int xhci_setup_rings(void) {
 #include "drivers/usb/usb.h"
 
 static void xhci_enumerate_device(int port) {
+  struct usb_device *dev;
+
+  if (port < 0 || port >= (int)xhci.max_ports)
+    return;
+  if (xhci.ports[port].dev)
+    return;
+
   printk(KERN_INFO "XHCI: Enumerating device on port %d\n", port + 1);
 
   /* TODO:
@@ -432,13 +442,16 @@ static void xhci_enumerate_device(int port) {
    */
 
   /* access to drivers */
-  struct usb_device *dev = kzalloc(sizeof(struct usb_device), GFP_KERNEL);
+  dev = kzalloc(sizeof(struct usb_device), GFP_KERNEL);
   if (!dev)
     return;
 
   dev->controller = &xhci;
-  dev->bus_id = 0;   // Bus 0
-  dev->dev_addr = 0; // Pending
+  dev->bus_id = 0;
+  dev->dev_addr = (uint8_t)(port + 1);
+  dev->speed = xhci.ports[port].speed;
+  xhci.ports[port].slot_id = (uint8_t)(port + 1);
+  xhci.ports[port].dev = dev;
 
   /* Mock Dispatch for demonstration until descriptors are read */
   /* Checks would be based on bDeviceClass/bInterfaceClass */
@@ -485,6 +498,7 @@ static void xhci_reset_port_if_needed(int port, uint32_t portsc) {
 static void xhci_check_port(int port) {
   uint32_t portsc;
   bool connected;
+  bool was_connected;
   int speed;
 
   xhci_power_port(port);
@@ -496,11 +510,21 @@ static void xhci_check_port(int port) {
   portsc = xhci_port_read32(port, XHCI_PORTSC);
   connected = (portsc & XHCI_PORT_CCS) != 0;
   speed = (portsc >> 10) & 0xF;
+  was_connected = xhci.ports[port].connected;
+
+  if (!connected && xhci.ports[port].dev) {
+    printk(KERN_INFO "XHCI: Port %d: Device disconnected\n", port + 1);
+    kfree(xhci.ports[port].dev);
+    xhci.ports[port].dev = NULL;
+    xhci.ports[port].slot_id = 0;
+  }
 
   xhci.ports[port].connected = connected;
   xhci.ports[port].speed = speed;
+  if (xhci.ports[port].dev)
+    xhci.ports[port].dev->speed = (uint8_t)speed;
 
-  if (connected) {
+  if (connected && (!was_connected || !xhci.ports[port].dev)) {
     const char *speed_str = "Unknown";
     switch (speed) {
     case 1:
@@ -685,7 +709,24 @@ int xhci_get_connected_count(void) {
   return count;
 }
 
-int usb_device_count(void) { return xhci_get_connected_count(); }
+void xhci_poll_ports(void) {
+  if (!xhci_ready)
+    return;
+
+  for (int i = 0; i < (int)xhci.max_ports; i++) {
+    xhci_check_port(i);
+  }
+}
+
+int usb_device_count(void) {
+  int count = 0;
+
+  for (int i = 0; i < (int)xhci.max_ports; i++) {
+    if (xhci.ports[i].dev)
+      count++;
+  }
+  return count;
+}
 
 int usb_device_info(int idx, uint16_t *vid, uint16_t *pid, char *name,
                     int name_len) {
@@ -695,7 +736,9 @@ int usb_device_info(int idx, uint16_t *vid, uint16_t *pid, char *name,
     return 0;
 
   for (int port = 0; port < (int)xhci.max_ports; port++) {
-    if (!xhci.ports[port].connected)
+    struct usb_device *dev = xhci.ports[port].dev;
+
+    if (!dev)
       continue;
     if (current != idx) {
       current++;
@@ -703,15 +746,15 @@ int usb_device_info(int idx, uint16_t *vid, uint16_t *pid, char *name,
     }
 
     if (vid)
-      *vid = 0;
+      *vid = dev->vendor_id;
     if (pid)
-      *pid = 0;
+      *pid = dev->product_id;
     if (name && name_len > 0) {
       name[0] = '\0';
       xhci_append_text(name, name_len, "USB Device P");
       xhci_append_decimal(name, name_len, port + 1);
       xhci_append_text(name, name_len, " ");
-      xhci_append_text(name, name_len, xhci_speed_name(xhci.ports[port].speed));
+      xhci_append_text(name, name_len, xhci_speed_name(dev->speed));
     }
     return 1;
   }
