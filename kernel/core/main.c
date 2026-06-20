@@ -179,10 +179,27 @@ static void panic_fb_draw_char(uint32_t *fb, uint32_t pitch_pixels, uint32_t fb_
                                uint32_t fb_h, int x, int y, char c,
                                uint32_t fg, uint32_t bg) {
   const uint8_t *glyph;
+  const uint32_t shadow = 0x000000;
+
+  (void)bg;
 
   if (!fb)
     return;
   glyph = font_data[(unsigned char)c];
+  for (int row = 0; row < FONT_HEIGHT; row++) {
+    for (int col = 0; col < FONT_WIDTH; col++) {
+      if (!(glyph[row] & (0x80 >> col)))
+        continue;
+
+      int shadow_px = x + col + 1;
+      int shadow_py = y + row + 1;
+      if (shadow_px >= 0 && shadow_px < (int)fb_w &&
+          shadow_py >= 0 && shadow_py < (int)fb_h) {
+        fb[shadow_py * pitch_pixels + shadow_px] = shadow;
+      }
+    }
+  }
+
   for (int row = 0; row < FONT_HEIGHT; row++) {
     int py = y + row;
     if (py < 0 || py >= (int)fb_h)
@@ -191,8 +208,8 @@ static void panic_fb_draw_char(uint32_t *fb, uint32_t pitch_pixels, uint32_t fb_
       int px = x + col;
       if (px < 0 || px >= (int)fb_w)
         continue;
-      fb[py * pitch_pixels + px] =
-          (glyph[row] & (0x80 >> col)) ? fg : bg;
+      if (glyph[row] & (0x80 >> col))
+        fb[py * pitch_pixels + px] = fg;
     }
   }
 }
