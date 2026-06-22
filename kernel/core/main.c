@@ -191,12 +191,32 @@ static void panic_fb_draw_char(uint32_t *fb, uint32_t pitch_pixels, uint32_t fb_
       if (!(glyph[row] & (0x80 >> col)))
         continue;
 
+      
       int shadow_px = x + col + 1;
       int shadow_py = y + row + 1;
       if (shadow_px >= 0 && shadow_px < (int)fb_w &&
           shadow_py >= 0 && shadow_py < (int)fb_h) {
         fb[shadow_py * pitch_pixels + shadow_px] = shadow;
       }
+      shadow_px = x + col - 1;
+      shadow_py = y + row - 1;
+      if (shadow_px >= 0 && shadow_px < (int)fb_w &&
+          shadow_py >= 0 && shadow_py < (int)fb_h) {
+        fb[shadow_py * pitch_pixels + shadow_px] = shadow;
+      }
+      shadow_px = x + col + 1;
+      shadow_py = y + row - 1;
+      if (shadow_px >= 0 && shadow_px < (int)fb_w &&
+          shadow_py >= 0 && shadow_py < (int)fb_h) {
+        fb[shadow_py * pitch_pixels + shadow_px] = shadow;
+      }
+      shadow_px = x + col - 1;
+      shadow_py = y + row + 1;
+      if (shadow_px >= 0 && shadow_px < (int)fb_w &&
+          shadow_py >= 0 && shadow_py < (int)fb_h) {
+        fb[shadow_py * pitch_pixels + shadow_px] = shadow;
+      }
+      
     }
   }
 
@@ -373,8 +393,8 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
                      stop_code);
   }
 //0x111273
-  panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, 0, 0, (int)fb_w, (int)fb_h,
-                     0x111273);
+  //panic_fb_fill_rect(fb, pitch_pixels, fb_w, fb_h, 0, 0, (int)fb_w, (int)fb_h,
+  //                   0x111273);
 
   panel_x = 0;
   panel_y = 0;
@@ -411,21 +431,22 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
   panic_fb_draw_wrapped(fb, pitch_pixels, fb_w, fb_h, panel_x + 36, panel_y + 180,
                         (panel_w - 92) / FONT_WIDTH, cpu_info, 0xFFFFFF, 0x111273,
                         2);
-
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 220,
-                       "Debug Info", 0xFFFFFF, 0x111273);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 240,
-                       line0, 0xEAF3FF, 0x111273);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 240,
-                       line1, 0xEAF3FF, 0x111273);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 260,
-                       line2, 0xEAF3FF, 0x111273);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 260,
-                       line3, 0xEAF3FF, 0x111273);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 280,
-                       line4, 0xEAF3FF, 0x111273);
-  panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 280,
-                       line5, 0xEAF3FF, 0x111273);
+/*
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 220,
+ *                      "Debug Info", 0xFFFFFF, 0x111273);
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 240,
+ *                      line0, 0xEAF3FF, 0x111273);
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 240,
+ *                      line1, 0xEAF3FF, 0x111273);
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 260,
+ *                      line2, 0xEAF3FF, 0x111273);
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 260,
+ *                      line3, 0xEAF3FF, 0x111273);
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 280,
+ *                      line4, 0xEAF3FF, 0x111273);
+ * panic_fb_draw_string(fb, pitch_pixels, fb_w, fb_h, panel_x, panel_y + 280,
+ *                      line5, 0xEAF3FF, 0x111273);
+ */
 }
 
 /*
