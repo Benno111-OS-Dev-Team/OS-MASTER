@@ -306,6 +306,7 @@ for pattern in \
     "*.dtb" \
     "RPI_EFI.fd"; do
     for path in "${FIRMWARE_DIR}"/${pattern}; do
+        [ -e "${path}" ] || continue
         cp "${path}" "${STAGING_DIR}/"
     done
 done
