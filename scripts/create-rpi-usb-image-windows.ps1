@@ -114,18 +114,6 @@ if ($Distro -and ($distros -notcontains $Distro)) {
     throw "Requested WSL distro '$Distro' is not installed. Installed distros: $($distros -join ', ')"
 }
 
-if (-not $FirmwareDir) {
-    $FirmwareDir = Read-Host "Enter the Raspberry Pi firmware directory"
-}
-
-if (-not $FirmwareDir) {
-    throw "A firmware directory is required."
-}
-
-if (-not (Test-Path -LiteralPath $FirmwareDir)) {
-    throw "Firmware directory not found: $FirmwareDir"
-}
-
 if ($ImageSizeMb -lt 128) {
     throw "ImageSizeMb must be at least 128."
 }
@@ -133,7 +121,6 @@ if ($ImageSizeMb -lt 128) {
 Normalize-UnixScripts -Root $repoRoot
 
 $wslRepoRoot = Convert-ToWslPath -PathValue $repoRoot
-$wslFirmwareDir = Convert-ToWslPath -PathValue $FirmwareDir
 $wslPrefix = Get-WslPrefix -ChosenDistro $Distro
 
 Write-Host ""
@@ -142,8 +129,17 @@ Invoke-WslBash -Prefix $wslPrefix -Script "cd $(Quote-ForBash $wslRepoRoot) && m
 
 $scriptParts = @(
     "cd $(Quote-ForBash $wslRepoRoot)",
-    "bash ./scripts/create-rpi-usb-image.sh --firmware-dir $(Quote-ForBash $wslFirmwareDir) --image-size-mb $ImageSizeMb"
+    "bash ./scripts/create-rpi-usb-image.sh --image-size-mb $ImageSizeMb"
 )
+
+if ($FirmwareDir) {
+    if (-not (Test-Path -LiteralPath $FirmwareDir)) {
+        throw "Firmware directory not found: $FirmwareDir"
+    }
+
+    $wslFirmwareDir = Convert-ToWslPath -PathValue $FirmwareDir
+    $scriptParts[-1] += " --firmware-dir $(Quote-ForBash $wslFirmwareDir)"
+}
 
 if ($Device) {
     $scriptParts[-1] += " --device $(Quote-ForBash $Device)"
@@ -151,6 +147,11 @@ if ($Device) {
 
 Write-Host ""
 Write-Host "Creating Raspberry Pi USB image..." -ForegroundColor Cyan
+if ($FirmwareDir) {
+    Write-Host "Firmware source: $FirmwareDir" -ForegroundColor DarkGray
+} else {
+    Write-Host "Firmware source: auto-download latest pftf/RPi4 release" -ForegroundColor DarkGray
+}
 if ($Device) {
     Write-Host "Target device: $Device" -ForegroundColor DarkGray
 }

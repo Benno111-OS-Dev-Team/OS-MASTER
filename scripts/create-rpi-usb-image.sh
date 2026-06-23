@@ -4,11 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build/arm64"
 IMAGE_DIR="${ROOT_DIR}/image"
-FIRMWARE_DIR=""
+FIRMWARE_DIR="${ROOT_DIR}/build/boot-assets/rpi4-uefi"
 IMAGE_NAME="os8-rpi-usb.img"
 IMAGE_SIZE_MB=512
 USB_DEVICE=""
 KEEP_STAGING=0
+AUTO_DOWNLOAD_FIRMWARE=1
+FIRMWARE_RELEASE_API="https://api.github.com/repos/pftf/RPi4/releases/latest"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -25,17 +27,17 @@ warn() {
 usage() {
     cat <<EOF
 Usage:
-  $(basename "$0") --firmware-dir <dir> [options]
+  $(basename "$0") [options]
 
 Build a Raspberry Pi USB boot image for OS8 using Raspberry Pi UEFI firmware.
-
-Required:
-  --firmware-dir <dir>   Directory containing Raspberry Pi boot firmware files
-                         and RPI_EFI.fd. This script expects a Pi UEFI layout.
 
 Optional:
   --build-dir <dir>      ARM64 build output directory
                          Default: ${BUILD_DIR}
+  --firmware-dir <dir>   Directory containing Raspberry Pi boot firmware files
+                         and RPI_EFI.fd
+                         Default: ${FIRMWARE_DIR}
+  --no-download-firmware Do not auto-download firmware if the cache is missing
   --image-dir <dir>      Output directory for the generated image
                          Default: ${IMAGE_DIR}
   --image-name <name>    Output image filename
@@ -48,13 +50,16 @@ Optional:
   --help                 Show this help
 
 Examples:
+  $(basename "$0")
+  $(basename "$0") --device /dev/sdX
   $(basename "$0") --firmware-dir ~/rpi-uefi
-  $(basename "$0") --firmware-dir ~/rpi-uefi --device /dev/sdX
 
 Notes:
   - This targets Raspberry Pi 4/400/CM4-style UEFI boot flows.
   - The ARM64 kernel must already exist at build/arm64/kernel/os-arm64.elf.
   - If --device is provided, the script will overwrite it with dd.
+  - By default, firmware is downloaded from the pftf/RPi4 GitHub releases API
+    into a repo-local cache if it is not already present.
 EOF
 }
 
@@ -65,11 +70,115 @@ require_cmd() {
     fi
 }
 
+extract_zip() {
+    local archive="$1"
+    local dest="$2"
+
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -q "$archive" -d "$dest"
+        return
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$archive" "$dest" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+archive = pathlib.Path(sys.argv[1])
+dest = pathlib.Path(sys.argv[2])
+with zipfile.ZipFile(archive) as zf:
+    zf.extractall(dest)
+PY
+        return
+    fi
+
+    echo "[ERROR] Need either unzip or python3 to extract firmware archive" >&2
+    exit 1
+}
+
+download_firmware_if_needed() {
+    if [ -f "${FIRMWARE_DIR}/RPI_EFI.fd" ] &&
+       compgen -G "${FIRMWARE_DIR}/start*.elf" >/dev/null &&
+       compgen -G "${FIRMWARE_DIR}/fixup*.dat" >/dev/null; then
+        log "Using cached Raspberry Pi firmware in ${FIRMWARE_DIR}"
+        return
+    fi
+
+    if [ "${AUTO_DOWNLOAD_FIRMWARE}" -ne 1 ]; then
+        echo "[ERROR] Firmware cache missing and auto-download is disabled" >&2
+        exit 1
+    fi
+
+    require_cmd curl
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    else
+        echo "[ERROR] Need python3 or python to parse GitHub release metadata" >&2
+        exit 1
+    fi
+
+    local tmp_dir json_path archive_url archive_name archive_path extract_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "${tmp_dir}"' RETURN
+    json_path="${tmp_dir}/release.json"
+
+    log "Downloading latest Raspberry Pi UEFI firmware metadata"
+    curl -fsSL "${FIRMWARE_RELEASE_API}" -o "${json_path}"
+
+    archive_url="$("${PYTHON_BIN}" - "${json_path}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+for asset in data.get("assets", []):
+    name = asset.get("name", "")
+    if name.lower().endswith(".zip"):
+        print(asset.get("browser_download_url", ""))
+        break
+PY
+)"
+
+    if [ -z "${archive_url}" ]; then
+        echo "[ERROR] Could not find a firmware zip asset in latest pftf/RPi4 release" >&2
+        exit 1
+    fi
+
+    archive_name="$(basename "${archive_url}")"
+    archive_path="${tmp_dir}/${archive_name}"
+    extract_dir="${tmp_dir}/extract"
+
+    log "Downloading Raspberry Pi UEFI firmware archive ${archive_name}"
+    curl -fL --retry 3 --retry-delay 2 "${archive_url}" -o "${archive_path}"
+
+    mkdir -p "${extract_dir}"
+    extract_zip "${archive_path}" "${extract_dir}"
+
+    rm -rf "${FIRMWARE_DIR}"
+    mkdir -p "${FIRMWARE_DIR}"
+    cp -R "${extract_dir}"/. "${FIRMWARE_DIR}/"
+
+    if [ ! -f "${FIRMWARE_DIR}/RPI_EFI.fd" ]; then
+        echo "[ERROR] Downloaded firmware archive did not contain RPI_EFI.fd" >&2
+        exit 1
+    fi
+
+    log "Cached Raspberry Pi firmware in ${FIRMWARE_DIR}"
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --firmware-dir)
             FIRMWARE_DIR="${2:?missing value for --firmware-dir}"
             shift 2
+            ;;
+        --no-download-firmware)
+            AUTO_DOWNLOAD_FIRMWARE=0
+            shift
             ;;
         --build-dir)
             BUILD_DIR="${2:?missing value for --build-dir}"
@@ -106,12 +215,6 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
-
-if [ -z "${FIRMWARE_DIR}" ]; then
-    echo "[ERROR] --firmware-dir is required" >&2
-    usage
-    exit 1
-fi
 
 case "${IMAGE_SIZE_MB}" in
     ''|*[!0-9]*)
@@ -161,9 +264,10 @@ if [ ! -f "${KERNEL_ELF}" ]; then
 fi
 
 if [ ! -d "${FIRMWARE_DIR}" ]; then
-    echo "[ERROR] Firmware directory not found: ${FIRMWARE_DIR}" >&2
-    exit 1
+    mkdir -p "${FIRMWARE_DIR}"
 fi
+
+download_firmware_if_needed
 
 if [ ! -f "${FIRMWARE_DIR}/RPI_EFI.fd" ]; then
     echo "[ERROR] ${FIRMWARE_DIR}/RPI_EFI.fd is missing" >&2
