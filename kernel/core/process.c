@@ -363,7 +363,8 @@ uint32_t get_current_stack_top(void) {
 // Parameters passed in callee-saved registers x19-x22 (preserved across context
 // switch) x19 = entry, x20 = kapi, x21 = argc, x22 = argv
 static void __attribute__((naked)) process_entry_wrapper(void) {
-  asm volatile("mov x0, x20\n"     // x0 = kapi
+  asm volatile("msr daifclr, #2\n" // Re-enable IRQs for the new process
+               "mov x0, x20\n"     // x0 = kapi
                "mov x1, x21\n"     // x1 = argc
                "mov x2, x22\n"     // x2 = argv
                "blr x19\n"         // Call entry(kapi, argc, argv)
