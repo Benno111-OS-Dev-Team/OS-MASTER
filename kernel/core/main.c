@@ -1679,7 +1679,11 @@ static void start_init_process(void) {
   int last_buttons = 0;
   uint64_t last_kernel_slice_ms = arch_timer_get_ms();
   uint64_t last_usb_scan_ms = last_kernel_slice_ms;
-  const uint64_t KERNEL_SLICE_MS = 8; /* Kernel grants background runtime */
+  /*
+   * Keep background slices aligned with the desktop frame cadence so
+   * cursor movement and drawing stay smooth under load.
+   */
+  const uint64_t KERNEL_SLICE_MS = 16;
   const uint64_t USB_SCAN_MS = 250;
   gui_frame_profile_t frame_profile = {0};
 

@@ -37,8 +37,10 @@ static process_t proc_table[MAX_PROCESSES];
 static int current_pid = -1; // -1 means kernel/shell is running
 static int next_pid = 1;
 
-// 100Hz timer paths preempt every 20 ticks (about 200ms).
-#define PROCESS_TIME_SLICE_TICKS 20
+// 100Hz timer paths preempt every 2 ticks (about 20ms).
+// Keeping the quantum near a frame budget helps interactive drawing
+// and pointer motion stay responsive while background work still runs.
+#define PROCESS_TIME_SLICE_TICKS 2
 static unsigned int preempt_ticks = 0;
 
 // Spinlock protecting process table access
