@@ -1,0 +1,39 @@
+# OS-generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor and temp files
+*.swp
+*.swo
+*.tmp
+*.bak
+*~
+.idea/
+.vscode/
+.vs/
+*.code-workspace
+compile_commands.json
+
+# Local diagnostics and helper script output
+$DIAG_DIR/
+$LF_SCRIPT_DIR/
+.agents/
+diagnostics/
+
+# Local toolchain configuration
+toolchain.env
+toolchain.mk
+os-x86_64/
+
+# Build and packaging output
+build/
+image/*.iso
+image/*.iso.xz
+image/*.img
+image/*.log
+
+# Common generated binaries and dependency files
+*.d
+*.elf
+*.o

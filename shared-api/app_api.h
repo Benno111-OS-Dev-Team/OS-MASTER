@@ -258,6 +258,21 @@ typedef struct kapi {
     int (*partition_delete)(int disk_index, int partition_index);
     int (*partition_format)(int disk_index, int partition_index,
                             uint32_t filesystem);
+
+    /* Installer control */
+    int (*installer_mode)(void);
+    int (*installer_disk_label)(int slot, char *buf, size_t size);
+    int (*installer_select_disk)(int slot);
+    int (*installer_select_disk_index)(int disk_index);
+    int (*installer_reboot)(void);
+    int (*installer_target_root)(char *buf, size_t size);
+    int (*installer_target_physical_root)(char *buf, size_t size);
+    int (*installer_system_image_root)(char *buf, size_t size);
+    int (*installer_boot_payload_root)(char *buf, size_t size);
+    int (*installer_payload_is_archive)(const char *path);
+    int (*installer_has_raw_disk_image)(void);
+    int (*installer_apply_system_payload)(void);
+    int (*installer_apply_raw_disk_image)(void);
 } kapi_t;
 
 typedef int (*app_main_fn)(kapi_t *api, int argc, char **argv);
