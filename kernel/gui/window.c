@@ -2543,6 +2543,10 @@ static struct gui_clip_state gui_set_clip_rect(int x, int y, int w, int h) {
 
 static void gui_restore_clip_rect(struct gui_clip_state prev) { g_clip = prev; }
 
+static int gui_target_visible_rect(int src_x, int src_y, int src_w, int src_h,
+                                   int *clip_x, int *clip_y, int *clip_w,
+                                   int *clip_h);
+
 static struct gui_render_target
 gui_set_render_target(uint32_t *pixels, int width, int height, int pitch_pixels,
                       int origin_x, int origin_y) {
@@ -2645,8 +2649,16 @@ static inline void draw_image_pixel(int x, int y, uint32_t color) {
 }
 
 static void gui_fill_rect_alpha(int x, int y, int w, int h, uint32_t color) {
-  for (int row = y; row < y + h; row++) {
-    for (int col = x; col < x + w; col++) {
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+
+  if (!gui_target_visible_rect(x, y, w, h, &clip_x, &clip_y, &clip_w, &clip_h))
+    return;
+
+  for (int row = clip_y; row < clip_y + clip_h; row++) {
+    for (int col = clip_x; col < clip_x + clip_w; col++) {
       draw_pixel_alpha(col, row, color);
     }
   }
@@ -2811,9 +2823,26 @@ static void gui_draw_system_button(int x, int y, int w, int h,
 }
 
 void gui_draw_rect(int x, int y, int w, int h, uint32_t color) {
-  for (int row = y; row < y + h; row++) {
-    for (int col = x; col < x + w; col++) {
-      draw_pixel(col, row, color);
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+  int dst_x;
+  int dst_y;
+  uint32_t *target = gui_draw_target();
+
+  if (!gui_target_visible_rect(x, y, w, h, &clip_x, &clip_y, &clip_w, &clip_h))
+    return;
+  if (!target)
+    return;
+
+  dst_x = clip_x - g_render_target.origin_x;
+  dst_y = clip_y - g_render_target.origin_y;
+  for (int row = 0; row < clip_h; row++) {
+    uint32_t *dst =
+        target + (dst_y + row) * g_render_target.pitch_pixels + dst_x;
+    for (int col = 0; col < clip_w; col++) {
+      dst[col] = color;
     }
   }
 }
