@@ -155,6 +155,7 @@ int gui_is_gpu_rendering_enabled(void);
 void gui_start_partial_redraw_clear_debug(void);
 int gui_partial_redraw_clear_debug_enabled(void);
 static void compositor_mark_screen_rect_dirty(void);
+static inline void fast_memcpy_line(uint32_t *dst, uint32_t *src, int width);
 
 /* Blur/compositor state is defined later but used by early draw helpers. */
 static int g_blur_effects_requested;
@@ -2253,6 +2254,17 @@ struct display {
 
 static struct display primary_display = {0};
 
+struct gui_render_target {
+  uint32_t *pixels;
+  int width;
+  int height;
+  int pitch_pixels;
+  int origin_x;
+  int origin_y;
+};
+
+static struct gui_render_target g_render_target = {0};
+
 static uint64_t ui_bytes_to_mib(size_t bytes) {
   return ((uint64_t)bytes) / (1024 * 1024);
 }
@@ -2505,50 +2517,90 @@ static struct gui_clip_state g_clip = {0, 0, 0, 0, 0};
 
 static struct gui_clip_state gui_set_clip_rect(int x, int y, int w, int h) {
   struct gui_clip_state prev = g_clip;
+  int x1 = x + w;
+  int y1 = y + h;
 
   g_clip.enabled = 1;
   g_clip.x0 = x;
   g_clip.y0 = y;
-  g_clip.x1 = x + w;
-  g_clip.y1 = y + h;
+  g_clip.x1 = x1;
+  g_clip.y1 = y1;
+
+  if (prev.enabled) {
+    if (g_clip.x0 < prev.x0)
+      g_clip.x0 = prev.x0;
+    if (g_clip.y0 < prev.y0)
+      g_clip.y0 = prev.y0;
+    if (g_clip.x1 > prev.x1)
+      g_clip.x1 = prev.x1;
+    if (g_clip.y1 > prev.y1)
+      g_clip.y1 = prev.y1;
+  }
 
   return prev;
 }
 
 static void gui_restore_clip_rect(struct gui_clip_state prev) { g_clip = prev; }
 
+static struct gui_render_target
+gui_set_render_target(uint32_t *pixels, int width, int height, int pitch_pixels,
+                      int origin_x, int origin_y) {
+  struct gui_render_target prev = g_render_target;
+
+  g_render_target.pixels = pixels;
+  g_render_target.width = width;
+  g_render_target.height = height;
+  g_render_target.pitch_pixels = pitch_pixels;
+  g_render_target.origin_x = origin_x;
+  g_render_target.origin_y = origin_y;
+  return prev;
+}
+
+static void gui_use_display_render_target(void) {
+  uint32_t *pixels = primary_display.backbuffer ? primary_display.backbuffer
+                                                : primary_display.framebuffer;
+  (void)gui_set_render_target(pixels, (int)primary_display.width,
+                              (int)primary_display.height,
+                              (int)(primary_display.pitch / 4), 0, 0);
+}
+
 /* ===================================================================== */
 /* Basic Drawing Functions */
 /* ===================================================================== */
 
 static inline void draw_pixel(int x, int y, uint32_t color) {
-  if (x < 0 || x >= (int)primary_display.width)
-    return;
-  if (y < 0 || y >= (int)primary_display.height)
-    return;
   if (g_clip.enabled &&
       (x < g_clip.x0 || x >= g_clip.x1 || y < g_clip.y0 || y >= g_clip.y1))
     return;
 
-  uint32_t *target = primary_display.backbuffer ? primary_display.backbuffer
-                                                : primary_display.framebuffer;
-  if (target) {
-    target[y * (primary_display.pitch / 4) + x] = color;
-  }
+  if (!g_render_target.pixels)
+    return;
+
+  x -= g_render_target.origin_x;
+  y -= g_render_target.origin_y;
+
+  if (x < 0 || x >= g_render_target.width)
+    return;
+  if (y < 0 || y >= g_render_target.height)
+    return;
+
+  g_render_target.pixels[y * g_render_target.pitch_pixels + x] = color;
 }
 
 static inline void draw_pixel_alpha(int x, int y, uint32_t color) {
-  if (x < 0 || x >= (int)primary_display.width)
-    return;
-  if (y < 0 || y >= (int)primary_display.height)
-    return;
   if (g_clip.enabled &&
       (x < g_clip.x0 || x >= g_clip.x1 || y < g_clip.y0 || y >= g_clip.y1))
     return;
 
-  uint32_t *target = primary_display.backbuffer ? primary_display.backbuffer
-                                                : primary_display.framebuffer;
-  if (!target)
+  if (!g_render_target.pixels)
+    return;
+
+  x -= g_render_target.origin_x;
+  y -= g_render_target.origin_y;
+
+  if (x < 0 || x >= g_render_target.width)
+    return;
+  if (y < 0 || y >= g_render_target.height)
     return;
 
   uint32_t alpha = (color >> 24) & 0xFF;
@@ -2556,11 +2608,12 @@ static inline void draw_pixel_alpha(int x, int y, uint32_t color) {
     return;
   }
   if (alpha == 0xFF) {
-    target[y * (primary_display.pitch / 4) + x] = color & 0xFFFFFF;
+    g_render_target.pixels[y * g_render_target.pitch_pixels + x] =
+        color & 0xFFFFFF;
     return;
   }
 
-  uint32_t *dst = &target[y * (primary_display.pitch / 4) + x];
+  uint32_t *dst = &g_render_target.pixels[y * g_render_target.pitch_pixels + x];
   uint32_t dst_color = *dst;
   uint32_t src_r = (color >> 16) & 0xFF;
   uint32_t src_g = (color >> 8) & 0xFF;
@@ -2576,8 +2629,7 @@ static inline void draw_pixel_alpha(int x, int y, uint32_t color) {
 }
 
 static inline uint32_t *gui_draw_target(void) {
-  return primary_display.backbuffer ? primary_display.backbuffer
-                                    : primary_display.framebuffer;
+  return g_render_target.pixels;
 }
 
 static inline void draw_image_pixel(int x, int y, uint32_t color) {
@@ -2604,14 +2656,16 @@ static void gui_apply_backdrop_blur(int x, int y, int w, int h, int stride) {
   if (!target || w <= 0 || h <= 0)
     return;
 
-  int pitch = (int)(primary_display.pitch / 4);
+  int pitch = g_render_target.pitch_pixels;
   if (stride < 1)
     stride = 1;
 
   for (int row = y; row < y + h; row += stride) {
     for (int col = x; col < x + w; col += stride) {
-      if (col < 0 || col >= (int)primary_display.width || row < 0 ||
-          row >= (int)primary_display.height)
+      int local_col = col - g_render_target.origin_x;
+      int local_row = row - g_render_target.origin_y;
+      if (local_col < 0 || local_col >= g_render_target.width || local_row < 0 ||
+          local_row >= g_render_target.height)
         continue;
 
       uint32_t sum_r = 0, sum_g = 0, sum_b = 0, count = 0;
@@ -2619,10 +2673,12 @@ static void gui_apply_backdrop_blur(int x, int y, int w, int h, int stride) {
         for (int sx = -2; sx <= 2; sx += 2) {
           int sample_x = col + sx;
           int sample_y = row + sy;
-          if (sample_x < 0 || sample_x >= (int)primary_display.width ||
-              sample_y < 0 || sample_y >= (int)primary_display.height)
+          int local_sample_x = sample_x - g_render_target.origin_x;
+          int local_sample_y = sample_y - g_render_target.origin_y;
+          if (local_sample_x < 0 || local_sample_x >= g_render_target.width ||
+              local_sample_y < 0 || local_sample_y >= g_render_target.height)
             continue;
-          uint32_t px = target[sample_y * pitch + sample_x];
+          uint32_t px = target[local_sample_y * pitch + local_sample_x];
           sum_r += (px >> 16) & 0xFF;
           sum_g += (px >> 8) & 0xFF;
           sum_b += px & 0xFF;
@@ -2639,10 +2695,10 @@ static void gui_apply_backdrop_blur(int x, int y, int w, int h, int stride) {
 
       for (int fy = 0; fy < stride && row + fy < y + h; fy++) {
         for (int fx = 0; fx < stride && col + fx < x + w; fx++) {
-          int out_x = col + fx;
-          int out_y = row + fy;
-          if (out_x < 0 || out_x >= (int)primary_display.width || out_y < 0 ||
-              out_y >= (int)primary_display.height)
+          int out_x = local_col + fx;
+          int out_y = local_row + fy;
+          if (out_x < 0 || out_x >= g_render_target.width || out_y < 0 ||
+              out_y >= g_render_target.height)
             continue;
           target[out_y * pitch + out_x] = blurred;
         }
@@ -3303,6 +3359,14 @@ struct window {
   bool has_titlebar;
   bool resizable;
   uint32_t *content_buffer;
+  int surface_width;
+  int surface_height;
+  int surface_valid;
+  int surface_dirty;
+  int surface_dirty_x;
+  int surface_dirty_y;
+  int surface_dirty_w;
+  int surface_dirty_h;
   void *userdata;
   window_animation_t animation;
   int anim_frame;
@@ -3389,6 +3453,126 @@ static void window_get_draw_rect(const struct window *win, int *x, int *y, int *
 
 static void gui_destroy_window_immediate(struct window *win);
 
+static void window_mark_surface_dirty(struct window *win, int x, int y, int w,
+                                      int h) {
+  int x2;
+  int y2;
+  int dirty_x2;
+  int dirty_y2;
+
+  if (!win || win->id == 0)
+    return;
+  if (w <= 0 || h <= 0)
+    return;
+  if (x < 0) {
+    w += x;
+    x = 0;
+  }
+  if (y < 0) {
+    h += y;
+    y = 0;
+  }
+  if (x >= win->width || y >= win->height)
+    return;
+  if (x + w > win->width)
+    w = win->width - x;
+  if (y + h > win->height)
+    h = win->height - y;
+  if (w <= 0 || h <= 0)
+    return;
+
+  if (!win->surface_dirty) {
+    win->surface_dirty = 1;
+    win->surface_dirty_x = x;
+    win->surface_dirty_y = y;
+    win->surface_dirty_w = w;
+    win->surface_dirty_h = h;
+    return;
+  }
+
+  x2 = x + w;
+  y2 = y + h;
+  dirty_x2 = win->surface_dirty_x + win->surface_dirty_w;
+  dirty_y2 = win->surface_dirty_y + win->surface_dirty_h;
+
+  if (x < win->surface_dirty_x)
+    win->surface_dirty_x = x;
+  if (y < win->surface_dirty_y)
+    win->surface_dirty_y = y;
+  if (x2 > dirty_x2)
+    dirty_x2 = x2;
+  if (y2 > dirty_y2)
+    dirty_y2 = y2;
+
+  win->surface_dirty_w = dirty_x2 - win->surface_dirty_x;
+  win->surface_dirty_h = dirty_y2 - win->surface_dirty_y;
+}
+
+static void window_mark_surface_dirty_full(struct window *win) {
+  if (!win || win->id == 0)
+    return;
+  win->surface_valid = 0;
+  window_mark_surface_dirty(win, 0, 0, win->width, win->height);
+}
+
+static int window_ensure_surface_storage(struct window *win) {
+  uint32_t *new_surface;
+  size_t pixel_count;
+
+  if (!win || win->id == 0)
+    return -1;
+  if (win->width <= 0 || win->height <= 0)
+    return -1;
+  if (win->content_buffer && win->surface_width == win->width &&
+      win->surface_height == win->height)
+    return 0;
+
+  pixel_count = (size_t)win->width * (size_t)win->height;
+  new_surface = kmalloc(pixel_count * sizeof(uint32_t));
+  if (!new_surface)
+    return -ENOMEM;
+
+  if (win->content_buffer)
+    kfree(win->content_buffer);
+
+  win->content_buffer = new_surface;
+  win->surface_width = win->width;
+  win->surface_height = win->height;
+  win->surface_valid = 0;
+  win->surface_dirty = 0;
+  window_mark_surface_dirty_full(win);
+  return 0;
+}
+
+static void gui_mark_windows_dirty_for_rect(int x, int y, int w, int h) {
+  int rx2 = x + w;
+  int ry2 = y + h;
+
+  for (struct window *win = window_stack; win; win = win->next) {
+    int wx2;
+    int wy2;
+    int ix;
+    int iy;
+    int ix2;
+    int iy2;
+
+    if (!win->visible || win->id == 0)
+      continue;
+
+    wx2 = win->x + win->width;
+    wy2 = win->y + win->height;
+    ix = x > win->x ? x : win->x;
+    iy = y > win->y ? y : win->y;
+    ix2 = rx2 < wx2 ? rx2 : wx2;
+    iy2 = ry2 < wy2 ? ry2 : wy2;
+    if (ix2 <= ix || iy2 <= iy)
+      continue;
+
+    window_mark_surface_dirty(win, ix - win->x, iy - win->y, ix2 - ix,
+                              iy2 - iy);
+  }
+}
+
 static void gui_invalidate_window(struct window *win) {
   int dirty_x;
   int dirty_y;
@@ -3398,6 +3582,7 @@ static void gui_invalidate_window(struct window *win) {
   if (!win || win->id == 0 || !win->visible)
     return;
 
+  window_mark_surface_dirty_full(win);
   window_get_draw_rect(win, &dirty_x, &dirty_y, &dirty_w, &dirty_h);
   compositor_mark_dirty(dirty_x, dirty_y, dirty_w, dirty_h);
 }
@@ -3535,6 +3720,7 @@ static int gui_apply_resolution(uint32_t width, uint32_t height) {
   primary_display.pitch = new_pitch;
   primary_display.backbuffer = new_backbuffer;
   g_saved_backbuffer = new_backbuffer;
+  gui_use_display_render_target();
 
   if (old_backbuffer)
     kfree(old_backbuffer);
@@ -3546,6 +3732,10 @@ static int gui_apply_resolution(uint32_t width, uint32_t height) {
   mouse_x = (int)new_width / 2;
   mouse_y = (int)new_height / 2;
   gui_clamp_windows_to_display();
+  for (int i = 0; i < MAX_WINDOWS; i++) {
+    if (windows[i].id != 0)
+      window_mark_surface_dirty_full(&windows[i]);
+  }
   gui_save_resolution_preference(new_width, new_height);
   new_idx = settings_find_resolution_index(new_width, new_height);
   settings_resolution_current_idx = new_idx;
@@ -3836,6 +4026,15 @@ struct window *gui_create_window(const char *title, int x, int y, int w,
   win->animation = WINDOW_ANIM_OPEN;
   win->anim_frame = 0;
   win->anim_total_frames = 8;
+  win->content_buffer = NULL;
+  win->surface_width = 0;
+  win->surface_height = 0;
+  win->surface_valid = 0;
+  win->surface_dirty = 0;
+  win->surface_dirty_x = 0;
+  win->surface_dirty_y = 0;
+  win->surface_dirty_w = 0;
+  win->surface_dirty_h = 0;
 
   /* Reset all callbacks and userdata - critical to prevent stale pointers */
   win->on_draw = NULL;
@@ -3849,10 +4048,7 @@ struct window *gui_create_window(const char *title, int x, int y, int w,
     background_settings_window_count++;
   }
 
-  /* Allocate content buffer */
-  int content_h = h - TITLEBAR_HEIGHT - BORDER_WIDTH * 2;
-  int content_w = w - BORDER_WIDTH * 2;
-  win->content_buffer = kmalloc(content_w * content_h * 4);
+  window_ensure_surface_storage(win);
 
   /* Add to stack */
   win->next = window_stack;
@@ -3907,6 +4103,14 @@ static void gui_destroy_window_immediate(struct window *win) {
     kfree(win->content_buffer);
     win->content_buffer = NULL;
   }
+  win->surface_width = 0;
+  win->surface_height = 0;
+  win->surface_valid = 0;
+  win->surface_dirty = 0;
+  win->surface_dirty_x = 0;
+  win->surface_dirty_y = 0;
+  win->surface_dirty_w = 0;
+  win->surface_dirty_h = 0;
 
   if (focused_window == win)
     gui_clear_focus();
@@ -3938,12 +4142,14 @@ void gui_focus_window(struct window *win) {
     return;
 
   if (focused_window) {
+    window_mark_surface_dirty_full(focused_window);
     window_get_draw_rect(focused_window, &dirty_x, &dirty_y, &dirty_w,
                          &dirty_h);
     compositor_mark_dirty(dirty_x, dirty_y, dirty_w, dirty_h);
     focused_window->focused = false;
   }
 
+  window_mark_surface_dirty_full(win);
   window_get_draw_rect(win, &dirty_x, &dirty_y, &dirty_w, &dirty_h);
   compositor_mark_dirty(dirty_x, dirty_y, dirty_w, dirty_h);
 
@@ -3962,6 +4168,7 @@ void gui_focus_window(struct window *win) {
 
   win->focused = true;
   focused_window = win;
+  window_mark_surface_dirty_full(win);
   window_get_draw_rect(win, &dirty_x, &dirty_y, &dirty_w, &dirty_h);
   compositor_mark_dirty(dirty_x, dirty_y, dirty_w, dirty_h);
 
@@ -12019,7 +12226,7 @@ static void gui_play_mp3_file(const char *path) {
   media_free_audio(&audio);
 }
 
-static void draw_window(struct window *win) {
+static void draw_window_internal(struct window *win) {
   // ... rest of function ...
   if (!win->visible)
     return;
@@ -14234,6 +14441,172 @@ static void draw_window(struct window *win) {
   }
 
   gui_restore_clip_rect(prev_clip);
+}
+
+static void draw_window_surface(struct window *win, int draw_x, int draw_y,
+                                int draw_w, int draw_h) {
+  int clip_x0 = draw_x;
+  int clip_y0 = draw_y;
+  int clip_x1 = draw_x + draw_w;
+  int clip_y1 = draw_y + draw_h;
+  int src_x0;
+  int src_y0;
+  int src_x1;
+  int src_y1;
+  int copy_w;
+  int copy_h;
+  uint32_t *target;
+
+  if (!win || !win->content_buffer || draw_w <= 0 || draw_h <= 0)
+    return;
+
+  if (g_clip.enabled) {
+    if (clip_x0 < g_clip.x0)
+      clip_x0 = g_clip.x0;
+    if (clip_y0 < g_clip.y0)
+      clip_y0 = g_clip.y0;
+    if (clip_x1 > g_clip.x1)
+      clip_x1 = g_clip.x1;
+    if (clip_y1 > g_clip.y1)
+      clip_y1 = g_clip.y1;
+  }
+
+  if (clip_x0 >= clip_x1 || clip_y0 >= clip_y1)
+    return;
+
+  target = gui_draw_target();
+  if (!target)
+    return;
+
+  src_x0 = clip_x0 - draw_x;
+  src_y0 = clip_y0 - draw_y;
+  src_x1 = clip_x1 - draw_x;
+  src_y1 = clip_y1 - draw_y;
+  if (src_x0 < 0)
+    src_x0 = 0;
+  if (src_y0 < 0)
+    src_y0 = 0;
+  if (src_x1 > draw_w)
+    src_x1 = draw_w;
+  if (src_y1 > draw_h)
+    src_y1 = draw_h;
+
+  copy_w = src_x1 - src_x0;
+  copy_h = src_y1 - src_y0;
+  if (copy_w <= 0 || copy_h <= 0)
+    return;
+
+  if (draw_w == win->surface_width && draw_h == win->surface_height) {
+    int dst_x = clip_x0 - g_render_target.origin_x;
+    int dst_y = clip_y0 - g_render_target.origin_y;
+    int dst_pitch = g_render_target.pitch_pixels;
+    int src_pitch = win->surface_width;
+
+    for (int row = 0; row < copy_h; row++) {
+      uint32_t *src =
+          win->content_buffer + (src_y0 + row) * src_pitch + src_x0;
+      uint32_t *dst = target + (dst_y + row) * dst_pitch + dst_x;
+      fast_memcpy_line(dst, src, copy_w);
+    }
+    return;
+  }
+
+  for (int y = clip_y0; y < clip_y1; y++) {
+    int local_y = y - draw_y;
+    int src_y = (local_y * win->surface_height) / draw_h;
+    int dst_y = y - g_render_target.origin_y;
+
+    if (src_y < 0)
+      src_y = 0;
+    if (src_y >= win->surface_height)
+      src_y = win->surface_height - 1;
+
+    for (int x = clip_x0; x < clip_x1; x++) {
+      int local_x = x - draw_x;
+      int src_x = (local_x * win->surface_width) / draw_w;
+      int dst_x = x - g_render_target.origin_x;
+
+      if (src_x < 0)
+        src_x = 0;
+      if (src_x >= win->surface_width)
+        src_x = win->surface_width - 1;
+
+      target[dst_y * g_render_target.pitch_pixels + dst_x] =
+          win->content_buffer[src_y * win->surface_width + src_x];
+    }
+  }
+}
+
+static void ensure_window_surface_current(struct window *win) {
+  struct gui_render_target prev_target;
+  struct gui_clip_state prev_clip;
+  int dirty_x;
+  int dirty_y;
+  int dirty_w;
+  int dirty_h;
+  window_animation_t saved_animation;
+  int saved_anim_frame;
+  int saved_anim_total_frames;
+
+  if (!win || win->id == 0)
+    return;
+  if (window_ensure_surface_storage(win) != 0 || !win->content_buffer)
+    return;
+
+  if (!win->surface_valid)
+    window_mark_surface_dirty_full(win);
+  if (!win->surface_dirty)
+    return;
+
+  dirty_x = win->surface_dirty_x;
+  dirty_y = win->surface_dirty_y;
+  dirty_w = win->surface_dirty_w;
+  dirty_h = win->surface_dirty_h;
+
+  prev_target =
+      gui_set_render_target(win->content_buffer, win->surface_width,
+                            win->surface_height, win->surface_width, win->x,
+                            win->y);
+  prev_clip =
+      gui_set_clip_rect(win->x + dirty_x, win->y + dirty_y, dirty_w, dirty_h);
+  saved_animation = win->animation;
+  saved_anim_frame = win->anim_frame;
+  saved_anim_total_frames = win->anim_total_frames;
+  win->animation = WINDOW_ANIM_NONE;
+  win->anim_frame = 0;
+  win->anim_total_frames = 0;
+  draw_window_internal(win);
+  win->animation = saved_animation;
+  win->anim_frame = saved_anim_frame;
+  win->anim_total_frames = saved_anim_total_frames;
+  gui_restore_clip_rect(prev_clip);
+  g_render_target = prev_target;
+
+  win->surface_valid = 1;
+  win->surface_dirty = 0;
+  win->surface_dirty_x = 0;
+  win->surface_dirty_y = 0;
+  win->surface_dirty_w = 0;
+  win->surface_dirty_h = 0;
+}
+
+static void draw_window(struct window *win) {
+  int draw_x;
+  int draw_y;
+  int draw_w;
+  int draw_h;
+
+  if (!win || !win->visible)
+    return;
+
+  ensure_window_surface_current(win);
+  if (!win->content_buffer || !win->surface_valid) {
+    draw_window_internal(win);
+    return;
+  }
+
+  window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
+  draw_window_surface(win, draw_x, draw_y, draw_w, draw_h);
 }
 
 /* ===================================================================== */
@@ -16590,6 +16963,7 @@ void compositor_mark_full_redraw(void) {
 }
 
 void gui_invalidate_rect(int x, int y, int w, int h) {
+  gui_mark_windows_dirty_for_rect(x, y, w, h);
   compositor_mark_dirty(x, y, w, h);
 }
 
@@ -16663,6 +17037,7 @@ void gui_configure_gpu_rendering(int enabled) {
     g_gpu_rendering_enabled = 0;
     printk(KERN_INFO "GUI: Software backbuffer rendering enabled\n");
   }
+  gui_use_display_render_target();
   gui_refresh_blur_effects_policy();
   compositor_mark_full_redraw();
 }
@@ -17016,6 +17391,7 @@ void gui_compose(void) {
   if (!g_full_redraw && g_dirty_count == 0)
     return;
 
+  gui_use_display_render_target();
   if (g_full_redraw) {
     gui_draw_scene_layers();
   } else if (compositor_build_dirty_bounds(&draw_x, &draw_y, &draw_w,
@@ -19066,6 +19442,7 @@ int gui_init(uint32_t *framebuffer, uint32_t width, uint32_t height,
   } else {
     g_saved_backbuffer = primary_display.backbuffer;
   }
+  gui_use_display_render_target();
   gui_desktop_frame_profiler_reset();
 
   /* Clear windows */
