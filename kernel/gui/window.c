@@ -2592,6 +2592,21 @@ static inline void draw_pixel(int x, int y, uint32_t color) {
   g_render_target.pixels[y * g_render_target.pitch_pixels + x] = color;
 }
 
+static inline uint32_t gui_blend_rgb_over(uint32_t dst_color, uint32_t src_color,
+                                          uint32_t alpha) {
+  uint32_t src_r = (src_color >> 16) & 0xFF;
+  uint32_t src_g = (src_color >> 8) & 0xFF;
+  uint32_t src_b = src_color & 0xFF;
+  uint32_t dst_r = (dst_color >> 16) & 0xFF;
+  uint32_t dst_g = (dst_color >> 8) & 0xFF;
+  uint32_t dst_b = dst_color & 0xFF;
+  uint32_t inv_alpha = 255 - alpha;
+  uint32_t out_r = (src_r * alpha + dst_r * inv_alpha) / 255;
+  uint32_t out_g = (src_g * alpha + dst_g * inv_alpha) / 255;
+  uint32_t out_b = (src_b * alpha + dst_b * inv_alpha) / 255;
+  return (out_r << 16) | (out_g << 8) | out_b;
+}
+
 static inline void draw_pixel_alpha(int x, int y, uint32_t color) {
   if (g_clip.enabled &&
       (x < g_clip.x0 || x >= g_clip.x1 || y < g_clip.y0 || y >= g_clip.y1))
@@ -2619,18 +2634,7 @@ static inline void draw_pixel_alpha(int x, int y, uint32_t color) {
   }
 
   uint32_t *dst = &g_render_target.pixels[y * g_render_target.pitch_pixels + x];
-  uint32_t dst_color = *dst;
-  uint32_t src_r = (color >> 16) & 0xFF;
-  uint32_t src_g = (color >> 8) & 0xFF;
-  uint32_t src_b = color & 0xFF;
-  uint32_t dst_r = (dst_color >> 16) & 0xFF;
-  uint32_t dst_g = (dst_color >> 8) & 0xFF;
-  uint32_t dst_b = dst_color & 0xFF;
-  uint32_t inv_alpha = 255 - alpha;
-  uint32_t out_r = (src_r * alpha + dst_r * inv_alpha) / 255;
-  uint32_t out_g = (src_g * alpha + dst_g * inv_alpha) / 255;
-  uint32_t out_b = (src_b * alpha + dst_b * inv_alpha) / 255;
-  *dst = (out_r << 16) | (out_g << 8) | out_b;
+  *dst = gui_blend_rgb_over(*dst, color, alpha);
 }
 
 static inline uint32_t *gui_draw_target(void) {
@@ -2681,22 +2685,10 @@ static void gui_fill_rect_alpha(int x, int y, int w, int h, uint32_t color) {
     return;
   }
 
-  uint32_t src_r = (color >> 16) & 0xFF;
-  uint32_t src_g = (color >> 8) & 0xFF;
-  uint32_t src_b = color & 0xFF;
-  uint32_t inv_alpha = 255 - alpha;
-
   for (int row = 0; row < clip_h; row++) {
     uint32_t *dst = target + (local_y + row) * pitch + local_x;
     for (int col = 0; col < clip_w; col++) {
-      uint32_t dst_color = dst[col];
-      uint32_t dst_r = (dst_color >> 16) & 0xFF;
-      uint32_t dst_g = (dst_color >> 8) & 0xFF;
-      uint32_t dst_b = dst_color & 0xFF;
-      uint32_t out_r = (src_r * alpha + dst_r * inv_alpha) / 255;
-      uint32_t out_g = (src_g * alpha + dst_g * inv_alpha) / 255;
-      uint32_t out_b = (src_b * alpha + dst_b * inv_alpha) / 255;
-      dst[col] = (out_r << 16) | (out_g << 8) | out_b;
+      dst[col] = gui_blend_rgb_over(dst[col], color, alpha);
     }
   }
 }
@@ -3255,22 +3247,49 @@ void gui_play_old_boot_sequence(uint32_t width, uint32_t height) {
 extern const uint8_t font_data[256][16];
 
 void gui_draw_char(int x, int y, char c, uint32_t fg, uint32_t bg) {
-  if (x >= (int)primary_display.width || y >= (int)primary_display.height ||
-      x + FONT_WIDTH <= 0 || y + FONT_HEIGHT <= 0) {
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+
+  if (!gui_target_visible_rect(x, y, FONT_WIDTH, FONT_HEIGHT, &clip_x, &clip_y,
+                               &clip_w, &clip_h)) {
     return;
   }
 
+  uint32_t *target = gui_draw_target();
+  if (!target)
+    return;
+
   unsigned char idx = (unsigned char)c;
   const uint8_t *glyph = font_data[idx];
+  int local_x = clip_x - g_render_target.origin_x;
+  int local_y = clip_y - g_render_target.origin_y;
+  int start_col = clip_x - x;
+  int start_row = clip_y - y;
+  uint32_t fg_alpha = (fg >> 24) & 0xFF;
+  uint32_t bg_alpha = (bg >> 24) & 0xFF;
 
-  for (int row = 0; row < FONT_HEIGHT; row++) {
-    uint8_t line = glyph[row];
-    for (int col = 0; col < FONT_WIDTH; col++) {
-      uint32_t color = (line & (0x80 >> col)) ? fg : bg;
-      if ((color >> 24) != 0) {
-        draw_pixel_alpha(x + col, y + row, color);
-      } else if ((line & (0x80 >> col)) || bg != 0x00000000) {
-        draw_pixel(x + col, y + row, color);
+  for (int row = 0; row < clip_h; row++) {
+    uint8_t line = glyph[start_row + row];
+    uint32_t *dst =
+        target + (local_y + row) * g_render_target.pitch_pixels + local_x;
+
+    for (int col = 0; col < clip_w; col++) {
+      int glyph_col = start_col + col;
+      uint8_t mask = (uint8_t)(0x80 >> glyph_col);
+      int bit_set = (line & mask) != 0;
+      uint32_t color = bit_set ? fg : bg;
+      uint32_t alpha = bit_set ? fg_alpha : bg_alpha;
+
+      if (alpha != 0) {
+        if (alpha == 0xFF) {
+          dst[col] = color & 0xFFFFFF;
+        } else {
+          dst[col] = gui_blend_rgb_over(dst[col], color, alpha);
+        }
+      } else if (bit_set || bg != 0x00000000) {
+        dst[col] = color;
       }
     }
   }
