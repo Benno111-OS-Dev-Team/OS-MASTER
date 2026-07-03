@@ -14756,28 +14756,57 @@ static void draw_window_surface(struct window *win, int draw_x, int draw_y,
     return;
   }
 
-  for (int y = clip_y0; y < clip_y1; y++) {
-    int local_y = y - draw_y;
-    int src_y = (local_y * win->surface_height) / draw_h;
-    int dst_y = y - g_render_target.origin_y;
+  {
+    int local_x0 = clip_x0 - draw_x;
+    int local_y0 = clip_y0 - draw_y;
+    int dst_x0 = clip_x0 - g_render_target.origin_x;
+    int dst_y0 = clip_y0 - g_render_target.origin_y;
+    int src_x_start = (local_x0 * win->surface_width) / draw_w;
+    int src_y = (local_y0 * win->surface_height) / draw_h;
+    int src_x_rem = (local_x0 * win->surface_width) % draw_w;
+    int src_y_rem = (local_y0 * win->surface_height) % draw_h;
+    int src_x_step = win->surface_width / draw_w;
+    int src_y_step = win->surface_height / draw_h;
+    int src_x_step_rem = win->surface_width % draw_w;
+    int src_y_step_rem = win->surface_height % draw_h;
 
-    if (src_y < 0)
-      src_y = 0;
-    if (src_y >= win->surface_height)
-      src_y = win->surface_height - 1;
+    for (int row = 0; row < copy_h; row++) {
+      int clamped_src_y = src_y;
+      int src_x = src_x_start;
+      int x_rem = src_x_rem;
+      uint32_t *dst =
+          target + (dst_y0 + row) * g_render_target.pitch_pixels + dst_x0;
 
-    for (int x = clip_x0; x < clip_x1; x++) {
-      int local_x = x - draw_x;
-      int src_x = (local_x * win->surface_width) / draw_w;
-      int dst_x = x - g_render_target.origin_x;
+      if (clamped_src_y < 0)
+        clamped_src_y = 0;
+      if (clamped_src_y >= win->surface_height)
+        clamped_src_y = win->surface_height - 1;
 
-      if (src_x < 0)
-        src_x = 0;
-      if (src_x >= win->surface_width)
-        src_x = win->surface_width - 1;
+      uint32_t *src_row =
+          win->content_buffer + clamped_src_y * win->surface_width;
 
-      target[dst_y * g_render_target.pitch_pixels + dst_x] =
-          win->content_buffer[src_y * win->surface_width + src_x];
+      for (int col = 0; col < copy_w; col++) {
+        int clamped_src_x = src_x;
+        if (clamped_src_x < 0)
+          clamped_src_x = 0;
+        if (clamped_src_x >= win->surface_width)
+          clamped_src_x = win->surface_width - 1;
+
+        dst[col] = src_row[clamped_src_x];
+        src_x += src_x_step;
+        x_rem += src_x_step_rem;
+        if (x_rem >= draw_w) {
+          src_x++;
+          x_rem -= draw_w;
+        }
+      }
+
+      src_y += src_y_step;
+      src_y_rem += src_y_step_rem;
+      if (src_y_rem >= draw_h) {
+        src_y++;
+        src_y_rem -= draw_h;
+      }
     }
   }
 }
