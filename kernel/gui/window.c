@@ -3078,18 +3078,64 @@ static void gui_fill_triangle(int x1, int y1, int x2, int y2, int x3, int y3,
   int min_y = gui_min3(y1, y2, y3);
   int max_y = gui_max3(y1, y2, y3);
   int area = gui_triangle_edge(x1, y1, x2, y2, x3, y3);
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
 
   if (area == 0)
     return;
 
-  for (int y = min_y; y <= max_y; y++) {
-    for (int x = min_x; x <= max_x; x++) {
+  if (!gui_target_visible_rect(min_x, min_y, max_x - min_x + 1,
+                               max_y - min_y + 1, &clip_x, &clip_y, &clip_w,
+                               &clip_h))
+    return;
+
+  uint32_t *target = gui_draw_target();
+  if (!target)
+    return;
+
+  uint32_t alpha = (color >> 24) & 0xFF;
+  if (alpha == 0)
+    return;
+
+  int local_x0 = clip_x - g_render_target.origin_x;
+  int local_y0 = clip_y - g_render_target.origin_y;
+  int pitch = g_render_target.pitch_pixels;
+
+  for (int row = 0; row < clip_h; row++) {
+    int y = clip_y + row;
+    int span_start = -1;
+    int span_end = -1;
+
+    for (int x = clip_x; x < clip_x + clip_w; x++) {
       int w0 = gui_triangle_edge(x2, y2, x3, y3, x, y);
       int w1 = gui_triangle_edge(x3, y3, x1, y1, x, y);
       int w2 = gui_triangle_edge(x1, y1, x2, y2, x, y);
+
       if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) ||
           (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
-        draw_pixel_alpha(x, y, color);
+        if (span_start < 0)
+          span_start = x;
+        span_end = x;
+      }
+    }
+
+    if (span_start < 0)
+      continue;
+
+    uint32_t *dst =
+        target + (local_y0 + row) * pitch + (local_x0 + (span_start - clip_x));
+    int span_w = span_end - span_start + 1;
+
+    if (alpha == 0xFF) {
+      uint32_t solid = color & 0xFFFFFF;
+      for (int col = 0; col < span_w; col++) {
+        dst[col] = solid;
+      }
+    } else {
+      for (int col = 0; col < span_w; col++) {
+        dst[col] = gui_blend_rgb_over(dst[col], color, alpha);
       }
     }
   }
