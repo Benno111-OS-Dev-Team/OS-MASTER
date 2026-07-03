@@ -3261,10 +3261,7 @@ void gui_play_old_boot_sequence(uint32_t width, uint32_t height) {
     int tx3;
     int ty3;
 
-    for (int y = 0; y < (int)height; y++) {
-      for (int x = 0; x < (int)width; x++)
-        draw_pixel(x, y, 0x000000);
-    }
+    gui_draw_rect(0, 0, (int)width, (int)height, 0x000000);
 
     gui_stage_point_to_screen(-200, -100, stage_x, stage_y, stage_scale,
                               &tx1, &ty1);
@@ -3300,10 +3297,7 @@ void gui_play_old_boot_sequence(uint32_t width, uint32_t height) {
     int tx3;
     int ty3;
 
-    for (int y = 0; y < (int)height; y++) {
-      for (int x = 0; x < (int)width; x++)
-        draw_pixel(x, y, 0x000000);
-    }
+    gui_draw_rect(0, 0, (int)width, (int)height, 0x000000);
 
     gui_stage_point_to_screen(-200, -100, stage_x, stage_y, stage_scale,
                               &tx1, &ty1);
