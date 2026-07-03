@@ -16176,21 +16176,7 @@ static void draw_dock(void) {
     int icon_r = size / 5;
     uint32_t bg_color = dock_items[i]->icon_color;
 
-    gui_draw_rect(draw_x + icon_r, draw_y, size - 2 * icon_r, size, bg_color);
-    gui_draw_rect(draw_x, draw_y + icon_r, size, size - 2 * icon_r, bg_color);
-    for (int dy = -icon_r; dy <= icon_r; dy++) {
-      for (int dx = -icon_r; dx <= icon_r; dx++) {
-        if (dx * dx + dy * dy <= icon_r * icon_r) {
-          draw_pixel(draw_x + icon_r + dx, draw_y + icon_r + dy, bg_color);
-          draw_pixel(draw_x + size - icon_r - 1 + dx, draw_y + icon_r + dy,
-                     bg_color);
-          draw_pixel(draw_x + icon_r + dx, draw_y + size - icon_r - 1 + dy,
-                     bg_color);
-          draw_pixel(draw_x + size - icon_r - 1 + dx,
-                     draw_y + size - icon_r - 1 + dy, bg_color);
-        }
-      }
-    }
+    draw_rounded_rect(draw_x, draw_y, size, size, icon_r, bg_color);
 
     for (int x = draw_x + icon_r; x < draw_x + size - icon_r; x++) {
       draw_pixel(x, draw_y + 2, bg_color + 0x202020);
