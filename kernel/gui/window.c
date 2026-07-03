@@ -601,6 +601,8 @@ static int dock_is_visible(void) {
 
 static int dock_reserved_height(void) { return dock_is_visible() ? DOCK_HEIGHT : 0; }
 
+int gui_dock_reserved_height(void) { return dock_reserved_height(); }
+
 static int desktop_session_active(void) {
   return session_authenticated && !startup_flow_active();
 }

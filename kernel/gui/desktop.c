@@ -36,6 +36,7 @@ extern void gui_open_notepad(const char *path);
 extern void gui_set_window_userdata(struct window *win, void *data);
 extern int gui_draw_system_app_icon(const char *app_id, int x, int y, int size);
 extern int gui_launch_app_by_id(const char *app_id);
+extern int gui_dock_reserved_height(void);
 void desktop_mark_dirty(int x, int y, int w, int h);
 
 /* External terminal functions */
@@ -67,9 +68,11 @@ void desktop_arrange_icons(void);
 #define DESKTOP_SIDEBAR_MIN_WIDTH 124
 #define DESKTOP_SIDEBAR_MAX_WIDTH 220
 #define DESKTOP_SIDEBAR_DEFAULT_WIDTH 156
-#define DESKTOP_SIDEBAR_MARGIN 16
+#define DESKTOP_SIDEBAR_MARGIN 12
 #define DESKTOP_SIDEBAR_ROW_H 42
 #define DESKTOP_SIDEBAR_ICON_SIZE 20
+#define DESKTOP_SIDEBAR_TOP_PAD 12
+#define DESKTOP_SIDEBAR_ROW_GAP 6
 
 /* Icon Types */
 #define ICON_TYPE_FILE 0
@@ -96,12 +99,12 @@ void desktop_arrange_icons(void);
 #define COLOR_MENU_HOVER 0x0078D4 /* Bright blue hover like Windows */
 #define COLOR_MENU_TEXT 0xFFFFFF
 #define COLOR_LABEL_BG 0x00000080 /* Semi-transparent */
-#define COLOR_SIDEBAR_BG 0x142031
-#define COLOR_SIDEBAR_BORDER 0x35506B
-#define COLOR_SIDEBAR_ROW 0x1C3047
-#define COLOR_SIDEBAR_ROW_HOVER 0x264566
+#define COLOR_SIDEBAR_BG 0x162130
+#define COLOR_SIDEBAR_EDGE 0x31465F
+#define COLOR_SIDEBAR_TOP 0x41576F
+#define COLOR_SIDEBAR_ROW 0x223246
+#define COLOR_SIDEBAR_ROW_HOVER 0x2C425B
 #define COLOR_SIDEBAR_TEXT 0xEAF4FF
-#define COLOR_SIDEBAR_MUTED 0x9DB5CB
 
 /* ===================================================================== */
 /* Desktop Icon Structure */
@@ -172,7 +175,7 @@ static int desktop_drag_offset_x = 0;
 static int desktop_drag_offset_y = 0;
 static int desktop_sidebar_loaded = 0;
 static int desktop_sidebar_visible = 1;
-static int desktop_sidebar_side = DESKTOP_SIDEBAR_LEFT;
+static int desktop_sidebar_side = DESKTOP_SIDEBAR_RIGHT;
 static int desktop_sidebar_width = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
 static int desktop_sidebar_hover_index = -1;
 
@@ -383,18 +386,20 @@ static int desktop_sidebar_rect(int *x, int *y, int *w, int *h) {
   int panel_x;
   int panel_y;
   int panel_h;
+  int dock_h;
 
   desktop_load_sidebar_config();
   if (!desktop_sidebar_visible)
     return 0;
 
-  panel_y = DESKTOP_START_Y;
-  panel_h = (int)gui_get_screen_height() - panel_y - 16;
+  dock_h = gui_dock_reserved_height();
+  panel_y = 0;
+  panel_h = (int)gui_get_screen_height() - dock_h;
   if (panel_h < 120)
     panel_h = 120;
   panel_x = desktop_sidebar_side == DESKTOP_SIDEBAR_RIGHT
-                ? (int)gui_get_screen_width() - desktop_sidebar_width - 16
-                : 16;
+                ? (int)gui_get_screen_width() - desktop_sidebar_width
+                : 0;
 
   if (x)
     *x = panel_x;
@@ -452,11 +457,11 @@ static int desktop_sidebar_item_at(int x, int y) {
   if (x < panel_x || x >= panel_x + panel_w || y < panel_y || y >= panel_y + panel_h)
     return -1;
 
-  row_y = panel_y + 52;
+  row_y = panel_y + DESKTOP_SIDEBAR_TOP_PAD;
   for (int i = 0; i < DESKTOP_SIDEBAR_ITEM_COUNT; i++) {
     if (y >= row_y && y < row_y + DESKTOP_SIDEBAR_ROW_H)
       return i;
-    row_y += DESKTOP_SIDEBAR_ROW_H + 8;
+    row_y += DESKTOP_SIDEBAR_ROW_H + DESKTOP_SIDEBAR_ROW_GAP;
   }
   return -1;
 }
@@ -1149,25 +1154,20 @@ static void draw_sidebar(void) {
     return;
 
   gui_draw_rect(panel_x, panel_y, panel_w, panel_h, COLOR_SIDEBAR_BG);
-  gui_draw_rect_outline(panel_x, panel_y, panel_w, panel_h, COLOR_SIDEBAR_BORDER, 1);
-  gui_draw_rect(panel_x, panel_y, panel_w, 30, 0x1B314A);
-  gui_draw_string(panel_x + 14, panel_y + 9, "Sidebar", COLOR_SIDEBAR_TEXT,
-                  0x1B314A);
-  gui_draw_string(panel_x + 14, panel_y + 32,
-                  desktop_sidebar_side == DESKTOP_SIDEBAR_RIGHT ? "Pinned right"
-                                                                : "Pinned left",
-                  COLOR_SIDEBAR_MUTED, COLOR_SIDEBAR_BG);
+  gui_draw_rect(panel_x, panel_y, 1, panel_h, COLOR_SIDEBAR_EDGE);
+  gui_draw_rect(panel_x, panel_y, panel_w, 1, COLOR_SIDEBAR_TOP);
+  gui_draw_rect(panel_x, panel_y + panel_h - 1, panel_w, 1, COLOR_SIDEBAR_TOP);
 
-  row_y = panel_y + 52;
+  row_y = panel_y + DESKTOP_SIDEBAR_TOP_PAD;
   for (int i = 0; i < DESKTOP_SIDEBAR_ITEM_COUNT; i++) {
     uint32_t row_color =
         i == desktop_sidebar_hover_index ? COLOR_SIDEBAR_ROW_HOVER : COLOR_SIDEBAR_ROW;
-    gui_draw_rect(panel_x + 10, row_y, panel_w - 20, DESKTOP_SIDEBAR_ROW_H,
+    gui_draw_rect(panel_x + 8, row_y, panel_w - 16, DESKTOP_SIDEBAR_ROW_H,
                   row_color);
-    draw_sidebar_item_icon(&desktop_sidebar_items[i], panel_x + 18, row_y + 10);
-    gui_draw_string(panel_x + 46, row_y + 14, desktop_sidebar_items[i].label,
+    draw_sidebar_item_icon(&desktop_sidebar_items[i], panel_x + 14, row_y + 10);
+    gui_draw_string(panel_x + 42, row_y + 14, desktop_sidebar_items[i].label,
                     COLOR_SIDEBAR_TEXT, row_color);
-    row_y += DESKTOP_SIDEBAR_ROW_H + 8;
+    row_y += DESKTOP_SIDEBAR_ROW_H + DESKTOP_SIDEBAR_ROW_GAP;
   }
 }
 
