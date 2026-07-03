@@ -2657,9 +2657,46 @@ static void gui_fill_rect_alpha(int x, int y, int w, int h, uint32_t color) {
   if (!gui_target_visible_rect(x, y, w, h, &clip_x, &clip_y, &clip_w, &clip_h))
     return;
 
-  for (int row = clip_y; row < clip_y + clip_h; row++) {
-    for (int col = clip_x; col < clip_x + clip_w; col++) {
-      draw_pixel_alpha(col, row, color);
+  uint32_t *target = gui_draw_target();
+  if (!target)
+    return;
+
+  uint32_t alpha = (color >> 24) & 0xFF;
+  if (alpha == 0)
+    return;
+
+  int local_x = clip_x - g_render_target.origin_x;
+  int local_y = clip_y - g_render_target.origin_y;
+  int pitch = g_render_target.pitch_pixels;
+
+  if (alpha == 0xFF) {
+    uint32_t solid = color & 0xFFFFFF;
+
+    for (int row = 0; row < clip_h; row++) {
+      uint32_t *dst = target + (local_y + row) * pitch + local_x;
+      for (int col = 0; col < clip_w; col++) {
+        dst[col] = solid;
+      }
+    }
+    return;
+  }
+
+  uint32_t src_r = (color >> 16) & 0xFF;
+  uint32_t src_g = (color >> 8) & 0xFF;
+  uint32_t src_b = color & 0xFF;
+  uint32_t inv_alpha = 255 - alpha;
+
+  for (int row = 0; row < clip_h; row++) {
+    uint32_t *dst = target + (local_y + row) * pitch + local_x;
+    for (int col = 0; col < clip_w; col++) {
+      uint32_t dst_color = dst[col];
+      uint32_t dst_r = (dst_color >> 16) & 0xFF;
+      uint32_t dst_g = (dst_color >> 8) & 0xFF;
+      uint32_t dst_b = dst_color & 0xFF;
+      uint32_t out_r = (src_r * alpha + dst_r * inv_alpha) / 255;
+      uint32_t out_g = (src_g * alpha + dst_g * inv_alpha) / 255;
+      uint32_t out_b = (src_b * alpha + dst_b * inv_alpha) / 255;
+      dst[col] = (out_r << 16) | (out_g << 8) | out_b;
     }
   }
 }
