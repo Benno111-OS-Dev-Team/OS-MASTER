@@ -13417,16 +13417,8 @@ static void draw_window_internal(struct window *win) {
       if (wallpapers[current_wallpaper].type == 1 &&
           thumbnail_cache[current_wallpaper].pixels) {
         media_image_t *thumb_img = &thumbnail_cache[current_wallpaper];
-        for (int py = 0; py < preview_h - 16; py++) {
-          for (int px = 0; px < preview_w - 16; px++) {
-            int src_x = (px * thumb_img->width) / (preview_w - 16);
-            int src_y = (py * thumb_img->height) / (preview_h - 16);
-            if (src_x < (int)thumb_img->width && src_y < (int)thumb_img->height) {
-              draw_image_pixel(preview_x + 8 + px, preview_y + 8 + py,
-                               thumb_img->pixels[src_y * thumb_img->width + src_x]);
-            }
-          }
-        }
+        gui_draw_image_scaled(preview_x + 8, preview_y + 8, preview_w - 16,
+                              preview_h - 16, thumb_img);
       } else {
         for (int py = 0; py < preview_h - 16; py++) {
           uint8_t pr = wallpapers[current_wallpaper].tr +
@@ -20516,44 +20508,80 @@ static void image_viewer_on_draw(struct window *win) {
   int orig_w = (int)g_imgview.image.width;
   int orig_h = (int)g_imgview.image.height;
 
-  for (int dy = 0; dy < scaled_h; dy++) {
-    int screen_y = img_y + dy;
-    if (screen_y < draw_y || screen_y >= draw_y + avail_h + 10)
-      continue;
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
 
-    for (int dx = 0; dx < scaled_w; dx++) {
-      int screen_x = img_x + dx;
-      if (screen_x < draw_x || screen_x >= draw_x + draw_w)
-        continue;
+  if (gui_target_visible_rect(img_x, img_y, scaled_w, scaled_h, &clip_x, &clip_y,
+                              &clip_w, &clip_h)) {
+    int viewport_x1 = draw_x + draw_w;
+    int viewport_y1 = draw_y + avail_h + 10;
 
-      /* Unscale to get image coordinates */
-      int ix = dx * 100 / zoom;
-      int iy = dy * 100 / zoom;
+    if (clip_x < draw_x) {
+      int delta = draw_x - clip_x;
+      clip_x = draw_x;
+      clip_w -= delta;
+    }
+    if (clip_y < draw_y) {
+      int delta = draw_y - clip_y;
+      clip_y = draw_y;
+      clip_h -= delta;
+    }
+    if (clip_x + clip_w > viewport_x1)
+      clip_w = viewport_x1 - clip_x;
+    if (clip_y + clip_h > viewport_y1)
+      clip_h = viewport_y1 - clip_y;
 
-      /* Apply rotation transform */
-      int src_x, src_y;
-      switch (rot) {
-      case 90:
-        src_x = iy;
-        src_y = orig_h - 1 - ix;
-        break;
-      case 180:
-        src_x = orig_w - 1 - ix;
-        src_y = orig_h - 1 - iy;
-        break;
-      case 270:
-        src_x = orig_w - 1 - iy;
-        src_y = ix;
-        break;
-      default: /* 0 */
-        src_x = ix;
-        src_y = iy;
-        break;
-      }
+    if (clip_w > 0 && clip_h > 0) {
+      uint32_t *target = gui_draw_target();
+      int local_x0 = clip_x - g_render_target.origin_x;
+      int local_y0 = clip_y - g_render_target.origin_y;
+      int start_dx = clip_x - img_x;
+      int start_dy = clip_y - img_y;
+      int pitch = g_render_target.pitch_pixels;
 
-      if (src_x >= 0 && src_x < orig_w && src_y >= 0 && src_y < orig_h) {
-        uint32_t pixel = g_imgview.image.pixels[src_y * orig_w + src_x];
-        draw_image_pixel(screen_x, screen_y, pixel);
+      for (int dy = 0; dy < clip_h; dy++) {
+        uint32_t *dst_row = target + (local_y0 + dy) * pitch + local_x0;
+
+        for (int dx = 0; dx < clip_w; dx++) {
+          int ix = (start_dx + dx) * 100 / zoom;
+          int iy = (start_dy + dy) * 100 / zoom;
+          int src_x;
+          int src_y;
+
+          switch (rot) {
+          case 90:
+            src_x = iy;
+            src_y = orig_h - 1 - ix;
+            break;
+          case 180:
+            src_x = orig_w - 1 - ix;
+            src_y = orig_h - 1 - iy;
+            break;
+          case 270:
+            src_x = orig_w - 1 - iy;
+            src_y = ix;
+            break;
+          default:
+            src_x = ix;
+            src_y = iy;
+            break;
+          }
+
+          if (src_x >= 0 && src_x < orig_w && src_y >= 0 && src_y < orig_h) {
+            uint32_t pixel = g_imgview.image.pixels[src_y * orig_w + src_x];
+            uint32_t alpha = pixel >> 24;
+
+            if (alpha == 0)
+              continue;
+            if (alpha == 0xFF) {
+              dst_row[dx] = pixel & 0xFFFFFF;
+            } else {
+              dst_row[dx] = gui_blend_rgb_over(dst_row[dx], pixel, alpha);
+            }
+          }
+        }
       }
     }
   }
