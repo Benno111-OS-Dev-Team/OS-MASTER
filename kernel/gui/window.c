@@ -16282,8 +16282,14 @@ static void draw_desktop_internal(void) {
   draw_wallpaper();
 
   /* Draw desktop icons */
-  if (desktop_session_active())
-    desktop_draw_icons();
+  if (desktop_session_active()) {
+    if (g_clip.enabled) {
+      desktop_draw_icons_region(g_clip.x0, g_clip.y0, g_clip.x1 - g_clip.x0,
+                                g_clip.y1 - g_clip.y0);
+    } else {
+      desktop_draw_icons();
+    }
+  }
 
   /* Draw build info in the bottom-right corner above the dock. */
   {

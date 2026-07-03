@@ -30,6 +30,7 @@ int desktop_is_renaming(void);
 
 /* Drawing */
 void desktop_draw_icons(void);
+void desktop_draw_icons_region(int x, int y, int w, int h);
 
 /* Dirty region tracking */
 void desktop_mark_dirty(int x, int y, int w, int h);

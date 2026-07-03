@@ -1111,6 +1111,18 @@ int desktop_get_dirty_bounds(int *x, int *y, int *w, int *h) {
   return 1;
 }
 
+static int rects_intersect(int ax, int ay, int aw, int ah, int bx, int by, int bw,
+                           int bh) {
+  int ax2 = ax + aw;
+  int ay2 = ay + ah;
+  int bx2 = bx + bw;
+  int by2 = by + bh;
+
+  if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0)
+    return 0;
+  return ax < bx2 && ax2 > bx && ay < by2 && ay2 > by;
+}
+
 void desktop_clear_dirty(void) {
   dirty_count = 0;
   full_redraw_needed = 0;
@@ -1233,6 +1245,21 @@ static void draw_sidebar(void) {
   }
 }
 
+static void draw_sidebar_region(int dirty_x, int dirty_y, int dirty_w,
+                                int dirty_h) {
+  int panel_x;
+  int panel_y;
+  int panel_w;
+  int panel_h;
+
+  if (!desktop_sidebar_rect(&panel_x, &panel_y, &panel_w, &panel_h))
+    return;
+  if (!rects_intersect(panel_x, panel_y, panel_w, panel_h, dirty_x, dirty_y,
+                       dirty_w, dirty_h))
+    return;
+  draw_sidebar();
+}
+
 static void draw_desktop_icon(desktop_icon_t *icon) {
   int x = icon->x;
   int y = icon->y;
@@ -1334,6 +1361,17 @@ static void draw_desktop_icon(desktop_icon_t *icon) {
     /* Label text */
     gui_draw_string(text_x, label_y + 2, display_name, 0xFFFFFF, 0x000000);
   }
+}
+
+static void draw_desktop_icon_region(desktop_icon_t *icon, int dirty_x,
+                                     int dirty_y, int dirty_w, int dirty_h) {
+  if (!icon)
+    return;
+  if (!rects_intersect(icon->x - 4, icon->y - 4, DESKTOP_ICON_SIZE + 8,
+                       DESKTOP_ICON_SIZE + DESKTOP_LABEL_HEIGHT + 8, dirty_x,
+                       dirty_y, dirty_w, dirty_h))
+    return;
+  draw_desktop_icon(icon);
 }
 
 /* ===================================================================== */
@@ -1552,6 +1590,16 @@ void draw_context_menu(void) {
     gui_draw_rect_outline(sb_x, sb_y, CONTEXT_MENU_SCROLLBAR_W - 2, sb_h, 0x5E5E5E,
                           1);
   }
+}
+
+static void draw_context_menu_region(int dirty_x, int dirty_y, int dirty_w,
+                                     int dirty_h) {
+  if (!ctx_menu.visible)
+    return;
+  if (!rects_intersect(ctx_menu.x, ctx_menu.y, ctx_menu.width + 4,
+                       ctx_menu.height + 4, dirty_x, dirty_y, dirty_w, dirty_h))
+    return;
+  draw_context_menu();
 }
 
 int desktop_context_menu_click(int mx, int my) {
@@ -2447,6 +2495,15 @@ void desktop_draw_icons(void) {
 
   /* Draw context menu on top */
   draw_context_menu();
+}
+
+void desktop_draw_icons_region(int x, int y, int w, int h) {
+  draw_sidebar_region(x, y, w, h);
+  for (int i = 0; i < desktop_icon_count; i++) {
+    draw_desktop_icon_region(&desktop_icons[i], x, y, w, h);
+  }
+
+  draw_context_menu_region(x, y, w, h);
 }
 
 /* ===================================================================== */
