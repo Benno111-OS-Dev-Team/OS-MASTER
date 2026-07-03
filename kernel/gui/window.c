@@ -16425,6 +16425,8 @@ static void render_wallpaper_cache(void) {
     return;
 
   if (wallpapers[current_wallpaper].type == 1 && wallpaper_image.pixels) {
+    int *src_x_map = NULL;
+    int fit_stretch = wallpapers[current_wallpaper].fit_mode == WALLPAPER_FIT_STRETCH;
     uint32_t img_w = wallpaper_image.width;
     uint32_t img_h = wallpaper_image.height;
     uint32_t *pixels = wallpaper_image.pixels;
@@ -16432,22 +16434,39 @@ static void render_wallpaper_cache(void) {
     if (img_w == 0 || img_h == 0)
       return;
 
+    src_x_map = (int *)kmalloc((size_t)width * sizeof(int));
+    if (src_x_map) {
+      for (int x = 0; x < width; x++) {
+        src_x_map[x] = fit_stretch
+                           ? wallpaper_stretch_coord(x, width, (int)img_w)
+                           : wallpaper_cover_coord(x, width, (int)img_w, width,
+                                                   height, (int)img_w,
+                                                   (int)img_h);
+      }
+    }
+
     for (int y = 0; y < height; y++) {
       uint32_t *line = cached_wallpaper + y * width;
-      int src_y = wallpapers[current_wallpaper].fit_mode == WALLPAPER_FIT_STRETCH
+      int src_y = fit_stretch
                       ? wallpaper_stretch_coord(y, height, (int)img_h)
                       : wallpaper_cover_coord(y, height, (int)img_h, width,
                                               height, (int)img_w, (int)img_h);
+      uint32_t *src_row = pixels + src_y * img_w;
 
       for (int x = 0; x < width; x++) {
-        int src_x =
-            wallpapers[current_wallpaper].fit_mode == WALLPAPER_FIT_STRETCH
-                ? wallpaper_stretch_coord(x, width, (int)img_w)
-                : wallpaper_cover_coord(x, width, (int)img_w, width, height,
-                                        (int)img_w, (int)img_h);
-        line[x] = pixels[src_y * img_w + src_x];
+        int src_x = src_x_map
+                        ? src_x_map[x]
+                        : (fit_stretch
+                               ? wallpaper_stretch_coord(x, width, (int)img_w)
+                               : wallpaper_cover_coord(x, width, (int)img_w,
+                                                       width, height,
+                                                       (int)img_w, (int)img_h));
+        line[x] = src_row[src_x];
       }
     }
+
+    if (src_x_map)
+      kfree(src_x_map);
   } else {
     for (int y = 0; y < height; y++) {
       uint32_t *line = cached_wallpaper + y * width;
