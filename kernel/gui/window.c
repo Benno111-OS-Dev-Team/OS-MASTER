@@ -4529,13 +4529,7 @@ static void draw_secure_attention_overlay(void) {
 
 /* Draw a filled circle (for traffic light buttons) */
 static void draw_circle(int cx, int cy, int r, uint32_t color) {
-  for (int y = -r; y <= r; y++) {
-    for (int x = -r; x <= r; x++) {
-      if (x * x + y * y <= r * r) {
-        draw_pixel(cx + x, cy + y, color);
-      }
-    }
-  }
+  draw_filled_circle(cx, cy, r, color);
 }
 
 /* Draw a single window */
@@ -20503,11 +20497,7 @@ static void image_viewer_on_draw(struct window *win) {
 
   /* Dark cinematic background */
   uint32_t bg_color = 0x0D0D0D;
-  for (int y = draw_y; y < draw_y + draw_h; y++) {
-    for (int x = draw_x; x < draw_x + draw_w; x++) {
-      draw_pixel(x, y, bg_color);
-    }
-  }
+  gui_draw_rect(draw_x, draw_y, draw_w, draw_h, bg_color);
 
   if (!g_imgview.loaded) {
     /* Elegant "No image" message */
