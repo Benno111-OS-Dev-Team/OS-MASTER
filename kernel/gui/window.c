@@ -2915,6 +2915,17 @@ void gui_draw_rect_outline(int x, int y, int w, int h, uint32_t color,
 }
 
 void gui_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+  uint32_t *target;
+  int clip_x0;
+  int clip_y0;
+  int clip_x1;
+  int clip_y1;
+  int pitch;
+
   if (y0 == y1) {
     int start_x = x0 < x1 ? x0 : x1;
     int width = (x0 < x1 ? x1 - x0 : x0 - x1) + 1;
@@ -2929,6 +2940,22 @@ void gui_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
     return;
   }
 
+  if (!gui_target_visible_rect((x0 < x1 ? x0 : x1), (y0 < y1 ? y0 : y1),
+                               ((x0 < x1 ? x1 - x0 : x0 - x1) + 1),
+                               ((y0 < y1 ? y1 - y0 : y0 - y1) + 1), &clip_x,
+                               &clip_y, &clip_w, &clip_h))
+    return;
+
+  target = gui_draw_target();
+  if (!target)
+    return;
+
+  clip_x0 = clip_x - g_render_target.origin_x;
+  clip_y0 = clip_y - g_render_target.origin_y;
+  clip_x1 = clip_x0 + clip_w;
+  clip_y1 = clip_y0 + clip_h;
+  pitch = g_render_target.pitch_pixels;
+
   int dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
   int dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
   int sx = (x0 < x1) ? 1 : -1;
@@ -2936,7 +2963,12 @@ void gui_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
   int err = dx - dy;
 
   while (1) {
-    draw_pixel(x0, y0, color);
+    int local_x = x0 - g_render_target.origin_x;
+    int local_y = y0 - g_render_target.origin_y;
+    if (local_x >= clip_x0 && local_x < clip_x1 && local_y >= clip_y0 &&
+        local_y < clip_y1) {
+      target[local_y * pitch + local_x] = color;
+    }
     if (x0 == x1 && y0 == y1)
       break;
     int e2 = 2 * err;
