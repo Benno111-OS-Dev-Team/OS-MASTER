@@ -15629,19 +15629,39 @@ static void draw_icon(int x, int y, int size, const unsigned char *bitmap,
 /* Draw rounded rectangle helper */
 static void draw_rounded_rect(int x, int y, int w, int h, int r,
                               uint32_t color) {
+  if (w <= 0 || h <= 0)
+    return;
+  if (r < 0)
+    r = 0;
+  if (r * 2 > w)
+    r = w / 2;
+  if (r * 2 > h)
+    r = h / 2;
+
+  if (r == 0) {
+    gui_draw_rect(x, y, w, h, color);
+    return;
+  }
+
   /* Main body */
   gui_draw_rect(x + r, y, w - 2 * r, h, color);
   gui_draw_rect(x, y + r, r, h - 2 * r, color);
   gui_draw_rect(x + w - r, y + r, r, h - 2 * r, color);
 
   /* Corners */
-  for (int cy = -r; cy <= r; cy++) {
-    for (int cx = -r; cx <= r; cx++) {
-      if (cx * cx + cy * cy <= r * r) {
-        draw_pixel(x + r + cx, y + r + cy, color);
-        draw_pixel(x + w - r - 1 + cx, y + r + cy, color);
-        draw_pixel(x + r + cx, y + h - r - 1 + cy, color);
-        draw_pixel(x + w - r - 1 + cx, y + h - r - 1 + cy, color);
+  for (int row = 0; row < r; row++) {
+    int dy = r - 1 - row;
+
+    for (int span = r; span >= 0; span--) {
+      if (span * span + dy * dy <= r * r) {
+        int span_w = span * 2 + 1;
+
+        gui_draw_rect(x + r - span, y + row, span_w, 1, color);
+        gui_draw_rect(x + w - r - 1 - span, y + row, span_w, 1, color);
+        gui_draw_rect(x + r - span, y + h - 1 - row, span_w, 1, color);
+        gui_draw_rect(x + w - r - 1 - span, y + h - 1 - row, span_w, 1,
+                      color);
+        break;
       }
     }
   }
