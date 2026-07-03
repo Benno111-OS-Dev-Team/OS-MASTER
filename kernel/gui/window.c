@@ -710,7 +710,7 @@ static struct {
     {1, 84, 108, 148, 26, 33, 52, WALLPAPER_FIT_COVER, "City", "/assets/wallpapers/city.jpg"},
     {1, 124, 82, 126, 48, 28, 64, WALLPAPER_FIT_COVER, "Portrait", "/assets/wallpapers/portrait.jpg"},
     {1, 58, 88, 118, 22, 28, 46, WALLPAPER_FIT_STRETCH, "Ducks", "/assets/wallpapers/ducks.png"},
-    {1, 58, 88, 118, 22, 28, 46, WALLPAPER_FIT_STRETCH, "Default", "/assets/wallpapers/default.jpg"},
+    {1, 58, 88, 118, 22, 28, 46, WALLPAPER_FIT_STRETCH, "Default", "/assets/wallpapers/default.svg"},
     {0, 30, 27, 75, 15, 27, 62, WALLPAPER_FIT_COVER, "Indigo Night", NULL},
     {0, 20, 60, 100, 10, 30, 60, WALLPAPER_FIT_COVER, "Ocean Blue", NULL},
     {0, 60, 20, 60, 30, 15, 45, WALLPAPER_FIT_COVER, "Purple Haze", NULL},

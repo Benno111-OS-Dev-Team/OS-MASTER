@@ -34,6 +34,7 @@ def main():
         ("kernel/media/bootstrap_images/square.jpg", "bootstrap_square_jpg"),
         ("assets/Wallpapers/ducks.png", "bootstrap_ducks_png"),
         ("kernel/media/bootstrap_images/default.jpg", "bootstrap_default_jpg"),
+        ("kernel/media/bootstrap_images/default.svg", "bootstrap_default_svg"),
         ("kernel/media/bootstrap_images/nature.jpg", "bootstrap_nature_jpg"),
         ("kernel/media/bootstrap_images/city.jpg", "bootstrap_city_jpg"),
         ("kernel/media/bootstrap_images/httpbin.jpg", "bootstrap_httpbin_jpg"),
