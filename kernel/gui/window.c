@@ -2889,6 +2889,20 @@ void gui_draw_rect_outline(int x, int y, int w, int h, uint32_t color,
 }
 
 void gui_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
+  if (y0 == y1) {
+    int start_x = x0 < x1 ? x0 : x1;
+    int width = (x0 < x1 ? x1 - x0 : x0 - x1) + 1;
+    gui_draw_rect(start_x, y0, width, 1, color);
+    return;
+  }
+
+  if (x0 == x1) {
+    int start_y = y0 < y1 ? y0 : y1;
+    int height = (y0 < y1 ? y1 - y0 : y0 - y1) + 1;
+    gui_draw_rect(x0, start_y, 1, height, color);
+    return;
+  }
+
   int dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
   int dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
   int sx = (x0 < x1) ? 1 : -1;
