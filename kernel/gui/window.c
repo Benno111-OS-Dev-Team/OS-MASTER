@@ -2607,6 +2607,14 @@ static inline uint32_t gui_blend_rgb_over(uint32_t dst_color, uint32_t src_color
   return (out_r << 16) | (out_g << 8) | out_b;
 }
 
+static inline void gui_plot_local_pixel(uint32_t *target, int pitch, int x, int y,
+                                        int clip_x0, int clip_y0, int clip_x1,
+                                        int clip_y1, uint32_t color) {
+  if (x < clip_x0 || x >= clip_x1 || y < clip_y0 || y >= clip_y1)
+    return;
+  target[y * pitch + x] = color;
+}
+
 static inline void draw_pixel_alpha(int x, int y, uint32_t color) {
   if (g_clip.enabled &&
       (x < g_clip.x0 || x >= g_clip.x1 || y < g_clip.y0 || y >= g_clip.y1))
@@ -2928,23 +2936,77 @@ void gui_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
 void gui_draw_circle(int cx, int cy, int r, uint32_t color, bool filled) {
   int x = 0, y = r;
   int d = 3 - 2 * r;
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+  uint32_t *target;
+  int local_cx;
+  int local_cy;
+  int clip_x0;
+  int clip_y0;
+  int clip_x1;
+  int clip_y1;
+  int pitch;
 
-  while (y >= x) {
-    if (filled) {
+  if (r < 0)
+    return;
+
+  if (filled) {
+    while (y >= x) {
       gui_draw_line(cx - x, cy + y, cx + x, cy + y, color);
       gui_draw_line(cx - x, cy - y, cx + x, cy - y, color);
       gui_draw_line(cx - y, cy + x, cx + y, cy + x, color);
       gui_draw_line(cx - y, cy - x, cx + y, cy - x, color);
-    } else {
-      draw_pixel(cx + x, cy + y, color);
-      draw_pixel(cx - x, cy + y, color);
-      draw_pixel(cx + x, cy - y, color);
-      draw_pixel(cx - x, cy - y, color);
-      draw_pixel(cx + y, cy + x, color);
-      draw_pixel(cx - y, cy + x, color);
-      draw_pixel(cx + y, cy - x, color);
-      draw_pixel(cx - y, cy - x, color);
+
+      x++;
+      if (d > 0) {
+        y--;
+        d = d + 4 * (x - y) + 10;
+      } else {
+        d = d + 4 * x + 6;
+      }
     }
+    return;
+  }
+
+  if (!gui_target_visible_rect(cx - r, cy - r, r * 2 + 1, r * 2 + 1, &clip_x,
+                               &clip_y, &clip_w, &clip_h))
+    return;
+
+  target = gui_draw_target();
+  if (!target)
+    return;
+
+  local_cx = cx - g_render_target.origin_x;
+  local_cy = cy - g_render_target.origin_y;
+  clip_x0 = clip_x - g_render_target.origin_x;
+  clip_y0 = clip_y - g_render_target.origin_y;
+  clip_x1 = clip_x0 + clip_w;
+  clip_y1 = clip_y0 + clip_h;
+  pitch = g_render_target.pitch_pixels;
+
+  while (y >= x) {
+    gui_plot_local_pixel(target, pitch, local_cx + x, local_cy + y, clip_x0,
+                         clip_y0, clip_x1, clip_y1, color);
+    gui_plot_local_pixel(target, pitch, local_cx - x, local_cy + y, clip_x0,
+                         clip_y0, clip_x1, clip_y1, color);
+    gui_plot_local_pixel(target, pitch, local_cx + x, local_cy - y, clip_x0,
+                         clip_y0, clip_x1, clip_y1, color);
+    gui_plot_local_pixel(target, pitch, local_cx - x, local_cy - y, clip_x0,
+                         clip_y0, clip_x1, clip_y1, color);
+
+    if (x != y) {
+      gui_plot_local_pixel(target, pitch, local_cx + y, local_cy + x, clip_x0,
+                           clip_y0, clip_x1, clip_y1, color);
+      gui_plot_local_pixel(target, pitch, local_cx - y, local_cy + x, clip_x0,
+                           clip_y0, clip_x1, clip_y1, color);
+      gui_plot_local_pixel(target, pitch, local_cx + y, local_cy - x, clip_x0,
+                           clip_y0, clip_x1, clip_y1, color);
+      gui_plot_local_pixel(target, pitch, local_cx - y, local_cy - x, clip_x0,
+                           clip_y0, clip_x1, clip_y1, color);
+    }
+
     x++;
     if (d > 0) {
       y--;
