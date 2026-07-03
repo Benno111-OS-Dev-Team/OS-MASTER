@@ -15714,10 +15714,14 @@ static void draw_rounded_rect(int x, int y, int w, int h, int r,
 
 /* Draw a filled circle */
 static void draw_filled_circle(int cx, int cy, int r, uint32_t color) {
+  if (r < 0)
+    return;
+
   for (int y = -r; y <= r; y++) {
-    for (int x = -r; x <= r; x++) {
-      if (x * x + y * y <= r * r) {
-        draw_pixel(cx + x, cy + y, color);
+    for (int span = r; span >= 0; span--) {
+      if (span * span + y * y <= r * r) {
+        gui_draw_rect(cx - span, cy + y, span * 2 + 1, 1, color);
+        break;
       }
     }
   }
