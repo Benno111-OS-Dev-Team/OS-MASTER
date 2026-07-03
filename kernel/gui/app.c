@@ -188,7 +188,7 @@ static void file_manager_draw(struct application *app) {
 
 /* Settings Application */
 static int settings_init(struct application *app) {
-  app->main_window = gui_create_window("Settings", 250, 100, 560, 420);
+  app->main_window = gui_create_window("Settings", 210, 72, 760, 520);
   return 0;
 }
 

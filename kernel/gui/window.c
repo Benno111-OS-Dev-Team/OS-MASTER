@@ -1134,11 +1134,12 @@ static const char *settings_user_role_options[] = {"admin", "user", "child"};
   ((int)(sizeof(settings_user_role_options) /                                 \
          sizeof(settings_user_role_options[0])))
 
-#define SETTINGS_MENU_COUNT 10
+#define SETTINGS_MENU_COUNT 12
 
 static const char *settings_menu_labels[SETTINGS_MENU_COUNT] = {
-    "HOME",   "NETWORK", "DISKS",   "THEMES", "BACKUP",
-    "SYSTEM", "ACTIVATE","UPDATES", "RECOVERY", "INFO",
+    "HOME",    "NETWORK",  "STORAGE", "DISPLAY",
+    "APPS",    "USERS",    "PERSONAL","UPDATES",
+    "RECOVERY","INFO",     "SIDEBAR", "DEVELOPER",
 };
 
 static int settings_resolution_current_idx = -1;
@@ -1179,19 +1180,23 @@ static const char *settings_page_heading(int page) {
   case 1:
     return "NETWORK";
   case 2:
-    return "DISKS";
+    return "STORAGE";
   case 3:
-    return "THEMES";
+    return "DISPLAY";
   case 4:
-    return "BACKUP";
+    return "APPS";
   case 5:
-    return "SYSTEM";
+    return "USERS";
   case 6:
-    return "ACTIVATE";
+    return "PERSONAL";
   case 7:
     return "UPDATES";
   case 8:
     return "RECOVERY";
+  case 10:
+    return "SIDEBAR";
+  case 11:
+    return "DEVELOPER";
   default:
     return "INFO";
   }
@@ -1204,19 +1209,23 @@ static const char *settings_default_status_message(int page) {
   case 1:
     return "Review the current network state.";
   case 2:
-    return "Inspect storage and disk tools.";
+    return "Inspect storage tools and launch disk utilities.";
   case 3:
-    return "Edit shipped theme presets with the Windows Theme Editor.";
+    return "Adjust wallpapers, themes, effects, and display presets.";
   case 4:
-    return "Backup tools are not available yet.";
+    return "Browse installed tools and launch desktop apps quickly.";
   case 5:
-    return "Manage the active system session.";
+    return "Manage the active system session and local users.";
   case 6:
-    return "Activation is not available in this build.";
+    return "Personalize the desktop surface and theme behavior.";
   case 7:
     return "System updates are not available yet.";
   case 8:
     return "Recovery tools and reset actions.";
+  case 10:
+    return "Configure the desktop sidebar and its layout.";
+  case 11:
+    return "Tune theme slots, accent colors, and developer visuals.";
   default:
     return "System build and environment details.";
   }
@@ -13264,13 +13273,27 @@ static void draw_window_internal(struct window *win) {
         g_theme_mode == GUI_THEME_LIGHT ? "Theme: Light mode active"
                                         : "Theme: Dark mode active";
     extern int intel_hda_is_playing(void);
-    int sidebar_w = 104;
+    int sidebar_w = 132;
     int divider_x = content_x + sidebar_w;
     int panel_x = divider_x + 3;
     int panel_y = content_y + 42;
     int panel_w = content_w - sidebar_w - 3;
     int panel_h = content_h - 42;
     int card_w = (panel_w - 30) / 2;
+    int toolbar_y = content_y + 8;
+    int toolbar_h = 24;
+    int toolbar_x = content_x + 154;
+    int toolbar_gap = 8;
+    int sidebar_track_x = divider_x - 10;
+    int sidebar_track_y = content_y + 56;
+    int sidebar_track_h = SETTINGS_MENU_COUNT * 28 - 10;
+    int sidebar_thumb_h = 18;
+    int sidebar_thumb_y = sidebar_track_y;
+    int panel_scroll_x = panel_x + panel_w - 14;
+    int panel_scroll_y = panel_y + 14;
+    int panel_scroll_h = panel_h - 28;
+    int panel_thumb_h = 42;
+    int panel_thumb_y = panel_scroll_y;
     int dock_count_buf_idx = 0;
     char dock_count_buf[24];
     char installed_buf[24];
@@ -13311,6 +13334,14 @@ static void draw_window_internal(struct window *win) {
     dock_count_buf_idx = 0;
     append_decimal(installed_buf, &dock_count_buf_idx, installed_apps);
     notepad_append_to_buf(installed_buf, sizeof(installed_buf), " installed");
+    if (SETTINGS_MENU_COUNT > 1) {
+      sidebar_thumb_y +=
+          ((sidebar_track_h - sidebar_thumb_h) * settings_active_tab) /
+          (SETTINGS_MENU_COUNT - 1);
+      panel_thumb_y +=
+          ((panel_scroll_h - panel_thumb_h) * settings_active_tab) /
+          (SETTINGS_MENU_COUNT - 1);
+    }
 
     gui_draw_rect(content_x, content_y, content_w, content_h, theme->settings_bg);
     gui_draw_rect(content_x, content_y, content_w, 3, theme->settings_border);
@@ -13319,6 +13350,20 @@ static void draw_window_internal(struct window *win) {
                   theme->settings_border);
     gui_draw_string(content_x + 18, content_y + 15, "OS SETTINGS",
                     theme->settings_text, theme->settings_bg);
+    gui_draw_system_button(toolbar_x, toolbar_y, 98, toolbar_h, "Backgrounds",
+                           GUI_BUTTON_PRIMARY, 1, 0);
+    gui_draw_system_button(toolbar_x + 98 + toolbar_gap, toolbar_y, 88, toolbar_h,
+                           "Theme Lab", GUI_BUTTON_NEUTRAL, 1,
+                           settings_active_tab == 11);
+    gui_draw_system_button(toolbar_x + 194 + toolbar_gap * 2, toolbar_y, 66,
+                           toolbar_h, "Files", GUI_BUTTON_NEUTRAL, 1, 0);
+    gui_draw_system_button(toolbar_x + 268 + toolbar_gap * 3, toolbar_y, 82,
+                           toolbar_h, "Sidebar", GUI_BUTTON_NEUTRAL, 1,
+                           settings_active_tab == 10);
+    gui_draw_system_button(toolbar_x + 358 + toolbar_gap * 4, toolbar_y, 72,
+                           toolbar_h, "About", GUI_BUTTON_NEUTRAL, 1, 0);
+    gui_draw_rect(sidebar_track_x, sidebar_track_y, 4, sidebar_track_h, 0x334155);
+    gui_draw_rect(sidebar_track_x, sidebar_thumb_y, 4, sidebar_thumb_h, theme->accent);
 
     for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
       int tab_y = content_y + 56 + i * 28;
@@ -13332,6 +13377,8 @@ static void draw_window_internal(struct window *win) {
     }
 
     gui_draw_rect(panel_x, panel_y, panel_w - 3, panel_h - 3, theme->settings_panel);
+    gui_draw_rect(panel_scroll_x, panel_scroll_y, 4, panel_scroll_h, 0x233044);
+    gui_draw_rect(panel_scroll_x, panel_thumb_y, 4, panel_thumb_h, theme->accent_soft);
     gui_draw_string(panel_x + 18, panel_y + 16,
                     settings_page_heading(settings_active_tab), theme->settings_text,
                     theme->settings_panel);
@@ -13656,11 +13703,33 @@ static void draw_window_internal(struct window *win) {
       gui_draw_system_button(panel_x + 400, resolution_card_y + 66, 96, 24,
                              "On Reboot", GUI_BUTTON_NEUTRAL, 1, 0);
     } else if (settings_active_tab == 4) {
-      gui_draw_string(panel_x + 18, panel_y + 72, "Backup tools are not implemented yet.",
-                      0x111111, 0xF8F8F8);
-      gui_draw_string(panel_x + 18, panel_y + 92,
-                      "This page is reserved for future backup and restore features.",
-                      0x4A4A4A, 0xF8F8F8);
+      int row_y = panel_y + 72;
+      gui_draw_rect(panel_x, row_y, panel_w, 82, 0x252535);
+      gui_draw_string(panel_x + 16, row_y + 12, "App quick launch", 0x89B4FA,
+                      0x252535);
+      gui_draw_string(panel_x + 16, row_y + 32,
+                      "Use these launchers to jump straight into the most useful system tools.",
+                      0xFFFFFF, 0x252535);
+      gui_draw_string(panel_x + 16, row_y + 52, installed_buf, 0xCBD5E1,
+                      0x252535);
+
+      row_y += 96;
+      gui_draw_system_button(panel_x + 16, row_y, 110, 30, "App Store",
+                             GUI_BUTTON_PRIMARY, 1, 0);
+      gui_draw_system_button(panel_x + 136, row_y, 96, 30, "Files",
+                             GUI_BUTTON_NEUTRAL, 1, 0);
+      gui_draw_system_button(panel_x + 242, row_y, 108, 30, "Devices",
+                             GUI_BUTTON_NEUTRAL, 1, 0);
+      gui_draw_system_button(panel_x + 360, row_y, 118, 30, "Disk Imager",
+                             GUI_BUTTON_NEUTRAL, 1, 0);
+
+      row_y += 44;
+      gui_draw_rect(panel_x, row_y, panel_w, 88, 0x252535);
+      gui_draw_string(panel_x + 16, row_y + 12, "Library", 0x89B4FA, 0x252535);
+      gui_draw_string(panel_x + 16, row_y + 32, "Installed apps and utilities can be launched here without leaving Settings.",
+                      0xFFFFFF, 0x252535);
+      gui_draw_string(panel_x + 16, row_y + 52, "Open Files to inspect packages or App Store to add more tools.",
+                      0xCBD5E1, 0x252535);
     } else if (settings_active_tab == 8) {
       int block_y = panel_y + 72;
       char sidebar_layout_buf[32];
@@ -13874,18 +13943,112 @@ static void draw_window_internal(struct window *win) {
         settings_account_list_free(&accounts);
       }
     } else if (settings_active_tab == 6) {
-      gui_draw_string(panel_x + 18, panel_y + 72,
-                      "Activation is not implemented in this build.",
-                      0x111111, 0xF8F8F8);
-      gui_draw_string(panel_x + 18, panel_y + 92,
-                      "This page is present to match the requested layout.",
-                      0x4A4A4A, 0xF8F8F8);
+      int block_y = panel_y + 72;
+      gui_draw_rect(panel_x, block_y, panel_w, 84, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 12, "Personalization", 0x89B4FA,
+                      0x252535);
+      gui_draw_string(panel_x + 16, block_y + 32, theme_status, 0xFFFFFF, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 52, wallpapers[current_wallpaper].name,
+                      0xCBD5E1, 0x252535);
+      gui_draw_string(panel_x + 220, block_y + 52, dock_count_buf, 0xA5B4FC,
+                      0x252535);
+
+      block_y += 98;
+      gui_draw_system_button(panel_x + 16, block_y, 108, 28, "Backgrounds",
+                             GUI_BUTTON_PRIMARY, 1, 0);
+      gui_draw_system_button(panel_x + 134, block_y, 92, 28, "Light",
+                             GUI_BUTTON_NEUTRAL, 1,
+                             g_theme_mode == GUI_THEME_LIGHT);
+      gui_draw_system_button(panel_x + 236, block_y, 92, 28, "Dark",
+                             GUI_BUTTON_NEUTRAL, 1,
+                             g_theme_mode == GUI_THEME_DARK);
+      gui_draw_system_button(panel_x + 338, block_y, 110, 28, "Theme Lab",
+                             GUI_BUTTON_NEUTRAL, 1, settings_active_tab == 11);
+
+      block_y += 42;
+      gui_draw_rect(panel_x, block_y, panel_w, 88, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 12, "Profile", 0x89B4FA, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 32,
+                      "Switch palettes, update wallpapers, and keep the shell feeling consistent.",
+                      0xFFFFFF, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 52,
+                      "Theme Lab opens the full slot editor for advanced color tuning.",
+                      0xCBD5E1, 0x252535);
     } else if (settings_active_tab == 7) {
       gui_draw_string(panel_x + 18, panel_y + 72, "Updates are not available yet.",
                       0x111111, 0xF8F8F8);
       gui_draw_string(panel_x + 18, panel_y + 92,
                       "Future builds can expose package or system update actions here.",
                       0x4A4A4A, 0xF8F8F8);
+    } else if (settings_active_tab == 10) {
+      int block_y = panel_y + 72;
+      char sidebar_layout_buf[32];
+      char sidebar_width_buf[32];
+      int sidebar_idx = 0;
+      int sidebar_visible = desktop_sidebar_is_visible();
+      int sidebar_side = desktop_sidebar_get_side();
+      int sidebar_width = desktop_sidebar_get_width();
+
+      sidebar_layout_buf[0] = '\0';
+      if (sidebar_visible) {
+        str_copy_safe(sidebar_layout_buf,
+                      sidebar_side == DESKTOP_SIDEBAR_RIGHT ? "Visible on right"
+                                                           : "Visible on left",
+                      sizeof(sidebar_layout_buf));
+      } else {
+        str_copy_safe(sidebar_layout_buf, "Hidden", sizeof(sidebar_layout_buf));
+      }
+      sidebar_width_buf[0] = '\0';
+      append_decimal(sidebar_width_buf, &sidebar_idx, sidebar_width);
+      notepad_append_to_buf(sidebar_width_buf, sizeof(sidebar_width_buf), " px");
+
+      gui_draw_rect(panel_x, block_y, panel_w, 82, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 12, "Desktop sidebar", 0x89B4FA,
+                      0x252535);
+      gui_draw_string(panel_x + 16, block_y + 32, sidebar_layout_buf, 0xFFFFFF,
+                      0x252535);
+      gui_draw_string(panel_x + 16, block_y + 52, sidebar_width_buf, 0xCBD5E1,
+                      0x252535);
+
+      block_y += 96;
+      gui_draw_system_button(panel_x + 16, block_y, 82, 24,
+                             sidebar_visible ? "Hide" : "Show",
+                             sidebar_visible ? GUI_BUTTON_NEUTRAL
+                                             : GUI_BUTTON_SUCCESS,
+                             1, 0);
+      gui_draw_system_button(panel_x + 108, block_y, 72, 24, "Left",
+                             sidebar_side == DESKTOP_SIDEBAR_LEFT
+                                 ? GUI_BUTTON_PRIMARY
+                                 : GUI_BUTTON_NEUTRAL,
+                             1, 0);
+      gui_draw_system_button(panel_x + 190, block_y, 72, 24, "Right",
+                             sidebar_side == DESKTOP_SIDEBAR_RIGHT
+                                 ? GUI_BUTTON_PRIMARY
+                                 : GUI_BUTTON_NEUTRAL,
+                             1, 0);
+      gui_draw_system_button(panel_x + 272, block_y, 90, 24, "Narrower",
+                             GUI_BUTTON_NEUTRAL, sidebar_width > 124, 0);
+      gui_draw_system_button(panel_x + 372, block_y, 74, 24, "Wider",
+                             GUI_BUTTON_NEUTRAL, sidebar_width < 220, 0);
+
+      block_y += 40;
+      gui_draw_rect(panel_x, block_y, panel_w, 88, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 12, "Layout notes", 0x89B4FA,
+                      0x252535);
+      gui_draw_string(panel_x + 16, block_y + 32,
+                      "Pin the sidebar to either edge and resize it to match your workspace.",
+                      0xFFFFFF, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 52,
+                      "The quick toolbar above links here so layout controls stay easy to reach.",
+                      0xCBD5E1, 0x252535);
+    } else if (settings_active_tab == 11) {
+      gui_draw_string(panel_x + 18, panel_y + 72, "Developer theme lab",
+                      0x89B4FA, theme->settings_panel);
+      gui_draw_string(panel_x + 18, panel_y + 90,
+                      "Edit slot colors, switch palettes, and save the active theme.",
+                      theme->settings_subtext, theme->settings_panel);
+      draw_theme_builder_window(panel_x + 12, panel_y + 112, panel_w - 28,
+                                panel_h - 128);
     } else {
       gui_draw_string(panel_x + 18, panel_y + 72, BUILD_UUID, 0x111111, 0xF8F8F8);
       gui_draw_string(panel_x + 18, panel_y + 92, resolution, 0x4A4A4A, 0xF8F8F8);
@@ -19125,10 +19288,55 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           win->title[2] == 't') {
         int content_x = win->x + BORDER_WIDTH;
         int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
-        int sidebar_w = 104;
+        int sidebar_w = 132;
         int panel_w = win->width - BORDER_WIDTH * 2 - sidebar_w - 3;
         int panel_x = content_x + sidebar_w + 3;
         int panel_y = content_y + 42;
+        int toolbar_y = content_y + 8;
+        int toolbar_h = 24;
+        int toolbar_x = content_x + 154;
+        int toolbar_gap = 8;
+
+        if (x >= toolbar_x && x < toolbar_x + 98 && y >= toolbar_y &&
+            y < toolbar_y + toolbar_h) {
+          gui_create_window("Background Settings", win->x + 18, win->y + 18,
+                            460, 360);
+          str_copy_safe(settings_status, "Opened background settings.",
+                        sizeof(settings_status));
+          break;
+        }
+        if (x >= toolbar_x + 98 + toolbar_gap &&
+            x < toolbar_x + 98 + toolbar_gap + 88 && y >= toolbar_y &&
+            y < toolbar_y + toolbar_h) {
+          settings_active_tab = 11;
+          str_copy_safe(settings_status, settings_default_status_message(11),
+                        sizeof(settings_status));
+          break;
+        }
+        if (x >= toolbar_x + 194 + toolbar_gap * 2 &&
+            x < toolbar_x + 194 + toolbar_gap * 2 + 66 && y >= toolbar_y &&
+            y < toolbar_y + toolbar_h) {
+          gui_create_file_manager_path(win->x + 26, win->y + 26, "/");
+          str_copy_safe(settings_status, "Opened file manager.",
+                        sizeof(settings_status));
+          break;
+        }
+        if (x >= toolbar_x + 268 + toolbar_gap * 3 &&
+            x < toolbar_x + 268 + toolbar_gap * 3 + 82 && y >= toolbar_y &&
+            y < toolbar_y + toolbar_h) {
+          settings_active_tab = 10;
+          str_copy_safe(settings_status, settings_default_status_message(10),
+                        sizeof(settings_status));
+          break;
+        }
+        if (x >= toolbar_x + 358 + toolbar_gap * 4 &&
+            x < toolbar_x + 358 + toolbar_gap * 4 + 72 && y >= toolbar_y &&
+            y < toolbar_y + toolbar_h) {
+          gui_create_window("About", 210, 140, 560, 360);
+          str_copy_safe(settings_status, "Opened about window.",
+                        sizeof(settings_status));
+          break;
+        }
 
         for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
           int tab_y = content_y + 56 + i * 28;
@@ -19350,6 +19558,38 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
                           sizeof(settings_status));
             break;
           }
+        } else if (settings_active_tab == 4) {
+          int row_y = panel_y + 72 + 96;
+          if (x >= panel_x + 16 && x < panel_x + 126 && y >= row_y &&
+              y < row_y + 30) {
+            gui_create_window("App Store", win->x + 28, win->y + 28, 540, 420);
+            str_copy_safe(settings_status, "Opened the app store.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 136 && x < panel_x + 232 && y >= row_y &&
+              y < row_y + 30) {
+            gui_create_file_manager_path(win->x + 26, win->y + 26, "/");
+            str_copy_safe(settings_status, "Opened file manager.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 242 && x < panel_x + 350 && y >= row_y &&
+              y < row_y + 30) {
+            gui_create_window("Device Manager", win->x + 40, win->y + 40, 460,
+                              360);
+            str_copy_safe(settings_status, "Opened device manager.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 360 && x < panel_x + 478 && y >= row_y &&
+              y < row_y + 30) {
+            gui_create_window("Disk Imager", win->x + 34, win->y + 34, 620,
+                              440);
+            str_copy_safe(settings_status, "Opened disk imager.",
+                          sizeof(settings_status));
+            break;
+          }
         } else if (settings_active_tab == 8) {
           int row1_y = panel_y + 72 + 90;
           int row2_y = row1_y + 42;
@@ -19533,6 +19773,39 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
             break;
           }
           settings_account_list_free(&accounts);
+        } else if (settings_active_tab == 6) {
+          int block_y = panel_y + 72 + 98;
+          if (x >= panel_x + 16 && x < panel_x + 124 && y >= block_y &&
+              y < block_y + 28) {
+            gui_create_window("Background Settings", win->x + 18, win->y + 18,
+                              460, 360);
+            str_copy_safe(settings_status, "Opened background settings.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 134 && x < panel_x + 226 && y >= block_y &&
+              y < block_y + 28) {
+            gui_set_theme_mode(GUI_THEME_LIGHT);
+            gui_save_theme_preference();
+            str_copy_safe(settings_status, "Light mode applied.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 236 && x < panel_x + 328 && y >= block_y &&
+              y < block_y + 28) {
+            gui_set_theme_mode(GUI_THEME_DARK);
+            gui_save_theme_preference();
+            str_copy_safe(settings_status, "Dark mode applied.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 338 && x < panel_x + 448 && y >= block_y &&
+              y < block_y + 28) {
+            settings_active_tab = 11;
+            str_copy_safe(settings_status, settings_default_status_message(11),
+                          sizeof(settings_status));
+            break;
+          }
         } else if (settings_active_tab == 9) {
           if (x >= panel_x + 18 && x < panel_x + 106 && y >= panel_y + 146 &&
               y < panel_y + 176) {
@@ -19540,6 +19813,112 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
             str_copy_safe(settings_status, "Opened about window.",
                           sizeof(settings_status));
             break;
+          }
+        } else if (settings_active_tab == 10) {
+          int sidebar_y = panel_y + 72 + 96;
+          if (x >= panel_x + 16 && x < panel_x + 98 && y >= sidebar_y &&
+              y < sidebar_y + 24) {
+            desktop_sidebar_set_visible(!desktop_sidebar_is_visible());
+            str_copy_safe(settings_status,
+                          desktop_sidebar_is_visible() ? "Sidebar shown."
+                                                       : "Sidebar hidden.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 108 && x < panel_x + 180 && y >= sidebar_y &&
+              y < sidebar_y + 24) {
+            desktop_sidebar_set_side(DESKTOP_SIDEBAR_LEFT);
+            str_copy_safe(settings_status, "Sidebar pinned to the left.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 190 && x < panel_x + 262 && y >= sidebar_y &&
+              y < sidebar_y + 24) {
+            desktop_sidebar_set_side(DESKTOP_SIDEBAR_RIGHT);
+            str_copy_safe(settings_status, "Sidebar pinned to the right.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 272 && x < panel_x + 362 && y >= sidebar_y &&
+              y < sidebar_y + 24) {
+            desktop_sidebar_set_width(desktop_sidebar_get_width() - 16);
+            str_copy_safe(settings_status, "Sidebar width reduced.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 372 && x < panel_x + 446 && y >= sidebar_y &&
+              y < sidebar_y + 24) {
+            desktop_sidebar_set_width(desktop_sidebar_get_width() + 16);
+            str_copy_safe(settings_status, "Sidebar width increased.",
+                          sizeof(settings_status));
+            break;
+          }
+        } else if (settings_active_tab == 11) {
+          int builder_x = panel_x + 12;
+          int builder_y = panel_y + 112;
+          int builder_w = panel_w - 28;
+          int preview_x = builder_x + 14;
+          int preview_y = builder_y + 14;
+          int preview_w = builder_w - 28;
+          int preview_h = 102;
+          int slots_x = builder_x + 14;
+          int slots_y = preview_y + preview_h + 14;
+          int slot_gap = 8;
+          int slot_w = (builder_w - 28 - slot_gap * 3) / 4;
+          int slot_h = 40;
+          int chips_x = builder_x + 14;
+          int chips_y = slots_y + ((slot_h + slot_gap) * 3) + 14;
+          int chip_gap = 8;
+          int chip_w = 32;
+          int chip_h = 26;
+          int chip_cols = 6;
+
+          if (x >= preview_x + preview_w - 196 &&
+              x < preview_x + preview_w - 144 && y >= preview_y + 12 &&
+              y < preview_y + 38) {
+            gui_set_theme_mode(GUI_THEME_LIGHT);
+            str_copy_safe(settings_status, "Theme lab switched to light mode.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= preview_x + preview_w - 136 &&
+              x < preview_x + preview_w - 84 && y >= preview_y + 12 &&
+              y < preview_y + 38) {
+            gui_set_theme_mode(GUI_THEME_DARK);
+            str_copy_safe(settings_status, "Theme lab switched to dark mode.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= preview_x + preview_w - 74 &&
+              x < preview_x + preview_w - 14 && y >= preview_y + 12 &&
+              y < preview_y + 38) {
+            theme_builder_save_current_theme();
+            break;
+          }
+          for (int i = 0; i < SETTINGS_THEME_SLOT_COUNT; i++) {
+            int col = i % 4;
+            int row = i / 4;
+            int sx = slots_x + col * (slot_w + slot_gap);
+            int sy = slots_y + row * (slot_h + slot_gap);
+            if (x >= sx && x < sx + slot_w && y >= sy && y < sy + slot_h) {
+              settings_theme_active_slot = i;
+              str_copy_safe(settings_status, "Theme slot selected.",
+                            sizeof(settings_status));
+              break;
+            }
+          }
+          for (int i = 0; i < SETTINGS_THEME_CHIP_COUNT; i++) {
+            int col = i % chip_cols;
+            int row = i / chip_cols;
+            int cx = chips_x + col * (chip_w + chip_gap);
+            int cy = chips_y + 28 + row * (chip_h + chip_gap);
+            if (x >= cx && x < cx + chip_w && y >= cy && y < cy + chip_h) {
+              theme_builder_apply_slot_color(settings_theme_active_slot,
+                                             settings_theme_chips[i]);
+              str_copy_safe(settings_status, "Theme slot color updated.",
+                            sizeof(settings_status));
+              break;
+            }
           }
         }
       }
