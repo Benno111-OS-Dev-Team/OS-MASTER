@@ -14180,8 +14180,12 @@ static int menu_open = 0; /* 0=closed, 1=main menu open */
 static int main_menu_power_open = 0;
 static int main_menu_power_row_y_anim = -1;
 static int wifi_tray_open = 0;
+static int main_menu_all_programs_open = 0;
+static int main_menu_program_scroll = 0;
 static void main_menu_mark_dirty(void);
 static void wifi_tray_mark_dirty(void);
+static void draw_system_app_icon_kind(gui_app_kind_t kind, int x, int y,
+                                      int size);
 
 #define MAIN_MENU_W 364
 #define MAIN_MENU_H 350
@@ -14189,12 +14193,18 @@ static void wifi_tray_mark_dirty(void);
 #define MAIN_MENU_LEFT_W 214
 #define MAIN_MENU_ROW_H 34
 #define MAIN_MENU_RIGHT_ROW_H 28
+#define MAIN_MENU_SCROLL_BUTTON_H 22
 #define WIFI_TRAY_PANEL_W 248
 #define WIFI_TRAY_PANEL_H 208
+
+#define MAIN_MENU_ITEM_PROGRAM_BASE 1000
+#define MAIN_MENU_ITEM_PROGRAM_SCROLL_UP 2000
+#define MAIN_MENU_ITEM_PROGRAM_SCROLL_DOWN 2001
 
 enum {
   MAIN_MENU_ITEM_NONE = -1,
   MAIN_MENU_ITEM_ABOUT = 0,
+  MAIN_MENU_ITEM_ALL_PROGRAMS,
   MAIN_MENU_ITEM_TERMINAL,
   MAIN_MENU_ITEM_FILES,
   MAIN_MENU_ITEM_NOTES,
@@ -14436,6 +14446,16 @@ static int main_menu_item_bounds(int item_index, int *x, int *y, int *w,
     if (h)
       *h = MAIN_MENU_RIGHT_ROW_H;
     return 1;
+  case MAIN_MENU_ITEM_ALL_PROGRAMS:
+    if (x)
+      *x = right_x;
+    if (y)
+      *y = right_y + MAIN_MENU_RIGHT_ROW_H + 8;
+    if (w)
+      *w = right_w;
+    if (h)
+      *h = MAIN_MENU_RIGHT_ROW_H;
+    return 1;
   case MAIN_MENU_ITEM_POWER:
     if (x)
       *x = right_x;
@@ -14449,6 +14469,119 @@ static int main_menu_item_bounds(int item_index, int *x, int *y, int *w,
   default:
     return 0;
   }
+}
+
+static int main_menu_program_list_rect(int *x, int *y, int *w, int *h) {
+  int panel_x = main_menu_panel_x();
+  int panel_y = main_menu_panel_y();
+
+  if (x)
+    *x = panel_x + 12;
+  if (y)
+    *y = panel_y + MAIN_MENU_HEADER_H + 14;
+  if (w)
+    *w = MAIN_MENU_LEFT_W - 24;
+  if (h)
+    *h = MAIN_MENU_H - MAIN_MENU_HEADER_H - 28;
+  return 1;
+}
+
+static int main_menu_program_scroll_max(void) {
+  int visible_rows = 0;
+  int app_count = 0;
+  int list_x, list_y, list_w, list_h;
+
+  main_menu_program_list_rect(&list_x, &list_y, &list_w, &list_h);
+  visible_rows = list_h / MAIN_MENU_ROW_H;
+  if (visible_rows < 1)
+    visible_rows = 1;
+
+  load_system_app_catalog();
+  for (int i = 0; i < app_catalog_count; i++) {
+    if (app_is_installed(&app_catalog[i]))
+      app_count++;
+  }
+
+  if (app_count <= visible_rows)
+    return 0;
+  return app_count - visible_rows;
+}
+
+static void main_menu_clamp_program_scroll(void) {
+  int max_scroll = main_menu_program_scroll_max();
+  if (main_menu_program_scroll < 0)
+    main_menu_program_scroll = 0;
+  if (main_menu_program_scroll > max_scroll)
+    main_menu_program_scroll = max_scroll;
+}
+
+static int main_menu_program_visible_rows(void) {
+  int list_x, list_y, list_w, list_h;
+  int visible_rows;
+
+  main_menu_program_list_rect(&list_x, &list_y, &list_w, &list_h);
+  visible_rows = list_h / MAIN_MENU_ROW_H;
+  if (visible_rows < 1)
+    visible_rows = 1;
+  return visible_rows;
+}
+
+static const dock_app_def_t *main_menu_program_by_visible_index(int visible_index) {
+  int current = 0;
+
+  load_system_app_catalog();
+  for (int i = 0; i < app_catalog_count; i++) {
+    if (!app_is_installed(&app_catalog[i]))
+      continue;
+    if (current == visible_index)
+      return &app_catalog[i];
+    current++;
+  }
+  return NULL;
+}
+
+static int main_menu_program_row_bounds(int visible_slot, int *x, int *y, int *w,
+                                        int *h) {
+  int list_x, list_y, list_w, list_h;
+  int visible_rows = main_menu_program_visible_rows();
+  int row_w;
+
+  if (visible_slot < 0 || visible_slot >= visible_rows)
+    return 0;
+
+  main_menu_program_list_rect(&list_x, &list_y, &list_w, &list_h);
+  row_w = list_w - 30;
+  if (row_w < 48)
+    row_w = list_w;
+
+  if (x)
+    *x = list_x;
+  if (y)
+    *y = list_y + visible_slot * MAIN_MENU_ROW_H;
+  if (w)
+    *w = row_w;
+  if (h)
+    *h = MAIN_MENU_ROW_H - 2;
+  return 1;
+}
+
+static int main_menu_program_scroll_button_bounds(int direction, int *x, int *y,
+                                                  int *w, int *h) {
+  int list_x, list_y, list_w, list_h;
+  int button_x;
+
+  main_menu_program_list_rect(&list_x, &list_y, &list_w, &list_h);
+  button_x = list_x + list_w - 24;
+
+  if (x)
+    *x = button_x;
+  if (y)
+    *y = direction < 0 ? list_y : list_y + list_h - MAIN_MENU_SCROLL_BUTTON_H;
+  if (w)
+    *w = 24;
+  if (h)
+    *h = MAIN_MENU_SCROLL_BUTTON_H;
+  return 1;
 }
 
 static int main_menu_power_item_bounds(int item_index, int *x, int *y, int *w,
@@ -14517,6 +14650,32 @@ static int main_menu_item_at(int x, int y) {
         y < item_y + item_h)
       return i;
   }
+
+  if (main_menu_all_programs_open) {
+    int btn_x, btn_y, btn_w, btn_h;
+    int visible_rows = main_menu_program_visible_rows();
+
+    if (main_menu_program_scroll_button_bounds(-1, &btn_x, &btn_y, &btn_w, &btn_h) &&
+        x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + btn_h)
+      return MAIN_MENU_ITEM_PROGRAM_SCROLL_UP;
+    if (main_menu_program_scroll_button_bounds(1, &btn_x, &btn_y, &btn_w, &btn_h) &&
+        x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + btn_h)
+      return MAIN_MENU_ITEM_PROGRAM_SCROLL_DOWN;
+
+    main_menu_clamp_program_scroll();
+    for (int slot = 0; slot < visible_rows; slot++) {
+      int row_x, row_y, row_w, row_h;
+      const dock_app_def_t *app =
+          main_menu_program_by_visible_index(main_menu_program_scroll + slot);
+      if (!app)
+        break;
+      if (!main_menu_program_row_bounds(slot, &row_x, &row_y, &row_w, &row_h))
+        continue;
+      if (x >= row_x && x < row_x + row_w && y >= row_y && y < row_y + row_h)
+        return MAIN_MENU_ITEM_PROGRAM_BASE + main_menu_program_scroll + slot;
+    }
+  }
+
   for (int i = MAIN_MENU_ITEM_POWER_LOGOUT;
        i <= MAIN_MENU_ITEM_POWER_RESTART; i++) {
     int item_x, item_y, item_w, item_h;
@@ -14606,6 +14765,91 @@ static void draw_main_menu_power_dropdown(void) {
   }
 }
 
+static void draw_main_menu_all_programs_list(void) {
+  int list_x, list_y, list_w, list_h;
+  int visible_rows = main_menu_program_visible_rows();
+  int app_count = 0;
+  int hovered_item = main_menu_item_at(mouse_x, mouse_y);
+
+  load_system_app_catalog();
+  for (int i = 0; i < app_catalog_count; i++) {
+    if (app_is_installed(&app_catalog[i]))
+      app_count++;
+  }
+
+  main_menu_program_list_rect(&list_x, &list_y, &list_w, &list_h);
+  main_menu_clamp_program_scroll();
+
+  gui_fill_rect_alpha(list_x, list_y, list_w - 30, list_h, 0x18212D3B);
+
+  for (int slot = 0; slot < visible_rows; slot++) {
+    int row_x, row_y, row_w, row_h;
+    const dock_app_def_t *app =
+        main_menu_program_by_visible_index(main_menu_program_scroll + slot);
+    int hovered;
+
+    if (!app)
+      break;
+    if (!main_menu_program_row_bounds(slot, &row_x, &row_y, &row_w, &row_h))
+      continue;
+
+    hovered = (hovered_item == MAIN_MENU_ITEM_PROGRAM_BASE +
+                                   main_menu_program_scroll + slot);
+    gui_fill_rect_alpha(row_x, row_y, row_w, row_h,
+                        hovered ? 0x4A355177 : 0x24202A38);
+    gui_draw_rect_outline(row_x, row_y, row_w, row_h,
+                          hovered ? 0x8AB7DAFF : 0x304A586B, 1);
+    gui_fill_rect_alpha(row_x + 6, row_y + 5, 22, 22,
+                        app->icon_color | 0x66000000);
+    gui_draw_rect_outline(row_x + 6, row_y + 5, 22, 22, 0x90FFFFFF, 1);
+    draw_system_app_icon_kind(app->kind, row_x + 7, row_y + 6, 20);
+    gui_draw_string(row_x + 36, row_y + 10, app->label, 0xF4F7FB, 0x00000000);
+  }
+
+  {
+    int btn_x, btn_y, btn_w, btn_h;
+    char count_buf[32] = "";
+    int count_idx = 0;
+    int max_scroll = main_menu_program_scroll_max();
+
+    append_decimal(count_buf, &count_idx, app_count);
+    notepad_append_to_buf(count_buf, sizeof(count_buf), " apps");
+    gui_draw_string(list_x + 4, list_y - 18, count_buf, 0xA7B4C4, 0x00000000);
+
+    main_menu_program_scroll_button_bounds(-1, &btn_x, &btn_y, &btn_w, &btn_h);
+    gui_fill_rect_alpha(btn_x, btn_y, btn_w, btn_h,
+                        hovered_item == MAIN_MENU_ITEM_PROGRAM_SCROLL_UP
+                            ? 0x42486178
+                            : 0x24313D50);
+    gui_draw_rect_outline(btn_x, btn_y, btn_w, btn_h, 0x304A586B, 1);
+    gui_draw_string(btn_x + 8, btn_y + 6, "^", 0xEAF2FF, 0x00000000);
+
+    main_menu_program_scroll_button_bounds(1, &btn_x, &btn_y, &btn_w, &btn_h);
+    gui_fill_rect_alpha(btn_x, btn_y, btn_w, btn_h,
+                        hovered_item == MAIN_MENU_ITEM_PROGRAM_SCROLL_DOWN
+                            ? 0x42486178
+                            : 0x24313D50);
+    gui_draw_rect_outline(btn_x, btn_y, btn_w, btn_h, 0x304A586B, 1);
+    gui_draw_string(btn_x + 8, btn_y + 6, "v", 0xEAF2FF, 0x00000000);
+
+    if (max_scroll > 0) {
+      int track_x = list_x + list_w - 15;
+      int track_y = list_y + MAIN_MENU_SCROLL_BUTTON_H + 6;
+      int track_h = list_h - MAIN_MENU_SCROLL_BUTTON_H * 2 - 12;
+      int thumb_h = (visible_rows * track_h) / app_count;
+      int thumb_y = track_y;
+
+      if (thumb_h < 20)
+        thumb_h = 20;
+      if (track_h > thumb_h)
+        thumb_y += (main_menu_program_scroll * (track_h - thumb_h)) / max_scroll;
+
+      gui_fill_rect_alpha(track_x, track_y, 6, track_h, 0x18273548);
+      gui_fill_rect_alpha(track_x, thumb_y, 6, thumb_h, 0x6A89B4FA);
+    }
+  }
+}
+
 static void draw_main_menu_panel(void) {
   const gui_theme_palette_t *theme = gui_theme_palette();
   int panel_x, panel_y, panel_w, panel_h;
@@ -14662,20 +14906,27 @@ static void draw_main_menu_panel(void) {
   gui_draw_string(panel_x + MAIN_MENU_LEFT_W + 16, panel_y + 46, "System",
                   0xFFFFFF, 0x00000000);
 
-  draw_main_menu_row(MAIN_MENU_ITEM_TERMINAL, "Terminal", "Console and shell",
-                     0x1F2937, 0);
-  draw_main_menu_row(MAIN_MENU_ITEM_FILES, "Files", "Browse folders",
-                     0x3B82F6, 0);
-  draw_main_menu_row(MAIN_MENU_ITEM_NOTES, "Notepad", "Quick editing",
-                     0xFACC15, 0);
-  draw_main_menu_row(MAIN_MENU_ITEM_SETTINGS, "Settings", "System controls",
-                     0x9CA3AF, 0);
-  draw_main_menu_row(MAIN_MENU_ITEM_BROWSER, "Browser", "Open the web",
-                     0x0EA5E9, 0);
-  draw_main_menu_row(MAIN_MENU_ITEM_APPSTORE, "App Store", "Install apps",
-                     0x7C3AED, 0);
+  if (main_menu_all_programs_open) {
+    draw_main_menu_all_programs_list();
+  } else {
+    draw_main_menu_row(MAIN_MENU_ITEM_TERMINAL, "Terminal", "Console and shell",
+                       0x1F2937, 0);
+    draw_main_menu_row(MAIN_MENU_ITEM_FILES, "Files", "Browse folders",
+                       0x3B82F6, 0);
+    draw_main_menu_row(MAIN_MENU_ITEM_NOTES, "Notepad", "Quick editing",
+                       0xFACC15, 0);
+    draw_main_menu_row(MAIN_MENU_ITEM_SETTINGS, "Settings", "System controls",
+                       0x9CA3AF, 0);
+    draw_main_menu_row(MAIN_MENU_ITEM_BROWSER, "Browser", "Open the web",
+                       0x0EA5E9, 0);
+    draw_main_menu_row(MAIN_MENU_ITEM_APPSTORE, "App Store", "Install apps",
+                       0x7C3AED, 0);
+  }
 
   draw_main_menu_row(MAIN_MENU_ITEM_ABOUT, "About OS", NULL, 0x89B4FA, 1);
+  draw_main_menu_row(MAIN_MENU_ITEM_ALL_PROGRAMS, "All Programs",
+                     main_menu_all_programs_open ? "Hide" : ">",
+                     0x60A5FA, 1);
   draw_main_menu_row(MAIN_MENU_ITEM_POWER, "Power", main_menu_power_open ? "v" : ">",
                      0xDC2626, 1);
   draw_main_menu_power_dropdown();
@@ -14688,6 +14939,12 @@ static int main_menu_activate(int item_index) {
   case MAIN_MENU_ITEM_ABOUT:
     gui_create_window("About", 210, 140, 560, 360);
     break;
+  case MAIN_MENU_ITEM_ALL_PROGRAMS:
+    main_menu_mark_dirty();
+    main_menu_all_programs_open = main_menu_all_programs_open ? 0 : 1;
+    main_menu_program_scroll = 0;
+    main_menu_mark_dirty();
+    return 1;
   case MAIN_MENU_ITEM_TERMINAL:
     gui_launch_app_by_id("terminal");
     break;
@@ -14710,6 +14967,20 @@ static int main_menu_activate(int item_index) {
     main_menu_mark_dirty();
     main_menu_power_open = main_menu_power_open ? 0 : 1;
     main_menu_mark_dirty();
+    return 1;
+  case MAIN_MENU_ITEM_PROGRAM_SCROLL_UP:
+    if (main_menu_program_scroll > 0) {
+      main_menu_mark_dirty();
+      main_menu_program_scroll--;
+      main_menu_mark_dirty();
+    }
+    return 1;
+  case MAIN_MENU_ITEM_PROGRAM_SCROLL_DOWN:
+    if (main_menu_program_scroll < main_menu_program_scroll_max()) {
+      main_menu_mark_dirty();
+      main_menu_program_scroll++;
+      main_menu_mark_dirty();
+    }
     return 1;
   case MAIN_MENU_ITEM_POWER_LOGOUT:
     main_menu_mark_dirty();
@@ -14735,6 +15006,14 @@ static int main_menu_activate(int item_index) {
     break;
   }
   default:
+    if (item_index >= MAIN_MENU_ITEM_PROGRAM_BASE) {
+      const dock_app_def_t *app =
+          main_menu_program_by_visible_index(item_index - MAIN_MENU_ITEM_PROGRAM_BASE);
+      if (!app)
+        return 0;
+      gui_focus_or_launch_app_by_id(app->id);
+      break;
+    }
     return 0;
   }
 
@@ -14742,6 +15021,7 @@ static int main_menu_activate(int item_index) {
     main_menu_mark_dirty();
   menu_open = 0;
   main_menu_power_open = 0;
+  main_menu_all_programs_open = 0;
   main_menu_mark_dirty();
   return 1;
 }
