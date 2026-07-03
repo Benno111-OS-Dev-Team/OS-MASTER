@@ -2721,20 +2721,24 @@ static void gui_fill_rect_alpha(int x, int y, int w, int h, uint32_t color) {
 
 static void gui_apply_backdrop_blur(int x, int y, int w, int h, int stride) {
   uint32_t *target = gui_draw_target();
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
   if (!target || w <= 0 || h <= 0)
+    return;
+
+  if (!gui_target_visible_rect(x, y, w, h, &clip_x, &clip_y, &clip_w, &clip_h))
     return;
 
   int pitch = g_render_target.pitch_pixels;
   if (stride < 1)
     stride = 1;
 
-  for (int row = y; row < y + h; row += stride) {
-    for (int col = x; col < x + w; col += stride) {
+  for (int row = clip_y; row < clip_y + clip_h; row += stride) {
+    int local_row = row - g_render_target.origin_y;
+    for (int col = clip_x; col < clip_x + clip_w; col += stride) {
       int local_col = col - g_render_target.origin_x;
-      int local_row = row - g_render_target.origin_y;
-      if (local_col < 0 || local_col >= g_render_target.width || local_row < 0 ||
-          local_row >= g_render_target.height)
-        continue;
 
       uint32_t sum_r = 0, sum_g = 0, sum_b = 0, count = 0;
       for (int sy = -2; sy <= 2; sy += 2) {
@@ -2761,14 +2765,17 @@ static void gui_apply_backdrop_blur(int x, int y, int w, int h, int stride) {
           (((sum_r / count) & 0xFF) << 16) | (((sum_g / count) & 0xFF) << 8) |
           ((sum_b / count) & 0xFF);
 
-      for (int fy = 0; fy < stride && row + fy < y + h; fy++) {
-        for (int fx = 0; fx < stride && col + fx < x + w; fx++) {
-          int out_x = local_col + fx;
-          int out_y = local_row + fy;
-          if (out_x < 0 || out_x >= g_render_target.width || out_y < 0 ||
-              out_y >= g_render_target.height)
-            continue;
-          target[out_y * pitch + out_x] = blurred;
+      int fill_h = stride;
+      int fill_w = stride;
+      if (row + fill_h > clip_y + clip_h)
+        fill_h = clip_y + clip_h - row;
+      if (col + fill_w > clip_x + clip_w)
+        fill_w = clip_x + clip_w - col;
+
+      for (int fy = 0; fy < fill_h; fy++) {
+        uint32_t *dst = target + (local_row + fy) * pitch + local_col;
+        for (int fx = 0; fx < fill_w; fx++) {
+          dst[fx] = blurred;
         }
       }
     }
