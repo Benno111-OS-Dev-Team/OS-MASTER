@@ -118,6 +118,7 @@ static void installer_process_background_install(void);
 static void gui_flush_account_state_before_power_transition(void);
 static void str_copy_safe(char *dst, const char *src, int max);
 static int str_cmp(const char *s1, const char *s2);
+static int str_ends_with_ci(const char *name, const char *ext);
 static const char *resolve_user_storage_path(const char *path, char *buf,
                                              int max);
 static void ensure_user_storage_dirs(void);
@@ -731,6 +732,114 @@ static int background_settings_window_count = 0;
 #define WALLPAPER_THUMBNAIL_W 96
 #define WALLPAPER_THUMBNAIL_H 64
 
+static int path_is_supported_image_file(const char *path) {
+  return path &&
+         (str_ends_with_ci(path, ".png") || str_ends_with_ci(path, ".jpg") ||
+          str_ends_with_ci(path, ".jpeg") || str_ends_with_ci(path, ".svg"));
+}
+
+static int decode_jpeg_image(const uint8_t *data, size_t size, media_image_t *out,
+                             uint32_t *jpeg_buffer, size_t jpeg_buffer_size,
+                             int *heap_allocated) {
+  int ret;
+
+  if (!data || !out)
+    return -EINVAL;
+
+  out->width = 0;
+  out->height = 0;
+  out->pixels = NULL;
+
+  if (jpeg_buffer && jpeg_buffer_size) {
+    ret = media_decode_jpeg_buffer(data, size, out, jpeg_buffer, jpeg_buffer_size);
+    if (ret == -ENOMEM) {
+      out->width = 0;
+      out->height = 0;
+      out->pixels = NULL;
+      ret = media_decode_jpeg(data, size, out);
+    }
+  } else {
+    ret = media_decode_jpeg(data, size, out);
+  }
+
+  if (heap_allocated) {
+    if (ret == 0) {
+      *heap_allocated = !(jpeg_buffer && out->pixels == jpeg_buffer);
+    } else {
+      *heap_allocated = 0;
+    }
+  }
+
+  return ret;
+}
+
+static int decode_image_file_for_path(const char *path, const uint8_t *data,
+                                      size_t size, media_image_t *out,
+                                      uint32_t *jpeg_buffer,
+                                      size_t jpeg_buffer_size,
+                                      int *heap_allocated) {
+  int ret = -EINVAL;
+
+  if (!data || !size || !out)
+    return -EINVAL;
+
+  if (heap_allocated)
+    *heap_allocated = 0;
+
+  if (size >= 4 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
+      data[3] == 'G') {
+    ret = media_decode_png(data, size, out);
+    if (heap_allocated)
+      *heap_allocated = (ret == 0);
+    return ret;
+  }
+
+  if (size >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
+    return decode_jpeg_image(data, size, out, jpeg_buffer, jpeg_buffer_size,
+                             heap_allocated);
+  }
+
+  if (path && str_ends_with_ci(path, ".svg")) {
+    ret = media_decode_svg(data, size, out);
+    if (heap_allocated)
+      *heap_allocated = (ret == 0);
+    return ret;
+  }
+
+  if (path && str_ends_with_ci(path, ".png")) {
+    ret = media_decode_png(data, size, out);
+    if (heap_allocated)
+      *heap_allocated = (ret == 0);
+    return ret;
+  }
+
+  if (path && (str_ends_with_ci(path, ".jpg") ||
+               str_ends_with_ci(path, ".jpeg"))) {
+    return decode_jpeg_image(data, size, out, jpeg_buffer, jpeg_buffer_size,
+                             heap_allocated);
+  }
+
+  ret = media_decode_svg(data, size, out);
+  if (ret == 0) {
+    if (heap_allocated)
+      *heap_allocated = 1;
+    return ret;
+  }
+
+  out->width = 0;
+  out->height = 0;
+  out->pixels = NULL;
+  ret = media_decode_png(data, size, out);
+  if (ret == 0) {
+    if (heap_allocated)
+      *heap_allocated = 1;
+    return ret;
+  }
+
+  return decode_jpeg_image(data, size, out, jpeg_buffer, jpeg_buffer_size,
+                           heap_allocated);
+}
+
 static int wallpaper_build_thumbnail(media_image_t *dest,
                                      const media_image_t *src) {
   size_t thumb_pixels =
@@ -797,16 +906,8 @@ static void load_thumbnails(void) {
       size_t size = 0;
       if (media_load_file(wallpapers[i].path, &data, &size) == 0) {
         media_image_t decoded = {0, 0, NULL};
-        int decode_ok;
-
-        if (size >= 4 && data[0] == 0x89 && data[1] == 'P' &&
-            data[2] == 'N' && data[3] == 'G') {
-          decode_ok = media_decode_png(data, size, &decoded);
-        } else if (size >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
-          decode_ok = media_decode_jpeg(data, size, &decoded);
-        } else {
-          decode_ok = media_decode_svg(data, size, &decoded);
-        }
+        int decode_ok = decode_image_file_for_path(
+            wallpapers[i].path, data, size, &decoded, NULL, 0, NULL);
 
         if (decode_ok == 0) {
           if (wallpaper_build_thumbnail(&thumbnail_cache[i], &decoded) != 0) {
@@ -851,38 +952,17 @@ static void wallpaper_ensure_loaded(void) {
   size_t size = 0;
 
   if (media_load_file(path, &data, &size) == 0) {
-    int decode_ok = -1;
-    if (size >= 4 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
-        data[3] == 'G') {
-      decode_ok = media_decode_png(data, size, &wallpaper_image);
-      if (decode_ok == 0)
-        wallpaper_image_heap_allocated = 1;
-    } else if (size >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
-      decode_ok = media_decode_jpeg_buffer(data, size, &wallpaper_image,
-                                           wallpaper_buffer,
-                                           sizeof(wallpaper_buffer));
-      if (decode_ok == -ENOMEM)
-        decode_ok = media_decode_jpeg(data, size, &wallpaper_image);
-      if (decode_ok == 0)
-        wallpaper_image_heap_allocated =
-            wallpaper_image.pixels != wallpaper_buffer;
-      else
-        wallpaper_image_heap_allocated = 0;
-    } else {
-      decode_ok = media_decode_svg(data, size, &wallpaper_image);
-      wallpaper_image_heap_allocated = (decode_ok == 0);
-    }
+    int decode_ok = decode_image_file_for_path(
+        path, data, size, &wallpaper_image, wallpaper_buffer,
+        sizeof(wallpaper_buffer), &wallpaper_image_heap_allocated);
     if (decode_ok == 0) {
       wallpaper_loaded = current_wallpaper;
     } else {
-      /* Fallback to gradient if decode fails */
-      wallpapers[current_wallpaper].type = 0;
       wallpaper_loaded = -1;
     }
     media_free_file(data);
   } else {
-    /* Fallback to gradient if load fails */
-    wallpapers[current_wallpaper].type = 0;
+    wallpaper_loaded = -1;
   }
 }
 
@@ -10593,8 +10673,7 @@ static void fm_open_item(struct window *win, struct fm_state *st, const char *na
         0) {
       gui_launch_app_by_id(app_id);
     }
-  } else if (str_ends_with_ci(name, ".jpg") || str_ends_with_ci(name, ".jpeg") ||
-             str_ends_with_ci(name, ".png")) {
+  } else if (path_is_supported_image_file(name)) {
     gui_open_image_viewer(full_path);
   } else if (str_ends_with_ci(name, ".mp3")) {
     gui_play_mp3_file(full_path);
@@ -10667,8 +10746,7 @@ static const unsigned char *fm_icon_for_item(const char *name, unsigned type,
   } else if (str_ends_with_ci(name, ".nano")) {
     bmp = icon_nano;
     color = 0x4ADE80;
-  } else if (str_ends_with_ci(name, ".jpg") || str_ends_with_ci(name, ".jpeg") ||
-             str_ends_with_ci(name, ".png")) {
+  } else if (path_is_supported_image_file(name)) {
     color = 0xF9E2AF;
   } else if (str_ends_with_ci(name, ".mp3")) {
     color = 0x86EFAC;
@@ -10690,8 +10768,7 @@ static const char *fm_type_label(const char *name, unsigned type) {
     return "Python";
   if (str_ends_with_ci(name, ".nano"))
     return "NanoLang";
-  if (str_ends_with_ci(name, ".jpg") || str_ends_with_ci(name, ".jpeg") ||
-      str_ends_with_ci(name, ".png"))
+  if (path_is_supported_image_file(name))
     return "Image";
   if (str_ends_with_ci(name, ".mp3"))
     return "Audio";
@@ -11816,23 +11893,11 @@ void gui_open_image_viewer(const char *path) {
     g_imgview.loaded = 0;
   }
 
-  /* Decode new image into global state - detect format by magic bytes */
-  int decode_ret = -1;
-  /* PNG magic: 0x89 'P' 'N' 'G' */
-  if (size >= 4 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
-      data[3] == 'G') {
-    decode_ret = media_decode_png(data, size, &g_imgview.image);
-    if (decode_ret != 0) {
-      printk("Image Viewer: PNG decode failed\n");
-    }
-  } else {
-    /* Assume JPEG */
-    decode_ret = media_decode_jpeg(data, size, &g_imgview.image);
-    if (decode_ret != 0) {
-      printk("Image Viewer: JPEG decode failed\n");
-    }
-  }
+  /* Decode new image using the shared wallpaper/image loader. */
+  int decode_ret =
+      decode_image_file_for_path(path, data, size, &g_imgview.image, NULL, 0, NULL);
   if (decode_ret != 0) {
+    printk("Image Viewer: image decode failed for %s\n", path);
     media_free_file(data);
     return;
   }
@@ -19560,13 +19625,8 @@ static void image_viewer_load_bootstrap(int index) {
     return;
   }
 
-  /* PNG magic: 0x89 'P' 'N' 'G' */
-  if (len >= 4 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
-      data[3] == 'G') {
-    ret = media_decode_png(data, len, &g_imgview.image);
-  } else {
-    ret = media_decode_jpeg(data, len, &g_imgview.image);
-  }
+  ret = decode_image_file_for_path(path, data, len, &g_imgview.image, NULL, 0,
+                                   NULL);
   if (used_external_file)
     media_free_file(external_data);
 
@@ -19624,13 +19684,9 @@ static void image_viewer_load_from_folder(int index) {
   }
 
   /* Decode image */
-  int ret = -1;
-  if (size >= 4 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
-      data[3] == 'G') {
-    ret = media_decode_png(data, size, &g_imgview.image);
-  } else {
-    ret = media_decode_jpeg(data, size, &g_imgview.image);
-  }
+  int ret =
+      decode_image_file_for_path(full_path, data, size, &g_imgview.image, NULL, 0,
+                                 NULL);
   media_free_file(data);
 
   if (ret == 0) {
