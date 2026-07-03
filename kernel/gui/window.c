@@ -2652,12 +2652,30 @@ static inline uint32_t *gui_draw_target(void) {
 static inline void draw_image_pixel(int x, int y, uint32_t color) {
   uint32_t alpha = color >> 24;
 
+  if (g_clip.enabled &&
+      (x < g_clip.x0 || x >= g_clip.x1 || y < g_clip.y0 || y >= g_clip.y1))
+    return;
+
+  if (!g_render_target.pixels)
+    return;
+
+  x -= g_render_target.origin_x;
+  y -= g_render_target.origin_y;
+
+  if (x < 0 || x >= g_render_target.width)
+    return;
+  if (y < 0 || y >= g_render_target.height)
+    return;
+
   if (alpha == 0)
     return;
-  if (alpha == 0xFF)
-    draw_pixel(x, y, color);
-  else
-    draw_pixel_alpha(x, y, color);
+
+  uint32_t *dst = &g_render_target.pixels[y * g_render_target.pitch_pixels + x];
+  if (alpha == 0xFF) {
+    *dst = color & 0xFFFFFF;
+  } else {
+    *dst = gui_blend_rgb_over(*dst, color, alpha);
+  }
 }
 
 static void gui_fill_rect_alpha(int x, int y, int w, int h, uint32_t color) {
