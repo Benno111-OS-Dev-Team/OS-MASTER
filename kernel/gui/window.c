@@ -2973,16 +2973,47 @@ static void gui_draw_os_logo(int x, int y, int scale, uint32_t fg,
 
 static void gui_draw_image_scaled(int x, int y, int w, int h,
                                   const media_image_t *image) {
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+
   if (!image || !image->pixels || image->width == 0 || image->height == 0 ||
       w <= 0 || h <= 0)
     return;
 
-  for (int dy = 0; dy < h; dy++) {
-    uint32_t src_y = ((uint32_t)dy * image->height) / (uint32_t)h;
-    for (int dx = 0; dx < w; dx++) {
-      uint32_t src_x = ((uint32_t)dx * image->width) / (uint32_t)w;
-      uint32_t color = image->pixels[src_y * image->width + src_x];
-      draw_image_pixel(x + dx, y + dy, color);
+  if (!gui_target_visible_rect(x, y, w, h, &clip_x, &clip_y, &clip_w, &clip_h))
+    return;
+
+  uint32_t *target = gui_draw_target();
+  if (!target)
+    return;
+
+  int local_x = clip_x - g_render_target.origin_x;
+  int local_y = clip_y - g_render_target.origin_y;
+  int start_dx = clip_x - x;
+  int start_dy = clip_y - y;
+  int pitch = g_render_target.pitch_pixels;
+
+  for (int dy = 0; dy < clip_h; dy++) {
+    uint32_t src_y =
+        ((uint32_t)(start_dy + dy) * image->height) / (uint32_t)h;
+    const uint32_t *src_row = image->pixels + src_y * image->width;
+    uint32_t *dst_row = target + (local_y + dy) * pitch + local_x;
+
+    for (int dx = 0; dx < clip_w; dx++) {
+      uint32_t src_x =
+          ((uint32_t)(start_dx + dx) * image->width) / (uint32_t)w;
+      uint32_t color = src_row[src_x];
+      uint32_t alpha = color >> 24;
+
+      if (alpha == 0)
+        continue;
+      if (alpha == 0xFF) {
+        dst_row[dx] = color & 0xFFFFFF;
+      } else {
+        dst_row[dx] = gui_blend_rgb_over(dst_row[dx], color, alpha);
+      }
     }
   }
 }
