@@ -16590,6 +16590,18 @@ static void draw_top_rounded_rect_alpha(int x, int y, int w, int h, int r,
   }
 }
 
+static int rects_intersect(int ax, int ay, int aw, int ah, int bx, int by, int bw,
+                           int bh) {
+  int ax2 = ax + aw;
+  int ay2 = ay + ah;
+  int bx2 = bx + bw;
+  int by2 = by + bh;
+
+  if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0)
+    return 0;
+  return ax < bx2 && ax2 > bx && ay < by2 && ay2 > by;
+}
+
 /* ===================================================================== */
 /* Compositor - Draw everything with dirty region optimization */
 /* ===================================================================== */
@@ -17313,7 +17325,8 @@ static void blit_region(int x, int y, int w, int h) {
   }
 }
 
-static void gui_draw_scene_layers(void) {
+static void gui_draw_scene_layers_rect(int dirty_x, int dirty_y, int dirty_w,
+                                       int dirty_h) {
   draw_desktop();
 
   /* Draw windows from bottom to top (reverse order) */
@@ -17325,16 +17338,48 @@ static void gui_draw_scene_layers(void) {
   }
 
   for (int i = count - 1; i >= 0; i--) {
-    draw_window(draw_order[i]);
+    int win_x;
+    int win_y;
+    int win_w;
+    int win_h;
+
+    window_get_draw_rect(draw_order[i], &win_x, &win_y, &win_w, &win_h);
+    if (rects_intersect(win_x, win_y, win_w, win_h, dirty_x, dirty_y, dirty_w,
+                        dirty_h))
+      draw_window(draw_order[i]);
   }
 
-  draw_menu_bar();
-  if (dock_is_visible())
+  if (rects_intersect(0, 0, (int)primary_display.width, MENU_BAR_HEIGHT, dirty_x,
+                      dirty_y, dirty_w, dirty_h))
+    draw_menu_bar();
+  if (dock_is_visible() &&
+      rects_intersect(0,
+                      (int)primary_display.height - dock_reserved_height(),
+                      (int)primary_display.width, dock_reserved_height(), dirty_x,
+                      dirty_y, dirty_w, dirty_h))
     draw_dock();
 
-  draw_window_switcher_overlay();
-  draw_secure_attention_overlay();
-  gui_draw_desktop_frame_profiler();
+  if (window_switcher_frames > 0)
+    draw_window_switcher_overlay();
+  if (secure_attention_open)
+    draw_secure_attention_overlay();
+
+  {
+    int profiler_x = (int)primary_display.width - GUI_PROFILER_PANEL_W -
+                     GUI_PROFILER_PANEL_MARGIN;
+    int profiler_y = GUI_PROFILER_PANEL_MARGIN;
+    if (profiler_x < GUI_PROFILER_PANEL_MARGIN)
+      profiler_x = GUI_PROFILER_PANEL_MARGIN;
+    if (g_desktop_frame_profile_valid &&
+        rects_intersect(profiler_x, profiler_y, GUI_PROFILER_PANEL_W,
+                        GUI_PROFILER_PANEL_H, dirty_x, dirty_y, dirty_w, dirty_h))
+      gui_draw_desktop_frame_profiler();
+  }
+}
+
+static void gui_draw_scene_layers(void) {
+  gui_draw_scene_layers_rect(0, 0, (int)primary_display.width,
+                             (int)primary_display.height);
 }
 
 static uint32_t gui_contrast_title_color(uint32_t rgb) {
@@ -17397,7 +17442,7 @@ void gui_compose(void) {
   } else if (compositor_build_dirty_bounds(&draw_x, &draw_y, &draw_w,
                                            &draw_h)) {
     prev_clip = gui_set_clip_rect(draw_x, draw_y, draw_w, draw_h);
-    gui_draw_scene_layers();
+    gui_draw_scene_layers_rect(draw_x, draw_y, draw_w, draw_h);
     gui_restore_clip_rect(prev_clip);
   }
 
