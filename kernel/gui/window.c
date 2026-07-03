@@ -15609,18 +15609,63 @@ static void draw_menu_bar(void) {
 /* Draw a 32x32 bitmap icon scaled to display size */
 static void draw_icon(int x, int y, int size, const unsigned char *bitmap,
                       uint32_t fg, uint32_t bg) {
-  for (int py = 0; py < 32; py++) {
-    int draw_y = y + (py * size) / 32;
-    for (int px = 0; px < 32; px++) {
-      int draw_x = x + (px * size) / 32;
-      uint32_t color = bitmap[py * 32 + px] ? fg : bg;
-      /* Draw a small block for scaling */
-      int next_x = x + ((px + 1) * size) / 32;
-      int next_y = y + ((py + 1) * size) / 32;
-      for (int dy = draw_y; dy < next_y; dy++) {
-        for (int dx = draw_x; dx < next_x; dx++) {
-          draw_pixel(dx, dy, color);
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
+
+  if (!bitmap || size <= 0)
+    return;
+
+  if (!gui_target_visible_rect(x, y, size, size, &clip_x, &clip_y, &clip_w,
+                               &clip_h))
+    return;
+
+  uint32_t *target = gui_draw_target();
+  if (!target)
+    return;
+
+  int local_x0 = clip_x - g_render_target.origin_x;
+  int local_y0 = clip_y - g_render_target.origin_y;
+  int start_dx = clip_x - x;
+  int start_dy = clip_y - y;
+  int pitch = g_render_target.pitch_pixels;
+
+  for (int dy = 0; dy < clip_h; dy++) {
+    int src_y = ((start_dy + dy) * 32) / size;
+    uint32_t *dst_row = target + (local_y0 + dy) * pitch + local_x0;
+    int run_start = 0;
+    uint32_t run_color = bitmap[src_y * 32 + ((start_dx * 32) / size)] ? fg : bg;
+
+    for (int dx = 0; dx <= clip_w; dx++) {
+      uint32_t color = run_color;
+
+      if (dx < clip_w) {
+        int src_x = ((start_dx + dx) * 32) / size;
+        color = bitmap[src_y * 32 + src_x] ? fg : bg;
+      }
+
+      if (dx == clip_w || color != run_color) {
+        int span_w = dx - run_start;
+        uint32_t alpha = (run_color >> 24) & 0xFF;
+
+        if (span_w > 0 && alpha != 0) {
+          if (alpha == 0xFF) {
+            uint32_t solid = run_color & 0xFFFFFF;
+            for (int col = 0; col < span_w; col++) {
+              dst_row[run_start + col] = solid;
+            }
+          } else {
+            for (int col = 0; col < span_w; col++) {
+              int dst_index = run_start + col;
+              dst_row[dst_index] =
+                  gui_blend_rgb_over(dst_row[dst_index], run_color, alpha);
+            }
+          }
         }
+
+        run_start = dx;
+        run_color = color;
       }
     }
   }
