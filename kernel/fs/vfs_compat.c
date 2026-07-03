@@ -5,6 +5,7 @@
  */
 
 #include "../include/fs/vfs_compat.h"
+#include "../include/fs/vfs.h"
 #include "../include/printk.h"
 #include "mm/kmalloc.h"
 
@@ -50,6 +51,46 @@ static void strcpy_safe(char *dst, const char *src, size_t max) {
     i++;
   }
   dst[i] = '\0';
+}
+
+typedef struct vfs_readdir_compat_ctx {
+  int target_index;
+  int current_index;
+  char *name;
+  size_t name_size;
+  uint8_t *type;
+  int found;
+} vfs_readdir_compat_ctx_t;
+
+static int vfs_readdir_compat_fill(void *ctx, const char *name, int len,
+                                   loff_t offset, ino_t ino, unsigned type) {
+  vfs_readdir_compat_ctx_t *state = (vfs_readdir_compat_ctx_t *)ctx;
+  int copy_len;
+
+  (void)offset;
+  (void)ino;
+
+  if (!state || !name || len <= 0)
+    return 0;
+  if ((len == 1 && name[0] == '.') ||
+      (len == 2 && name[0] == '.' && name[1] == '.'))
+    return 0;
+
+  if (state->current_index == state->target_index) {
+    copy_len = (len < (int)state->name_size - 1) ? len
+                                                 : (int)state->name_size - 1;
+    if (state->name && state->name_size > 0) {
+      for (int i = 0; i < copy_len; i++)
+        state->name[i] = name[i];
+      state->name[copy_len] = '\0';
+    }
+    if (state->type)
+      *state->type = (uint8_t)type;
+    state->found = 1;
+  }
+
+  state->current_index++;
+  return 0;
 }
 
 /* Look up a file by path */
@@ -135,10 +176,15 @@ int vfs_read_compat(vfs_node_t *node, char *buf, size_t size, size_t offset) {
 
 /* Write to file */
 int vfs_write_compat(vfs_node_t *node, const char *buf, size_t size) {
-  (void)node;
-  (void)buf;
-  (void)size;
-  return 0;
+  int ret;
+
+  if (!node || !buf)
+    return -1;
+
+  ret = vfs_save_file(node->name, buf, size, 0);
+  if (ret == 0)
+    node->size = size;
+  return ret;
 }
 
 /* Check if directory */
@@ -207,12 +253,30 @@ int vfs_rename_compat(const char *oldpath, const char *newname) {
 /* Read directory */
 int vfs_readdir_compat(vfs_node_t *dir, int index, char *name, size_t name_size,
                        uint8_t *type) {
-  (void)dir;
-  (void)index;
-  (void)name;
-  (void)name_size;
-  (void)type;
-  return -1; /* End of directory */
+  struct file *file;
+  vfs_readdir_compat_ctx_t ctx;
+
+  if (!dir || !dir->is_dir || !name || name_size == 0 || index < 0)
+    return -1;
+
+  name[0] = '\0';
+  if (type)
+    *type = 0;
+
+  file = vfs_open(dir->name, O_RDONLY, 0);
+  if (!file)
+    return -1;
+
+  ctx.target_index = index;
+  ctx.current_index = 0;
+  ctx.name = name;
+  ctx.name_size = name_size;
+  ctx.type = type;
+  ctx.found = 0;
+
+  vfs_readdir(file, &ctx, vfs_readdir_compat_fill);
+  vfs_close(file);
+  return ctx.found ? 0 : -1;
 }
 
 /* Set CWD */

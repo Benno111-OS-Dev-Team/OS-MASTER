@@ -5,6 +5,7 @@
  * sorting, stacking, and full file operations.
  */
 
+#include "desktop.h"
 #include "fs/vfs.h"
 #include "drivers/storage.h"
 #include "mm/kmalloc.h"
@@ -34,6 +35,7 @@ extern void gui_open_image_viewer(const char *path);
 extern void gui_open_notepad(const char *path);
 extern void gui_set_window_userdata(struct window *win, void *data);
 extern int gui_draw_system_app_icon(const char *app_id, int x, int y, int size);
+extern int gui_launch_app_by_id(const char *app_id);
 void desktop_mark_dirty(int x, int y, int w, int h);
 
 /* External terminal functions */
@@ -60,6 +62,14 @@ void desktop_arrange_icons(void);
 #define DESKTOP_MAX_ICONS 128
 #define DESKTOP_START_X 20
 #define DESKTOP_START_Y 50 /* Below menu bar */
+#define DESKTOP_SIDEBAR_CONFIG_PATH "/System/sidebar.cfg"
+#define DESKTOP_SIDEBAR_ITEM_COUNT 6
+#define DESKTOP_SIDEBAR_MIN_WIDTH 124
+#define DESKTOP_SIDEBAR_MAX_WIDTH 220
+#define DESKTOP_SIDEBAR_DEFAULT_WIDTH 156
+#define DESKTOP_SIDEBAR_MARGIN 16
+#define DESKTOP_SIDEBAR_ROW_H 42
+#define DESKTOP_SIDEBAR_ICON_SIZE 20
 
 /* Icon Types */
 #define ICON_TYPE_FILE 0
@@ -86,6 +96,12 @@ void desktop_arrange_icons(void);
 #define COLOR_MENU_HOVER 0x0078D4 /* Bright blue hover like Windows */
 #define COLOR_MENU_TEXT 0xFFFFFF
 #define COLOR_LABEL_BG 0x00000080 /* Semi-transparent */
+#define COLOR_SIDEBAR_BG 0x142031
+#define COLOR_SIDEBAR_BORDER 0x35506B
+#define COLOR_SIDEBAR_ROW 0x1C3047
+#define COLOR_SIDEBAR_ROW_HOVER 0x264566
+#define COLOR_SIDEBAR_TEXT 0xEAF4FF
+#define COLOR_SIDEBAR_MUTED 0x9DB5CB
 
 /* ===================================================================== */
 /* Desktop Icon Structure */
@@ -128,6 +144,17 @@ typedef struct context_menu {
   void *context; /* Context data for actions */
 } context_menu_t;
 
+typedef enum sidebar_item_kind {
+  SIDEBAR_ITEM_FOLDER = 0,
+  SIDEBAR_ITEM_APP = 1
+} sidebar_item_kind_t;
+
+typedef struct sidebar_item {
+  const char *label;
+  const char *target;
+  sidebar_item_kind_t kind;
+} sidebar_item_t;
+
 /* ===================================================================== */
 /* Desktop State */
 /* ===================================================================== */
@@ -143,6 +170,11 @@ static int desktop_drag_anchor_x = 0;
 static int desktop_drag_anchor_y = 0;
 static int desktop_drag_offset_x = 0;
 static int desktop_drag_offset_y = 0;
+static int desktop_sidebar_loaded = 0;
+static int desktop_sidebar_visible = 1;
+static int desktop_sidebar_side = DESKTOP_SIDEBAR_LEFT;
+static int desktop_sidebar_width = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
+static int desktop_sidebar_hover_index = -1;
 
 /* Context menu */
 static context_menu_t ctx_menu = {0};
@@ -166,6 +198,15 @@ typedef struct dirty_rect {
 static dirty_rect_t dirty_regions[32];
 static int dirty_count = 0;
 static int full_redraw_needed = 1;
+
+static const sidebar_item_t desktop_sidebar_items[DESKTOP_SIDEBAR_ITEM_COUNT] = {
+    {"Home", "/", SIDEBAR_ITEM_FOLDER},
+    {"Documents", "/Documents", SIDEBAR_ITEM_FOLDER},
+    {"Desktop", DESKTOP_PATH, SIDEBAR_ITEM_FOLDER},
+    {"Apps", "/System/Apps", SIDEBAR_ITEM_FOLDER},
+    {"Terminal", "terminal", SIDEBAR_ITEM_APP},
+    {"Settings", "settings", SIDEBAR_ITEM_APP},
+};
 
 #define CONTEXT_MENU_ITEM_HEIGHT 24
 #define CONTEXT_MENU_SEPARATOR_HEIGHT 8
@@ -195,6 +236,253 @@ static int str_cmp_nocase(const char *a, const char *b) {
     b++;
   }
   return (unsigned char)*a - (unsigned char)*b;
+}
+
+static int str_starts_with(const char *str, const char *prefix) {
+  int i = 0;
+
+  if (!str || !prefix)
+    return 0;
+  while (prefix[i]) {
+    if (str[i] != prefix[i])
+      return 0;
+    i++;
+  }
+  return 1;
+}
+
+static int parse_int(const char *text) {
+  int value = 0;
+  int sign = 1;
+  int i = 0;
+
+  if (!text)
+    return 0;
+  if (text[0] == '-') {
+    sign = -1;
+    i++;
+  }
+  while (text[i] >= '0' && text[i] <= '9') {
+    value = value * 10 + (text[i] - '0');
+    i++;
+  }
+  return value * sign;
+}
+
+static int clamp_sidebar_width(int width) {
+  if (width < DESKTOP_SIDEBAR_MIN_WIDTH)
+    return DESKTOP_SIDEBAR_MIN_WIDTH;
+  if (width > DESKTOP_SIDEBAR_MAX_WIDTH)
+    return DESKTOP_SIDEBAR_MAX_WIDTH;
+  return width;
+}
+
+static void desktop_append_decimal(char *buf, int *idx, int value, int max) {
+  char temp[16];
+  int temp_len = 0;
+  int out = idx ? *idx : 0;
+
+  if (!buf || !idx || max <= 0)
+    return;
+  if (value == 0) {
+    if (out < max - 1) {
+      buf[out++] = '0';
+      buf[out] = '\0';
+      *idx = out;
+    }
+    return;
+  }
+  if (value < 0) {
+    if (out < max - 1)
+      buf[out++] = '-';
+    value = -value;
+  }
+  while (value > 0 && temp_len < (int)sizeof(temp)) {
+    temp[temp_len++] = (char)('0' + (value % 10));
+    value /= 10;
+  }
+  while (temp_len > 0 && out < max - 1)
+    buf[out++] = temp[--temp_len];
+  buf[out] = '\0';
+  *idx = out;
+}
+
+static void desktop_write_sidebar_config(void) {
+  char buf[96];
+  int idx = 0;
+  struct file *file;
+
+  for (const char *p = "visible="; *p && idx < (int)sizeof(buf) - 1; p++)
+    buf[idx++] = *p;
+  buf[idx++] = desktop_sidebar_visible ? '1' : '0';
+  buf[idx++] = '\n';
+  for (const char *p = "side="; *p && idx < (int)sizeof(buf) - 1; p++)
+    buf[idx++] = *p;
+  for (const char *p = desktop_sidebar_side == DESKTOP_SIDEBAR_RIGHT ? "right"
+                                                                      : "left";
+       *p && idx < (int)sizeof(buf) - 1; p++)
+    buf[idx++] = *p;
+  buf[idx++] = '\n';
+  for (const char *p = "width="; *p && idx < (int)sizeof(buf) - 1; p++)
+    buf[idx++] = *p;
+  desktop_append_decimal(buf, &idx, desktop_sidebar_width, (int)sizeof(buf));
+  if (idx < (int)sizeof(buf) - 1)
+    buf[idx++] = '\n';
+  buf[idx] = '\0';
+
+  file = vfs_open(DESKTOP_SIDEBAR_CONFIG_PATH, O_CREAT | O_WRONLY, 0644);
+  if (!file)
+    return;
+  vfs_write(file, buf, (size_t)idx);
+  vfs_close(file);
+}
+
+static void desktop_load_sidebar_config(void) {
+  char buf[128];
+  struct file *file;
+  int bytes;
+  int line_start = 0;
+
+  if (desktop_sidebar_loaded)
+    return;
+  desktop_sidebar_loaded = 1;
+
+  file = vfs_open(DESKTOP_SIDEBAR_CONFIG_PATH, O_RDONLY, 0);
+  if (!file)
+    return;
+
+  bytes = vfs_read(file, buf, sizeof(buf) - 1);
+  vfs_close(file);
+  if (bytes <= 0)
+    return;
+  buf[bytes] = '\0';
+
+  for (int i = 0;; i++) {
+    char c = buf[i];
+    if (c == '\n' || c == '\r' || c == '\0') {
+      buf[i] = '\0';
+      if (str_starts_with(&buf[line_start], "visible=")) {
+        desktop_sidebar_visible = parse_int(&buf[line_start + 8]) ? 1 : 0;
+      } else if (str_starts_with(&buf[line_start], "side=")) {
+        desktop_sidebar_side =
+            str_cmp_nocase(&buf[line_start + 5], "right") == 0
+                ? DESKTOP_SIDEBAR_RIGHT
+                : DESKTOP_SIDEBAR_LEFT;
+      } else if (str_starts_with(&buf[line_start], "width=")) {
+        desktop_sidebar_width =
+            clamp_sidebar_width(parse_int(&buf[line_start + 6]));
+      }
+      if (c == '\0')
+        break;
+      line_start = i + 1;
+    }
+  }
+}
+
+static int desktop_sidebar_rect(int *x, int *y, int *w, int *h) {
+  int panel_x;
+  int panel_y;
+  int panel_h;
+
+  desktop_load_sidebar_config();
+  if (!desktop_sidebar_visible)
+    return 0;
+
+  panel_y = DESKTOP_START_Y;
+  panel_h = (int)gui_get_screen_height() - panel_y - 16;
+  if (panel_h < 120)
+    panel_h = 120;
+  panel_x = desktop_sidebar_side == DESKTOP_SIDEBAR_RIGHT
+                ? (int)gui_get_screen_width() - desktop_sidebar_width - 16
+                : 16;
+
+  if (x)
+    *x = panel_x;
+  if (y)
+    *y = panel_y;
+  if (w)
+    *w = desktop_sidebar_width;
+  if (h)
+    *h = panel_h;
+  return 1;
+}
+
+static int desktop_icon_min_x(void) {
+  int sidebar_x;
+  int sidebar_y;
+  int sidebar_w;
+  int sidebar_h;
+
+  if (desktop_sidebar_rect(&sidebar_x, &sidebar_y, &sidebar_w, &sidebar_h) &&
+      desktop_sidebar_side == DESKTOP_SIDEBAR_LEFT)
+    return sidebar_x + sidebar_w + DESKTOP_SIDEBAR_MARGIN;
+  return DESKTOP_START_X;
+}
+
+static int desktop_icon_max_x(void) {
+  int sidebar_x;
+  int sidebar_y;
+  int sidebar_w;
+  int sidebar_h;
+  int screen_w = (int)gui_get_screen_width();
+
+  if (desktop_sidebar_rect(&sidebar_x, &sidebar_y, &sidebar_w, &sidebar_h) &&
+      desktop_sidebar_side == DESKTOP_SIDEBAR_RIGHT)
+    return sidebar_x - DESKTOP_SIDEBAR_MARGIN - DESKTOP_ICON_SIZE;
+  return screen_w - DESKTOP_ICON_SIZE - 16;
+}
+
+static int desktop_icon_max_y(void) {
+  int max_y = (int)gui_get_screen_height() - 96;
+
+  if (max_y < DESKTOP_START_Y + DESKTOP_ICON_SIZE + DESKTOP_LABEL_HEIGHT)
+    max_y = DESKTOP_START_Y + DESKTOP_ICON_SIZE + DESKTOP_LABEL_HEIGHT;
+  return max_y;
+}
+
+static int desktop_sidebar_item_at(int x, int y) {
+  int panel_x;
+  int panel_y;
+  int panel_w;
+  int panel_h;
+  int row_y;
+
+  if (!desktop_sidebar_rect(&panel_x, &panel_y, &panel_w, &panel_h))
+    return -1;
+  if (x < panel_x || x >= panel_x + panel_w || y < panel_y || y >= panel_y + panel_h)
+    return -1;
+
+  row_y = panel_y + 52;
+  for (int i = 0; i < DESKTOP_SIDEBAR_ITEM_COUNT; i++) {
+    if (y >= row_y && y < row_y + DESKTOP_SIDEBAR_ROW_H)
+      return i;
+    row_y += DESKTOP_SIDEBAR_ROW_H + 8;
+  }
+  return -1;
+}
+
+static void desktop_sidebar_mark_region(void) {
+  int panel_x;
+  int panel_y;
+  int panel_w;
+  int panel_h;
+
+  if (desktop_sidebar_rect(&panel_x, &panel_y, &panel_w, &panel_h))
+    desktop_mark_dirty(panel_x, panel_y, panel_w, panel_h);
+}
+
+static void desktop_open_sidebar_item(int index) {
+  const sidebar_item_t *item;
+
+  if (index < 0 || index >= DESKTOP_SIDEBAR_ITEM_COUNT)
+    return;
+  item = &desktop_sidebar_items[index];
+
+  if (item->kind == SIDEBAR_ITEM_FOLDER) {
+    gui_create_file_manager_path(200, 100, item->target);
+    return;
+  }
+  gui_launch_app_by_id(item->target);
 }
 
 static int ctx_menu_item_block_height(int index) {
@@ -419,19 +707,23 @@ static void desktop_clear_drag_state(void) {
 static void desktop_snap_icon_to_grid(desktop_icon_t *icon) {
   int snapped_x;
   int snapped_y;
+  int min_x = desktop_icon_min_x();
+  int max_x = desktop_icon_max_x();
 
   if (!icon)
     return;
 
-  snapped_x = ((icon->x - DESKTOP_START_X + DESKTOP_ICON_SPACING / 2) /
+  snapped_x = ((icon->x - min_x + DESKTOP_ICON_SPACING / 2) /
                DESKTOP_ICON_SPACING) *
-              DESKTOP_ICON_SPACING + DESKTOP_START_X;
+              DESKTOP_ICON_SPACING + min_x;
   snapped_y = ((icon->y - DESKTOP_START_Y + DESKTOP_ICON_SPACING / 2) /
                DESKTOP_ICON_SPACING) *
               DESKTOP_ICON_SPACING + DESKTOP_START_Y;
 
-  if (snapped_x < DESKTOP_START_X)
-    snapped_x = DESKTOP_START_X;
+  if (snapped_x < min_x)
+    snapped_x = min_x;
+  if (snapped_x > max_x)
+    snapped_x = max_x;
   if (snapped_y < DESKTOP_START_Y)
     snapped_y = DESKTOP_START_Y;
   icon->x = snapped_x;
@@ -462,6 +754,8 @@ void desktop_update_drag(int x, int y, int left_held) {
   int old_y;
   int old_w;
   int old_h;
+  int min_x = desktop_icon_min_x();
+  int max_x = desktop_icon_max_x();
 
   if (desktop_drag_candidate_idx < 0)
     return;
@@ -490,8 +784,10 @@ void desktop_update_drag(int x, int y, int left_held) {
   desktop_mark_dirty(old_x, old_y, old_w, old_h);
   icon->x = x - desktop_drag_offset_x;
   icon->y = y - desktop_drag_offset_y;
-  if (icon->x < DESKTOP_START_X - 8)
-    icon->x = DESKTOP_START_X - 8;
+  if (icon->x < min_x - 8)
+    icon->x = min_x - 8;
+  if (icon->x > max_x)
+    icon->x = max_x;
   if (icon->y < DESKTOP_START_Y)
     icon->y = DESKTOP_START_Y;
   icon->grid_x = icon->x / DESKTOP_ICON_SPACING;
@@ -825,6 +1121,54 @@ static void draw_audio_icon(int x, int y, int size) {
 
   /* Flag */
   gui_draw_rect(cx + 5, cy - 15, 12, 3, 0x333333);
+}
+
+static void draw_sidebar_folder_glyph(int x, int y) {
+  gui_draw_rect(x, y + 5, 10, 4, 0xF4D35E);
+  gui_draw_rect(x, y + 8, 16, 10, 0xEE964B);
+}
+
+static void draw_sidebar_item_icon(const sidebar_item_t *item, int x, int y) {
+  if (!item)
+    return;
+  if (item->kind == SIDEBAR_ITEM_APP) {
+    gui_draw_system_app_icon(item->target, x, y, DESKTOP_SIDEBAR_ICON_SIZE);
+    return;
+  }
+  draw_sidebar_folder_glyph(x + 2, y + 1);
+}
+
+static void draw_sidebar(void) {
+  int panel_x;
+  int panel_y;
+  int panel_w;
+  int panel_h;
+  int row_y;
+
+  if (!desktop_sidebar_rect(&panel_x, &panel_y, &panel_w, &panel_h))
+    return;
+
+  gui_draw_rect(panel_x, panel_y, panel_w, panel_h, COLOR_SIDEBAR_BG);
+  gui_draw_rect_outline(panel_x, panel_y, panel_w, panel_h, COLOR_SIDEBAR_BORDER, 1);
+  gui_draw_rect(panel_x, panel_y, panel_w, 30, 0x1B314A);
+  gui_draw_string(panel_x + 14, panel_y + 9, "Sidebar", COLOR_SIDEBAR_TEXT,
+                  0x1B314A);
+  gui_draw_string(panel_x + 14, panel_y + 32,
+                  desktop_sidebar_side == DESKTOP_SIDEBAR_RIGHT ? "Pinned right"
+                                                                : "Pinned left",
+                  COLOR_SIDEBAR_MUTED, COLOR_SIDEBAR_BG);
+
+  row_y = panel_y + 52;
+  for (int i = 0; i < DESKTOP_SIDEBAR_ITEM_COUNT; i++) {
+    uint32_t row_color =
+        i == desktop_sidebar_hover_index ? COLOR_SIDEBAR_ROW_HOVER : COLOR_SIDEBAR_ROW;
+    gui_draw_rect(panel_x + 10, row_y, panel_w - 20, DESKTOP_SIDEBAR_ROW_H,
+                  row_color);
+    draw_sidebar_item_icon(&desktop_sidebar_items[i], panel_x + 18, row_y + 10);
+    gui_draw_string(panel_x + 46, row_y + 14, desktop_sidebar_items[i].label,
+                    COLOR_SIDEBAR_TEXT, row_color);
+    row_y += DESKTOP_SIDEBAR_ROW_H + 8;
+  }
 }
 
 static void draw_desktop_icon(desktop_icon_t *icon) {
@@ -1239,6 +1583,7 @@ static int dir_scan_callback(void *ctx, const char *name, int len,
                              loff_t offset, ino_t ino, unsigned type);
 
 void desktop_refresh(void) {
+  desktop_load_sidebar_config();
   /* Clear current icons */
   desktop_icon_count = 0;
   desktop_selected_count = 0;
@@ -1364,9 +1709,10 @@ void desktop_sort_icons(void) {
 
 void desktop_arrange_icons(void) {
   /* Arrange icons in a grid from top-left */
-  int x = DESKTOP_START_X;
+  int x = desktop_icon_min_x();
   int y = DESKTOP_START_Y;
-  int max_y = 600; /* Approximate, should use screen height */
+  int max_y = desktop_icon_max_y();
+  int max_x = desktop_icon_max_x();
 
   for (int i = 0; i < desktop_icon_count; i++) {
     desktop_icons[i].x = x;
@@ -1378,6 +1724,8 @@ void desktop_arrange_icons(void) {
     if (y + DESKTOP_ICON_SIZE + DESKTOP_LABEL_HEIGHT > max_y) {
       y = DESKTOP_START_Y;
       x += DESKTOP_ICON_SPACING;
+      if (x > max_x)
+        x = desktop_icon_min_x();
     }
   }
 }
@@ -1837,8 +2185,15 @@ void desktop_clear_selection(void) {
 }
 
 int desktop_handle_click(int x, int y, int button, int shift_held) {
+  int sidebar_index = desktop_sidebar_item_at(x, y);
+
   /* Right click - context menu */
   if (button == 2) { /* Right button */
+    if (sidebar_index >= 0) {
+      desktop_hide_context_menu();
+      desktop_clear_selection();
+      return 1;
+    }
     desktop_clear_drag_state();
     desktop_icon_t *icon = desktop_icon_at(x, y);
     if (icon) {
@@ -1858,6 +2213,12 @@ int desktop_handle_click(int x, int y, int button, int shift_held) {
     /* Check context menu first */
     if (ctx_menu.visible) {
       return desktop_context_menu_click(x, y);
+    }
+    if (sidebar_index >= 0) {
+      desktop_hide_context_menu();
+      desktop_clear_selection();
+      desktop_open_sidebar_item(sidebar_index);
+      return 1;
     }
 
     desktop_icon_t *icon = desktop_icon_at(x, y);
@@ -1879,12 +2240,23 @@ int desktop_handle_click(int x, int y, int button, int shift_held) {
 }
 
 int desktop_handle_double_click(int x, int y) {
+  if (desktop_sidebar_item_at(x, y) >= 0)
+    return 1;
   desktop_icon_t *icon = desktop_icon_at(x, y);
   if (icon) {
     menu_action_open(NULL);
     return 1;
   }
   return 0;
+}
+
+void desktop_handle_pointer_motion(int x, int y) {
+  int hover_index = desktop_sidebar_item_at(x, y);
+
+  if (hover_index != desktop_sidebar_hover_index) {
+    desktop_sidebar_hover_index = hover_index;
+    desktop_sidebar_mark_region();
+  }
 }
 
 /* ===================================================================== */
@@ -2006,6 +2378,7 @@ int desktop_handle_key(int key) {
 /* ===================================================================== */
 
 void desktop_draw_icons(void) {
+  draw_sidebar();
   for (int i = 0; i < desktop_icon_count; i++) {
     draw_desktop_icon(&desktop_icons[i]);
   }
@@ -2021,9 +2394,11 @@ void desktop_draw_icons(void) {
 void desktop_manager_init(void) {
   printk(KERN_INFO "DESKTOP: Initializing desktop manager\n");
 
+  desktop_load_sidebar_config();
   desktop_icon_count = 0;
   desktop_selected_count = 0;
   ctx_menu.visible = 0;
+  desktop_sidebar_hover_index = -1;
   clipboard_path[0] = '\0';
 
   /* Load desktop contents */
@@ -2037,3 +2412,43 @@ void desktop_manager_init(void) {
 int desktop_get_icon_count(void) { return desktop_icon_count; }
 
 int desktop_is_context_menu_visible(void) { return ctx_menu.visible; }
+
+int desktop_sidebar_is_visible(void) {
+  desktop_load_sidebar_config();
+  return desktop_sidebar_visible;
+}
+
+int desktop_sidebar_get_side(void) {
+  desktop_load_sidebar_config();
+  return desktop_sidebar_side;
+}
+
+int desktop_sidebar_get_width(void) {
+  desktop_load_sidebar_config();
+  return desktop_sidebar_width;
+}
+
+void desktop_sidebar_set_visible(int visible) {
+  desktop_load_sidebar_config();
+  desktop_sidebar_visible = visible ? 1 : 0;
+  desktop_write_sidebar_config();
+  desktop_arrange_icons();
+  desktop_mark_full_redraw();
+}
+
+void desktop_sidebar_set_side(int side) {
+  desktop_load_sidebar_config();
+  desktop_sidebar_side =
+      side == DESKTOP_SIDEBAR_RIGHT ? DESKTOP_SIDEBAR_RIGHT : DESKTOP_SIDEBAR_LEFT;
+  desktop_write_sidebar_config();
+  desktop_arrange_icons();
+  desktop_mark_full_redraw();
+}
+
+void desktop_sidebar_set_width(int width) {
+  desktop_load_sidebar_config();
+  desktop_sidebar_width = clamp_sidebar_width(width);
+  desktop_write_sidebar_config();
+  desktop_arrange_icons();
+  desktop_mark_full_redraw();
+}

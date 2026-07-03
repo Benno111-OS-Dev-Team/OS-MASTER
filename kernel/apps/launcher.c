@@ -8,10 +8,13 @@
 #include "arch/arch.h"
 #include "drivers/storage.h"
 #include "fs/vfs.h"
+#include "fs/vfs_compat.h"
 #include "printk.h"
 #include "sandbox/sandbox.h"
 #include "mm/kmalloc.h"
 #include "core/process.h"
+#include "gui/gui.h"
+#include "gui/font.h"
 
 /* Display structure from window.c - MUST match exactly! */
 struct display {
@@ -29,6 +32,9 @@ extern void mouse_get_position(int *x, int *y);
 extern int mouse_get_buttons(void);
 extern int uart_getc_nonblock(void);
 extern void uart_putc(char c);
+#if CONFIG_INSTALLER_APP
+extern int installer_app_main(kapi_t *api, int argc, char **argv);
+#endif
 
 /* Timer ticks counter */
 static volatile uint64_t uptime_ticks = 0;
@@ -78,6 +84,8 @@ static int kapi_getc(void) {
 }
 
 static int kapi_has_key(void) {
+    if (k_input_r != k_input_w)
+        return 1;
     return uart_getc_nonblock() >= 0 ? 1 : 0;
 }
 
@@ -109,6 +117,31 @@ static void kapi_clear(void) {
             d->framebuffer[i] = 0;
         }
     }
+}
+
+static void kapi_fb_put_pixel(uint32_t x, uint32_t y, uint32_t color) {
+    struct display *d = gui_get_display();
+
+    if (!d || !d->framebuffer)
+        return;
+    if (x >= d->width || y >= d->height)
+        return;
+    d->framebuffer[y * d->width + x] = color;
+}
+
+static void kapi_fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                              uint32_t color) {
+    gui_draw_rect((int)x, (int)y, (int)w, (int)h, color);
+}
+
+static void kapi_fb_draw_char(uint32_t x, uint32_t y, char c, uint32_t fg,
+                              uint32_t bg) {
+    gui_draw_char((int)x, (int)y, c, fg, bg);
+}
+
+static void kapi_fb_draw_string(uint32_t x, uint32_t y, const char *s,
+                                uint32_t fg, uint32_t bg) {
+    gui_draw_string((int)x, (int)y, s, fg, bg);
 }
 
 static int kapi_get_key(void) {
@@ -222,72 +255,99 @@ static void kapi_free(void *ptr) {
     kfree(ptr);
 }
 
-/* VFS compat functions from vfs_compat.c */
-extern void *vfs_lookup(const char *path);
-extern int vfs_read_compat(void *node, char *buf, unsigned int size, unsigned int offset);
-extern int vfs_is_dir(void *node);
-
 /* Get file size from vfs_node_t */
 static int get_vfs_file_size(void *node) {
-    if (!node) return 0;
-    /* vfs_node_t has size field - we cast and access it */
-    struct { char *name; int type; unsigned int size; } *n = node;
+    vfs_node_t *n = (vfs_node_t *)node;
+
+    if (!n)
+        return 0;
     return (int)n->size;
 }
 
 /* File I/O implemented with VFS */
 static void *kapi_open(const char *path) {
-    if (!path) return NULL;
-    
-    /* VFS lookup handles all path aliases internally */
-    void *file = vfs_lookup(path);
+    vfs_node_t *file;
+
+    if (!path)
+        return NULL;
+
+    file = vfs_open_handle(path);
     if (file) {
         printk(KERN_INFO "[KAPI] open: %s -> found\\n", path);
         return file;
     }
-    
+
     /* Try without leading slash as fallback */
     if (path[0] == '/') {
-        file = vfs_lookup(path + 1);
-        if (file) return file;
+        file = vfs_open_handle(path + 1);
+        if (file)
+            return file;
     }
-    
+
     printk(KERN_WARNING "[KAPI] open: %s -> NOT FOUND\\n", path);
     return NULL;
 }
 
 static void kapi_close(void *handle) {
-    (void)handle;
-    /* VFS nodes don't need explicit close */
+    vfs_close_handle((vfs_node_t *)handle);
 }
 
 static int kapi_read(void *handle, char *buf, size_t count, size_t offset) {
-    if (!handle || !buf) return -1;
-    return vfs_read_compat(handle, buf, (unsigned int)count, (unsigned int)offset);
+    if (!handle || !buf)
+        return -1;
+    return vfs_read_compat((vfs_node_t *)handle, buf, (unsigned int)count,
+                           (unsigned int)offset);
 }
 
 static int kapi_write(void *handle, const char *buf, size_t count) {
-    (void)handle; (void)buf; (void)count;
-    return -1; /* Read-only for now */
+    if (!handle || !buf)
+        return -1;
+    return vfs_write_compat((vfs_node_t *)handle, buf, count);
 }
 
 static int kapi_file_size(void *handle) {
     return get_vfs_file_size(handle);
 }
 
-static int kapi_create(const char *path) {
-    (void)path;
-    return -1;
+static int kapi_is_dir(void *handle) {
+    return vfs_is_dir((vfs_node_t *)handle);
+}
+
+static void *kapi_create(const char *path) {
+    return vfs_create_compat(path);
+}
+
+static void *kapi_mkdir(const char *path) {
+    return vfs_mkdir_compat(path);
 }
 
 static int kapi_delete(const char *path) {
-    (void)path;
-    return -1;
+    return vfs_delete(path);
+}
+
+static int kapi_delete_dir(const char *path) {
+    return vfs_delete_dir(path);
+}
+
+static int kapi_delete_recursive(const char *path) {
+    return vfs_delete_recursive(path);
 }
 
 static int kapi_rename(const char *old, const char *new) {
-    (void)old; (void)new;
-    return -1;
+    return vfs_rename_compat(old, new);
+}
+
+static int kapi_readdir(void *dir, int index, char *name, size_t name_size,
+                        uint8_t *type) {
+    return vfs_readdir_compat((vfs_node_t *)dir, index, name, name_size, type);
+}
+
+static int kapi_set_cwd(const char *path) {
+    return vfs_set_cwd(path);
+}
+
+static int kapi_get_cwd(char *buf, size_t size) {
+    return vfs_get_cwd_path(buf, size);
 }
 
 static int kapi_save_file(const char *path, const void *data, size_t size,
@@ -382,6 +442,58 @@ static int kapi_partition_format(int disk_index, int partition_index,
         return -1;
     return storage_format_partition(disk_index, partition_index,
                                     (storage_filesystem_kind_t)filesystem);
+}
+
+static int kapi_installer_mode(void) {
+    return gui_installer_mode();
+}
+
+static int kapi_installer_disk_label(int slot, char *buf, size_t size) {
+    return gui_installer_disk_label(slot, buf, size);
+}
+
+static int kapi_installer_select_disk(int slot) {
+    return gui_installer_select_disk(slot);
+}
+
+static int kapi_installer_select_disk_index(int disk_index) {
+    return gui_installer_select_disk_index(disk_index);
+}
+
+static int kapi_installer_reboot(void) {
+    return gui_installer_reboot_now();
+}
+
+static int kapi_installer_target_root(char *buf, size_t size) {
+    return gui_installer_target_root(buf, size);
+}
+
+static int kapi_installer_target_physical_root(char *buf, size_t size) {
+    return gui_installer_target_physical_root(buf, size);
+}
+
+static int kapi_installer_system_image_root(char *buf, size_t size) {
+    return gui_installer_system_image_root(buf, size);
+}
+
+static int kapi_installer_boot_payload_root(char *buf, size_t size) {
+    return gui_installer_boot_payload_root(buf, size);
+}
+
+static int kapi_installer_payload_is_archive(const char *path) {
+    return gui_installer_payload_is_archive(path);
+}
+
+static int kapi_installer_has_raw_disk_image(void) {
+    return gui_installer_has_raw_disk_image();
+}
+
+static int kapi_installer_apply_system_payload(void) {
+    return gui_installer_apply_system_payload();
+}
+
+static int kapi_installer_apply_raw_disk_image(void) {
+    return gui_installer_apply_raw_disk_image();
 }
 
 static void kapi_exit(int status) {
@@ -522,17 +634,17 @@ void kapi_init(kapi_t *api) {
     api->close = kapi_close;
     api->read = kapi_read;
     api->write = kapi_write;
-    api->is_dir = stub_is_dir;
+    api->is_dir = kapi_is_dir;
     api->file_size = kapi_file_size;
-    api->create = stub_ptr_path;
-    api->mkdir_fn = stub_ptr_path;
-    api->delete = stub_delete_path;
-    api->delete_dir = stub_delete_path;
-    api->delete_recursive = stub_delete_path;
+    api->create = kapi_create;
+    api->mkdir_fn = kapi_mkdir;
+    api->delete = kapi_delete;
+    api->delete_dir = kapi_delete_dir;
+    api->delete_recursive = kapi_delete_recursive;
     api->rename = kapi_rename;
-    api->readdir = stub_readdir;
-    api->set_cwd = stub_set_cwd;
-    api->get_cwd = stub_get_cwd;
+    api->readdir = kapi_readdir;
+    api->set_cwd = kapi_set_cwd;
+    api->get_cwd = kapi_get_cwd;
 
     /* Process */
     api->exit = kapi_exit;
@@ -550,10 +662,10 @@ void kapi_init(kapi_t *api) {
     api->fb_base = d ? d->framebuffer : NULL;
     api->fb_width = d ? d->width : 0;
     api->fb_height = d ? d->height : 0;
-    api->fb_put_pixel = stub_fb_pixel;
-    api->fb_fill_rect = stub_fb_rect;
-    api->fb_draw_char = stub_fb_char;
-    api->fb_draw_string = stub_fb_string;
+    api->fb_put_pixel = kapi_fb_put_pixel;
+    api->fb_fill_rect = kapi_fb_fill_rect;
+    api->fb_draw_char = kapi_fb_draw_char;
+    api->fb_draw_string = kapi_fb_draw_string;
 
     /* Font */
     api->font_data = NULL;
@@ -695,6 +807,19 @@ void kapi_init(kapi_t *api) {
     api->partition_update = kapi_partition_update;
     api->partition_delete = kapi_partition_delete;
     api->partition_format = kapi_partition_format;
+    api->installer_mode = kapi_installer_mode;
+    api->installer_disk_label = kapi_installer_disk_label;
+    api->installer_select_disk = kapi_installer_select_disk;
+    api->installer_select_disk_index = kapi_installer_select_disk_index;
+    api->installer_reboot = kapi_installer_reboot;
+    api->installer_target_root = kapi_installer_target_root;
+    api->installer_target_physical_root = kapi_installer_target_physical_root;
+    api->installer_system_image_root = kapi_installer_system_image_root;
+    api->installer_boot_payload_root = kapi_installer_boot_payload_root;
+    api->installer_payload_is_archive = kapi_installer_payload_is_archive;
+    api->installer_has_raw_disk_image = kapi_installer_has_raw_disk_image;
+    api->installer_apply_system_payload = kapi_installer_apply_system_payload;
+    api->installer_apply_raw_disk_image = kapi_installer_apply_raw_disk_image;
 
     printk(KERN_INFO "[KAPI] Kernel API initialized (fb=%dx%d)\\n", api->fb_width, api->fb_height);
     printk(KERN_INFO "[KAPI] fb_base = 0x%lx\\n", (unsigned long)(uintptr_t)api->fb_base);
@@ -1163,6 +1288,9 @@ typedef struct {
 } app_entry_t;
 
 static app_entry_t app_registry[] = {
+#if CONFIG_INSTALLER_APP
+    { "installer",  installer_app_main },
+#endif
     { "test",       test_app_main },
     { "clock",      clock_app_main },
     { "snake",      snake_app_main },

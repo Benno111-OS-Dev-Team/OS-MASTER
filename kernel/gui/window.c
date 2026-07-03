@@ -114,6 +114,7 @@ static uint64_t parse_u64(const char *text);
 static int installer_selected_disk_index(void);
 static void installer_fail_background(const char *status, const char *log_line);
 static void installer_start_background_install(void);
+static void installer_process_background_install(void);
 static void gui_flush_account_state_before_power_transition(void);
 static void str_copy_safe(char *dst, const char *src, int max);
 static int str_cmp(const char *s1, const char *s2);
@@ -13124,6 +13125,26 @@ static void draw_window(struct window *win) {
                       0x4A4A4A, 0xF8F8F8);
     } else if (settings_active_tab == 8) {
       int block_y = panel_y + 72;
+      char sidebar_layout_buf[32];
+      char sidebar_width_buf[32];
+      int sidebar_idx = 0;
+      int sidebar_visible = desktop_sidebar_is_visible();
+      int sidebar_side = desktop_sidebar_get_side();
+      int sidebar_width = desktop_sidebar_get_width();
+
+      sidebar_layout_buf[0] = '\0';
+      if (sidebar_visible) {
+        str_copy_safe(sidebar_layout_buf,
+                      sidebar_side == DESKTOP_SIDEBAR_RIGHT ? "Visible on right"
+                                                           : "Visible on left",
+                      sizeof(sidebar_layout_buf));
+      } else {
+        str_copy_safe(sidebar_layout_buf, "Hidden", sizeof(sidebar_layout_buf));
+      }
+      sidebar_width_buf[0] = '\0';
+      append_decimal(sidebar_width_buf, &sidebar_idx, sidebar_width);
+      notepad_append_to_buf(sidebar_width_buf, sizeof(sidebar_width_buf), " px");
+
       gui_draw_rect(panel_x, block_y, panel_w, 76, 0x252535);
       gui_draw_string(panel_x + 16, block_y + 12, "System status", 0x89B4FA,
                       0x252535);
@@ -13152,6 +13173,34 @@ static void draw_window(struct window *win) {
       gui_draw_rect(panel_x + 120, block_y, panel_w - 120, 30, 0x1E293B);
       gui_draw_string(panel_x + 136, block_y + 9, "Use these tools to inspect and restore",
                       0xCBD5E1, 0x1E293B);
+
+      block_y += 46;
+      gui_draw_rect(panel_x, block_y, panel_w, 88, 0x252535);
+      gui_draw_string(panel_x + 16, block_y + 12, "Desktop sidebar", 0x89B4FA,
+                      0x252535);
+      gui_draw_string(panel_x + 16, block_y + 32, sidebar_layout_buf, 0xFFFFFF,
+                      0x252535);
+      gui_draw_string(panel_x + 172, block_y + 32, sidebar_width_buf, 0xCBD5E1,
+                      0x252535);
+      gui_draw_system_button(panel_x + 16, block_y + 52, 82, 24,
+                             sidebar_visible ? "Hide" : "Show",
+                             sidebar_visible ? GUI_BUTTON_NEUTRAL
+                                             : GUI_BUTTON_SUCCESS,
+                             1, 0);
+      gui_draw_system_button(panel_x + 108, block_y + 52, 72, 24, "Left",
+                             sidebar_side == DESKTOP_SIDEBAR_LEFT
+                                 ? GUI_BUTTON_PRIMARY
+                                 : GUI_BUTTON_NEUTRAL,
+                             1, 0);
+      gui_draw_system_button(panel_x + 190, block_y + 52, 72, 24, "Right",
+                             sidebar_side == DESKTOP_SIDEBAR_RIGHT
+                                 ? GUI_BUTTON_PRIMARY
+                                 : GUI_BUTTON_NEUTRAL,
+                             1, 0);
+      gui_draw_system_button(panel_x + 272, block_y + 52, 90, 24, "Narrower",
+                             GUI_BUTTON_NEUTRAL, sidebar_width > 124, 0);
+      gui_draw_system_button(panel_x + 372, block_y + 52, 74, 24, "Wider",
+                             GUI_BUTTON_NEUTRAL, sidebar_width < 220, 0);
     } else if (settings_active_tab == 5) {
       int block_y = panel_y + 72;
       const char *username = account_username[0] ? account_username : "Guest session";
@@ -17288,6 +17337,8 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
 
   /* Handle context menu hover - ALWAYS call when menu visible */
   int menu_vis = desktop_is_context_menu_visible();
+  if (desktop_session_active())
+    desktop_handle_pointer_motion(x, y);
   if (menu_vis) {
     printk(KERN_INFO "MOUSE: Menu visible, calling hover at %d,%d\n", x, y);
     desktop_context_menu_hover(x, y);
@@ -18007,6 +18058,7 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
         } else if (settings_active_tab == 8) {
           int row1_y = panel_y + 72 + 90;
           int row2_y = row1_y + 42;
+          int sidebar_y = row2_y + 46;
           if (x >= panel_x && x < panel_x + 110 && y >= row1_y && y < row1_y + 30) {
             gui_create_window("Device Manager", win->x + 40, win->y + 40, 460,
                               360);
@@ -18041,6 +18093,43 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
               y < row2_y + 30) {
             gui_create_window("About", 210, 140, 560, 360);
             str_copy_safe(settings_status, "Opened about window.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 16 && x < panel_x + 98 && y >= sidebar_y + 52 &&
+              y < sidebar_y + 76) {
+            desktop_sidebar_set_visible(!desktop_sidebar_is_visible());
+            str_copy_safe(settings_status,
+                          desktop_sidebar_is_visible() ? "Sidebar shown."
+                                                       : "Sidebar hidden.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 108 && x < panel_x + 180 && y >= sidebar_y + 52 &&
+              y < sidebar_y + 76) {
+            desktop_sidebar_set_side(DESKTOP_SIDEBAR_LEFT);
+            str_copy_safe(settings_status, "Sidebar pinned to the left.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 190 && x < panel_x + 262 && y >= sidebar_y + 52 &&
+              y < sidebar_y + 76) {
+            desktop_sidebar_set_side(DESKTOP_SIDEBAR_RIGHT);
+            str_copy_safe(settings_status, "Sidebar pinned to the right.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 272 && x < panel_x + 362 && y >= sidebar_y + 52 &&
+              y < sidebar_y + 76) {
+            desktop_sidebar_set_width(desktop_sidebar_get_width() - 16);
+            str_copy_safe(settings_status, "Sidebar width reduced.",
+                          sizeof(settings_status));
+            break;
+          }
+          if (x >= panel_x + 372 && x < panel_x + 446 && y >= sidebar_y + 52 &&
+              y < sidebar_y + 76) {
+            desktop_sidebar_set_width(desktop_sidebar_get_width() + 16);
+            str_copy_safe(settings_status, "Sidebar width increased.",
                           sizeof(settings_status));
             break;
           }
@@ -18642,8 +18731,10 @@ int gui_init(uint32_t *framebuffer, uint32_t width, uint32_t height,
   desktop_manager_init();
 #endif
 
+#if !CONFIG_INSTALLER_APP
   if (gui_is_installer_mode())
     gui_open_installer_window();
+#endif
 
   printk(KERN_INFO "GUI: Display %ux%u initialized\n", width, height);
 
@@ -18664,6 +18755,162 @@ void gui_notify_storage_ready(void) {
   ensure_startup_flow();
   if ((startup_active_before || !startup_flow_active()) && !startup_flow_active())
     load_dock_config();
+}
+
+int gui_installer_mode(void) { return gui_is_installer_mode(); }
+
+int gui_installer_disk_label(int slot, char *buf, size_t size) {
+  if (!buf || size == 0)
+    return -1;
+
+  buf[0] = '\0';
+  if (!gui_is_installer_mode())
+    return -1;
+
+  installer_refresh_disk_inventory();
+  if (slot < 0 || slot >= installer_disk_count)
+    return -1;
+
+  str_copy_safe(buf, installer_disk_labels[slot], (int)size);
+  return 0;
+}
+
+int gui_installer_select_disk(int slot) {
+  if (!gui_is_installer_mode())
+    return -1;
+
+  installer_refresh_disk_inventory();
+  if (slot < 0 || slot >= installer_disk_count)
+    return -1;
+
+  installer_selected_disk = slot;
+  if (installer_write_target_config() != 0)
+    return -1;
+
+  installer_set_status("Installer target disk updated.");
+  return 0;
+}
+
+int gui_installer_select_disk_index(int disk_index) {
+  if (!gui_is_installer_mode())
+    return -1;
+
+  installer_refresh_disk_inventory();
+  for (int i = 0; i < installer_disk_count; i++) {
+    if (installer_disk_indices[i] != disk_index)
+      continue;
+
+    installer_selected_disk = i;
+    if (installer_write_target_config() != 0)
+      return -1;
+
+    installer_set_status("Installer target disk updated.");
+    return 0;
+  }
+
+  return -1;
+}
+
+int gui_installer_reboot_now(void) {
+  if (!gui_is_installer_mode())
+    return -1;
+
+  gui_flush_account_state_before_power_transition();
+  arch_reboot();
+  return 0;
+}
+
+int gui_installer_target_root(char *buf, size_t size) {
+  if (!buf || size == 0 || !gui_is_installer_mode())
+    return -1;
+
+  installer_refresh_disk_inventory();
+  if (installer_selected_disk < 0 || installer_selected_disk >= installer_disk_count)
+    return -1;
+
+  installer_target_root_path(buf, (int)size);
+  return buf[0] ? 0 : -1;
+}
+
+int gui_installer_target_physical_root(char *buf, size_t size) {
+  if (!buf || size == 0 || !gui_is_installer_mode())
+    return -1;
+
+  return installer_get_persistent_root(buf, (int)size);
+}
+
+int gui_installer_system_image_root(char *buf, size_t size) {
+  const char *path;
+
+  if (!buf || size == 0 || !gui_is_installer_mode())
+    return -1;
+  if (installer_validate_system_image_payload() != 0)
+    return -1;
+
+  path = installer_system_image_root_path();
+  if (!path || !path[0])
+    return -1;
+  str_copy_safe(buf, path, (int)size);
+  return buf[0] ? 0 : -1;
+}
+
+int gui_installer_boot_payload_root(char *buf, size_t size) {
+  const char *path;
+
+  if (!buf || size == 0 || !gui_is_installer_mode())
+    return -1;
+  if (installer_validate_boot_payload() != 0)
+    return -1;
+
+  path = installer_boot_payload_root_path();
+  if (!path || !path[0])
+    return -1;
+  str_copy_safe(buf, path, (int)size);
+  return buf[0] ? 0 : -1;
+}
+
+int gui_installer_payload_is_archive(const char *path) {
+  if (!path || !gui_is_installer_mode())
+    return -1;
+  return installer_system_image_is_archive(path);
+}
+
+int gui_installer_has_raw_disk_image(void) {
+  if (!gui_is_installer_mode())
+    return -1;
+  return installer_system_disk_image_path() ? 1 : 0;
+}
+
+int gui_installer_apply_system_payload(void) {
+  if (!gui_is_installer_mode())
+    return -1;
+
+  installer_refresh_disk_inventory();
+  if (installer_selected_disk < 0 || installer_selected_disk >= installer_disk_count)
+    return -1;
+
+  installer_target_root_path(installer_target_root, sizeof(installer_target_root));
+  installer_partition_root_path(installer_efi_root, sizeof(installer_efi_root),
+                                "EFI");
+  installer_partition_root_path(installer_update_root,
+                                sizeof(installer_update_root), "boot");
+  return installer_apply_system_image_payload(installer_target_root);
+}
+
+int gui_installer_apply_raw_disk_image(void) {
+  int selected_disk_index;
+
+  if (!gui_is_installer_mode())
+    return -1;
+  if (installer_validate_raw_system_disk_image_payload() != 0)
+    return -1;
+
+  installer_refresh_disk_inventory();
+  selected_disk_index = installer_selected_disk_index();
+  if (selected_disk_index < 0)
+    return -1;
+
+  return installer_apply_system_disk_image(selected_disk_index);
 }
 
 struct display *gui_get_display(void) { return &primary_display; }

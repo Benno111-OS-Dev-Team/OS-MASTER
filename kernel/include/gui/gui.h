@@ -73,6 +73,19 @@ void gui_draw_cursor(void);
 void gui_open_image_viewer(const char *path);
 int gui_launch_app_by_id(const char *app_id);
 int gui_draw_system_app_icon(const char *app_id, int x, int y, int size);
+int gui_installer_mode(void);
+int gui_installer_disk_label(int slot, char *buf, size_t size);
+int gui_installer_select_disk(int slot);
+int gui_installer_select_disk_index(int disk_index);
+int gui_installer_reboot_now(void);
+int gui_installer_target_root(char *buf, size_t size);
+int gui_installer_target_physical_root(char *buf, size_t size);
+int gui_installer_system_image_root(char *buf, size_t size);
+int gui_installer_boot_payload_root(char *buf, size_t size);
+int gui_installer_payload_is_archive(const char *path);
+int gui_installer_has_raw_disk_image(void);
+int gui_installer_apply_system_payload(void);
+int gui_installer_apply_raw_disk_image(void);
 
 /* ===================================================================== */
 /* Terminal */

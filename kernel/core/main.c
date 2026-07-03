@@ -1291,6 +1291,9 @@ static void populate_installer_payload(void) {
   }
   if (installer_mode)
     printk(KERN_INFO "INSTALL: setup media exposed at /setup/\n");
+#else
+  /* Non-embedded builds source installer payloads from external media only. */
+  return;
 #endif
 }
 
@@ -1672,6 +1675,19 @@ static void start_init_process(void) {
   /* Initial render */
   gui_compose();
   gui_draw_cursor();
+
+#if CONFIG_INSTALLER_APP
+  {
+    extern int boot_is_installer_mode(void);
+    extern int app_run(const char *name, int argc, char **argv);
+
+    if (boot_is_installer_mode()) {
+      printk(KERN_INFO
+             "INSTALL: launching compiler-flagged installer app\n");
+      app_run("installer", 0, 0);
+    }
+  }
+#endif
 
   /* Main GUI event loop with proper flicker-free refresh */
   uint32_t frame = 0;
