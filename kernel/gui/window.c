@@ -16166,10 +16166,10 @@ static void draw_dock(void) {
 
     draw_rounded_rect(draw_x, draw_y, size, size, icon_r, bg_color);
 
-    for (int x = draw_x + icon_r; x < draw_x + size - icon_r; x++) {
-      draw_pixel(x, draw_y + 2, bg_color + 0x202020);
-      draw_pixel(x, draw_y + 3, bg_color + 0x202020);
-    }
+    gui_draw_rect(draw_x + icon_r, draw_y + 2, size - 2 * icon_r, 1,
+                  bg_color + 0x202020);
+    gui_draw_rect(draw_x + icon_r, draw_y + 3, size - 2 * icon_r, 1,
+                  bg_color + 0x202020);
 
     draw_system_app_icon_kind(dock_items[i]->kind, draw_x + size / 8,
                               draw_y + size / 8, size * 3 / 4);
@@ -16225,9 +16225,7 @@ static void draw_dock(void) {
       int tri_x = label_x + label_w / 2;
       int tri_y = label_y + label_h;
       for (int i = 0; i < 4; i++) {
-        for (int j = -i; j <= i; j++) {
-          draw_pixel(tri_x + j, tri_y + i, 0x303040);
-        }
+        gui_draw_rect(tri_x - i, tri_y + i, i * 2 + 1, 1, 0x303040);
       }
     }
   }
