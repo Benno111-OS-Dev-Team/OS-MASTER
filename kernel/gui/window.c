@@ -16190,6 +16190,55 @@ static int ensure_desktop_surface_size(int width, int height) {
   return 0;
 }
 
+static int gui_target_visible_rect(int src_x, int src_y, int src_w, int src_h,
+                                   int *clip_x, int *clip_y, int *clip_w,
+                                   int *clip_h) {
+  int x0 = src_x;
+  int y0 = src_y;
+  int x1 = src_x + src_w;
+  int y1 = src_y + src_h;
+  int target_x0 = g_render_target.origin_x;
+  int target_y0 = g_render_target.origin_y;
+  int target_x1 = g_render_target.origin_x + g_render_target.width;
+  int target_y1 = g_render_target.origin_y + g_render_target.height;
+
+  if (src_w <= 0 || src_h <= 0 || !g_render_target.pixels)
+    return 0;
+
+  if (x0 < target_x0)
+    x0 = target_x0;
+  if (y0 < target_y0)
+    y0 = target_y0;
+  if (x1 > target_x1)
+    x1 = target_x1;
+  if (y1 > target_y1)
+    y1 = target_y1;
+
+  if (g_clip.enabled) {
+    if (x0 < g_clip.x0)
+      x0 = g_clip.x0;
+    if (y0 < g_clip.y0)
+      y0 = g_clip.y0;
+    if (x1 > g_clip.x1)
+      x1 = g_clip.x1;
+    if (y1 > g_clip.y1)
+      y1 = g_clip.y1;
+  }
+
+  if (x0 >= x1 || y0 >= y1)
+    return 0;
+
+  if (clip_x)
+    *clip_x = x0;
+  if (clip_y)
+    *clip_y = y0;
+  if (clip_w)
+    *clip_w = x1 - x0;
+  if (clip_h)
+    *clip_h = y1 - y0;
+  return 1;
+}
+
 /* Draw wallpaper - supports both gradients and JPEG images */
 static void draw_wallpaper(void) {
   int start_y = MENU_BAR_HEIGHT;
@@ -16198,9 +16247,10 @@ static void draw_wallpaper(void) {
   int height = end_y - start_y;
   int width = primary_display.width;
   uint32_t *target = gui_draw_target();
-  int target_pitch = g_render_target.pitch_pixels;
-  int target_origin_x = g_render_target.origin_x;
-  int target_origin_y = g_render_target.origin_y;
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
 
   if (!target)
     return;
@@ -16208,19 +16258,21 @@ static void draw_wallpaper(void) {
   if (!cached_wallpaper || !wallpaper_cached || cached_wallpaper_w != width ||
       cached_wallpaper_h != height)
     return;
+  if (!gui_target_visible_rect(0, start_y, width, height, &clip_x, &clip_y,
+                               &clip_w, &clip_h))
+    return;
 
-  for (int y = 0; y < height; y++) {
-    int dst_y = start_y + y - target_origin_y;
-    if (dst_y < 0 || dst_y >= g_render_target.height)
-      continue;
-    uint32_t *dst = target + dst_y * target_pitch - target_origin_x;
-    uint32_t *src = cached_wallpaper + y * width;
-    for (int x = 0; x < width; x++) {
-      int dst_x = x;
-      if (dst_x < target_origin_x ||
-          dst_x >= target_origin_x + g_render_target.width)
-        continue;
-      dst[dst_x] = src[x];
+  {
+    int src_x = clip_x;
+    int src_y0 = clip_y - start_y;
+    int dst_x = clip_x - g_render_target.origin_x;
+    int dst_y0 = clip_y - g_render_target.origin_y;
+
+    for (int row = 0; row < clip_h; row++) {
+      uint32_t *dst =
+          target + (dst_y0 + row) * g_render_target.pitch_pixels + dst_x;
+      uint32_t *src = cached_wallpaper + (src_y0 + row) * width + src_x;
+      fast_memcpy_line(dst, src, clip_w);
     }
   }
 }
@@ -16306,6 +16358,10 @@ static void refresh_desktop_surface_if_needed(void) {
 
 static void draw_desktop(void) {
   uint32_t *target;
+  int clip_x;
+  int clip_y;
+  int clip_w;
+  int clip_h;
 
   refresh_desktop_surface_if_needed();
   if (!cached_desktop_surface || !cached_desktop_surface_valid) {
@@ -16316,22 +16372,21 @@ static void draw_desktop(void) {
   target = gui_draw_target();
   if (!target)
     return;
+  if (!gui_target_visible_rect(0, 0, cached_desktop_surface_w,
+                               cached_desktop_surface_h, &clip_x, &clip_y,
+                               &clip_w, &clip_h))
+    return;
 
-  for (int y = 0; y < cached_desktop_surface_h; y++) {
-    int dst_y = y - g_render_target.origin_y;
-    uint32_t *dst;
-    uint32_t *src;
-
-    if (dst_y < 0 || dst_y >= g_render_target.height)
-      continue;
-    dst = target + dst_y * g_render_target.pitch_pixels - g_render_target.origin_x;
-    src = cached_desktop_surface + y * cached_desktop_surface_w;
-    for (int x = 0; x < cached_desktop_surface_w; x++) {
-      int dst_x = x;
-      if (dst_x < g_render_target.origin_x ||
-          dst_x >= g_render_target.origin_x + g_render_target.width)
-        continue;
-      dst[dst_x] = src[x];
+  {
+    int dst_x = clip_x - g_render_target.origin_x;
+    int dst_y0 = clip_y - g_render_target.origin_y;
+    for (int row = 0; row < clip_h; row++) {
+      uint32_t *dst =
+          target + (dst_y0 + row) * g_render_target.pitch_pixels + dst_x;
+      uint32_t *src =
+          cached_desktop_surface + (clip_y + row) * cached_desktop_surface_w +
+          clip_x;
+      fast_memcpy_line(dst, src, clip_w);
     }
   }
 }
