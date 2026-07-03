@@ -119,6 +119,7 @@ static void gui_flush_account_state_before_power_transition(void);
 static void str_copy_safe(char *dst, const char *src, int max);
 static int str_cmp(const char *s1, const char *s2);
 static int str_ends_with_ci(const char *name, const char *ext);
+static void invalidate_desktop_surface(void);
 static const char *resolve_user_storage_path(const char *path, char *buf,
                                              int max);
 static void ensure_user_storage_dirs(void);
@@ -3727,6 +3728,7 @@ static int gui_apply_resolution(uint32_t width, uint32_t height) {
 
   wallpaper_cached = 0;
   wallpaper_cached_idx = -1;
+  invalidate_desktop_surface();
 
   input_set_mouse_bounds((int)new_width, (int)new_height);
   mouse_x = (int)new_width / 2;
@@ -4671,6 +4673,7 @@ static void apply_account_wallpaper(int idx) {
   wallpaper_cached = 0;
   wallpaper_cached_idx = -1;
   wallpaper_loaded = -1;
+  invalidate_desktop_surface();
   wallpaper_ensure_loaded();
   compositor_mark_dirty(0, 0, (int)primary_display.width,
                         (int)primary_display.height);
@@ -16076,6 +16079,10 @@ static int wallpaper_cached = 0;
 static int wallpaper_cached_idx = -1; /* Which wallpaper is cached */
 static int cached_wallpaper_w = 0;
 static int cached_wallpaper_h = 0;
+static uint32_t *cached_desktop_surface = NULL;
+static int cached_desktop_surface_w = 0;
+static int cached_desktop_surface_h = 0;
+static int cached_desktop_surface_valid = 0;
 
 static int ensure_wallpaper_cache_size(int width, int height) {
   size_t pixel_count;
@@ -16159,6 +16166,30 @@ static void render_wallpaper_cache(void) {
   wallpaper_cached = 1;
 }
 
+static void invalidate_desktop_surface(void) { cached_desktop_surface_valid = 0; }
+
+static int ensure_desktop_surface_size(int width, int height) {
+  uint32_t *new_surface;
+
+  if (width <= 0 || height <= 0)
+    return -1;
+  if (cached_desktop_surface && cached_desktop_surface_w == width &&
+      cached_desktop_surface_h == height)
+    return 0;
+
+  new_surface = kmalloc((size_t)width * (size_t)height * sizeof(uint32_t));
+  if (!new_surface)
+    return -ENOMEM;
+
+  if (cached_desktop_surface)
+    kfree(cached_desktop_surface);
+  cached_desktop_surface = new_surface;
+  cached_desktop_surface_w = width;
+  cached_desktop_surface_h = height;
+  cached_desktop_surface_valid = 0;
+  return 0;
+}
+
 /* Draw wallpaper - supports both gradients and JPEG images */
 static void draw_wallpaper(void) {
   int start_y = MENU_BAR_HEIGHT;
@@ -16166,9 +16197,10 @@ static void draw_wallpaper(void) {
   int end_y = primary_display.height;
   int height = end_y - start_y;
   int width = primary_display.width;
-  uint32_t *target =
-      primary_display.backbuffer ? primary_display.backbuffer
-                                 : primary_display.framebuffer;
+  uint32_t *target = gui_draw_target();
+  int target_pitch = g_render_target.pitch_pixels;
+  int target_origin_x = g_render_target.origin_x;
+  int target_origin_y = g_render_target.origin_y;
 
   if (!target)
     return;
@@ -16178,15 +16210,22 @@ static void draw_wallpaper(void) {
     return;
 
   for (int y = 0; y < height; y++) {
-    uint32_t *dst = target + (start_y + y) * (primary_display.pitch / 4);
+    int dst_y = start_y + y - target_origin_y;
+    if (dst_y < 0 || dst_y >= g_render_target.height)
+      continue;
+    uint32_t *dst = target + dst_y * target_pitch - target_origin_x;
     uint32_t *src = cached_wallpaper + y * width;
     for (int x = 0; x < width; x++) {
-      dst[x] = src[x];
+      int dst_x = x;
+      if (dst_x < target_origin_x ||
+          dst_x >= target_origin_x + g_render_target.width)
+        continue;
+      dst[dst_x] = src[x];
     }
   }
 }
 
-static void draw_desktop(void) {
+static void draw_desktop_internal(void) {
   /* Draw beautiful gradient wallpaper */
   draw_wallpaper();
 
@@ -16222,6 +16261,78 @@ static void draw_desktop(void) {
 
     gui_draw_string(text_x, text_y, build_info, 0xD9E4F4, 0x00000000);
     gui_draw_string(text_x, text_y + 16, BUILD_UUID, 0xAEB9CB, 0x00000000);
+  }
+}
+
+static void refresh_desktop_surface_if_needed(void) {
+  struct gui_render_target prev_target;
+  struct gui_clip_state prev_clip;
+  int dirty_x;
+  int dirty_y;
+  int dirty_w;
+  int dirty_h;
+
+  if (ensure_desktop_surface_size((int)primary_display.width,
+                                  (int)primary_display.height) != 0 ||
+      !cached_desktop_surface)
+    return;
+
+  if (!cached_desktop_surface_valid) {
+    desktop_mark_full_redraw();
+  }
+
+  if (!desktop_needs_redraw() && cached_desktop_surface_valid)
+    return;
+
+  if (!desktop_get_dirty_bounds(&dirty_x, &dirty_y, &dirty_w, &dirty_h)) {
+    dirty_x = 0;
+    dirty_y = 0;
+    dirty_w = (int)primary_display.width;
+    dirty_h = (int)primary_display.height;
+  }
+
+  prev_target =
+      gui_set_render_target(cached_desktop_surface, cached_desktop_surface_w,
+                            cached_desktop_surface_h, cached_desktop_surface_w,
+                            0, 0);
+  prev_clip = gui_set_clip_rect(dirty_x, dirty_y, dirty_w, dirty_h);
+  draw_desktop_internal();
+  gui_restore_clip_rect(prev_clip);
+  g_render_target = prev_target;
+
+  cached_desktop_surface_valid = 1;
+  desktop_clear_dirty();
+}
+
+static void draw_desktop(void) {
+  uint32_t *target;
+
+  refresh_desktop_surface_if_needed();
+  if (!cached_desktop_surface || !cached_desktop_surface_valid) {
+    draw_desktop_internal();
+    return;
+  }
+
+  target = gui_draw_target();
+  if (!target)
+    return;
+
+  for (int y = 0; y < cached_desktop_surface_h; y++) {
+    int dst_y = y - g_render_target.origin_y;
+    uint32_t *dst;
+    uint32_t *src;
+
+    if (dst_y < 0 || dst_y >= g_render_target.height)
+      continue;
+    dst = target + dst_y * g_render_target.pitch_pixels - g_render_target.origin_x;
+    src = cached_desktop_surface + y * cached_desktop_surface_w;
+    for (int x = 0; x < cached_desktop_surface_w; x++) {
+      int dst_x = x;
+      if (dst_x < g_render_target.origin_x ||
+          dst_x >= g_render_target.origin_x + g_render_target.width)
+        continue;
+      dst[dst_x] = src[x];
+    }
   }
 }
 

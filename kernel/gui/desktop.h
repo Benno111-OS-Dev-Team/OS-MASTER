@@ -35,6 +35,7 @@ void desktop_draw_icons(void);
 void desktop_mark_dirty(int x, int y, int w, int h);
 void desktop_mark_full_redraw(void);
 int desktop_needs_redraw(void);
+int desktop_get_dirty_bounds(int *x, int *y, int *w, int *h);
 void desktop_clear_dirty(void);
 
 /* State queries */

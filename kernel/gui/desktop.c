@@ -1049,6 +1049,68 @@ void desktop_mark_full_redraw(void) {
 
 int desktop_needs_redraw(void) { return full_redraw_needed || dirty_count > 0; }
 
+int desktop_get_dirty_bounds(int *x, int *y, int *w, int *h) {
+  int min_x = 0;
+  int min_y = 0;
+  int max_x = 0;
+  int max_y = 0;
+  int found = 0;
+
+  if (full_redraw_needed) {
+    if (x)
+      *x = 0;
+    if (y)
+      *y = 0;
+    if (w)
+      *w = (int)gui_get_screen_width();
+    if (h)
+      *h = (int)gui_get_screen_height();
+    return 1;
+  }
+
+  for (int i = 0; i < dirty_count; i++) {
+    int rx2;
+    int ry2;
+
+    if (!dirty_regions[i].valid || dirty_regions[i].w <= 0 ||
+        dirty_regions[i].h <= 0)
+      continue;
+
+    rx2 = dirty_regions[i].x + dirty_regions[i].w;
+    ry2 = dirty_regions[i].y + dirty_regions[i].h;
+    if (!found) {
+      min_x = dirty_regions[i].x;
+      min_y = dirty_regions[i].y;
+      max_x = rx2;
+      max_y = ry2;
+      found = 1;
+      continue;
+    }
+
+    if (dirty_regions[i].x < min_x)
+      min_x = dirty_regions[i].x;
+    if (dirty_regions[i].y < min_y)
+      min_y = dirty_regions[i].y;
+    if (rx2 > max_x)
+      max_x = rx2;
+    if (ry2 > max_y)
+      max_y = ry2;
+  }
+
+  if (!found)
+    return 0;
+
+  if (x)
+    *x = min_x;
+  if (y)
+    *y = min_y;
+  if (w)
+    *w = max_x - min_x;
+  if (h)
+    *h = max_y - min_y;
+  return 1;
+}
+
 void desktop_clear_dirty(void) {
   dirty_count = 0;
   full_redraw_needed = 0;
