@@ -157,6 +157,7 @@ void gui_start_partial_redraw_clear_debug(void);
 int gui_partial_redraw_clear_debug_enabled(void);
 static void compositor_mark_screen_rect_dirty(void);
 static inline void fast_memcpy_line(uint32_t *dst, uint32_t *src, int width);
+static inline void fast_fill_line(uint32_t *dst, int width, uint32_t color);
 
 /* Blur/compositor state is defined later but used by early draw helpers. */
 static int g_blur_effects_requested;
@@ -2903,9 +2904,7 @@ void gui_draw_rect(int x, int y, int w, int h, uint32_t color) {
   for (int row = 0; row < clip_h; row++) {
     uint32_t *dst =
         target + (dst_y + row) * g_render_target.pitch_pixels + dst_x;
-    for (int col = 0; col < clip_w; col++) {
-      dst[col] = color;
-    }
+    fast_fill_line(dst, clip_w, color);
   }
 }
 
@@ -16471,10 +16470,7 @@ static void render_wallpaper_cache(void) {
     for (int y = 0; y < height; y++) {
       uint32_t *line = cached_wallpaper + y * width;
       uint32_t color = wallpaper_get_pixel(0, y, height);
-
-      for (int x = 0; x < width; x++) {
-        line[x] = color;
-      }
+      fast_fill_line(line, width, color);
     }
   }
 
@@ -17603,6 +17599,21 @@ static inline void fast_memcpy_line(uint32_t *dst, uint32_t *src, int width) {
   /* Handle odd pixel */
   if (width & 1) {
     dst[width - 1] = src[width - 1];
+  }
+}
+
+static inline void fast_fill_line(uint32_t *dst, int width, uint32_t color) {
+  if (width <= 0)
+    return;
+
+  dst[0] = color;
+  int filled = 1;
+  while (filled < width) {
+    int copy = width - filled;
+    if (copy > filled)
+      copy = filled;
+    fast_memcpy_line(dst + filled, dst, copy);
+    filled += copy;
   }
 }
 
