@@ -20700,14 +20700,22 @@ static void image_viewer_on_draw(struct window *win) {
     int icon_y = btn_y + (btn_size - TOOLBAR_ICON_SIZE) / 2;
 
     for (int iy = 0; iy < TOOLBAR_ICON_SIZE; iy++) {
-      for (int ix = 0; ix < TOOLBAR_ICON_SIZE; ix++) {
-        uint32_t pixel = icon_data[iy * TOOLBAR_ICON_SIZE + ix];
-        uint8_t alpha = (pixel >> 24) & 0xFF;
-        if (alpha > 0) {
-          /* Simple alpha blending: if alpha > 128, draw white */
-          if (alpha > 128) {
-            draw_pixel(icon_x + ix, icon_y + iy, icon_color);
-          }
+      int run_start = -1;
+
+      for (int ix = 0; ix <= TOOLBAR_ICON_SIZE; ix++) {
+        int visible = 0;
+        if (ix < TOOLBAR_ICON_SIZE) {
+          uint32_t pixel = icon_data[iy * TOOLBAR_ICON_SIZE + ix];
+          visible = ((pixel >> 24) & 0xFF) > 128;
+        }
+
+        if (visible) {
+          if (run_start < 0)
+            run_start = ix;
+        } else if (run_start >= 0) {
+          gui_draw_rect(icon_x + run_start, icon_y + iy, ix - run_start, 1,
+                        icon_color);
+          run_start = -1;
         }
       }
     }
