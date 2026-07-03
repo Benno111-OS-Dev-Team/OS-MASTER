@@ -12191,14 +12191,7 @@ static void draw_image_viewer(struct window *win, int content_x, int content_y,
   gui_draw_rect_outline(offset_x - 6, offset_y - 6, draw_w + 12, draw_h + 12,
                         theme->border, 1);
 
-  for (int y = 0; y < draw_h; y++) {
-    int src_y = (y * img_h) / draw_h;
-    for (int x = 0; x < draw_w; x++) {
-      int src_x = (x * img_w) / draw_w;
-      uint32_t color = st->image.pixels[src_y * img_w + src_x];
-      draw_image_pixel(offset_x + x, offset_y + y, color);
-    }
-  }
+  gui_draw_image_scaled(offset_x, offset_y, draw_w, draw_h, &st->image);
 }
 
 void gui_open_image_viewer(const char *path) {
@@ -14437,18 +14430,7 @@ static void draw_window_internal(struct window *win) {
 
         if (thumb_img->pixels && thumb_img->width > 0) {
           /* Draw scaled image from cache */
-          for (int py = 0; py < thumb_h; py++) {
-            for (int px = 0; px < thumb_w; px++) {
-              int src_x = (px * thumb_img->width) / thumb_w;
-              int src_y = (py * thumb_img->height) / thumb_h;
-              if (src_x < (int)thumb_img->width &&
-                  src_y < (int)thumb_img->height) {
-                uint32_t pixel =
-                    thumb_img->pixels[src_y * thumb_img->width + src_x];
-                draw_image_pixel(tx + px, ty + py, pixel);
-              }
-            }
-          }
+          gui_draw_image_scaled(tx, ty, thumb_w, thumb_h, thumb_img);
         } else {
           /* Fallback - gray with "?" */
           gui_draw_rect(tx, ty, thumb_w, thumb_h, 0x3A3A4A);
@@ -14490,16 +14472,8 @@ static void draw_window_internal(struct window *win) {
     if (wallpapers[current_wallpaper].type == 1 &&
         thumbnail_cache[current_wallpaper].pixels) {
       media_image_t *thumb_img = &thumbnail_cache[current_wallpaper];
-      for (int py = 0; py < preview_h - 16; py++) {
-        for (int px = 0; px < preview_w - 16; px++) {
-          int src_x = (px * thumb_img->width) / (preview_w - 16);
-          int src_y = (py * thumb_img->height) / (preview_h - 16);
-          if (src_x < (int)thumb_img->width && src_y < (int)thumb_img->height) {
-            draw_image_pixel(preview_x + 8 + px, preview_y + 8 + py,
-                             thumb_img->pixels[src_y * thumb_img->width + src_x]);
-          }
-        }
-      }
+      gui_draw_image_scaled(preview_x + 8, preview_y + 8, preview_w - 16,
+                            preview_h - 16, thumb_img);
     } else {
       for (int py = 0; py < preview_h - 16; py++) {
         int progress = (py * 256) / (preview_h - 16);
