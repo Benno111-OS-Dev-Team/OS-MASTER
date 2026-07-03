@@ -16839,14 +16839,14 @@ static void draw_top_rounded_rect_alpha(int x, int y, int w, int h, int r,
   gui_fill_rect_alpha(x, y + r, r, h - r, color);
   gui_fill_rect_alpha(x + w - r, y + r, r, h - r, color);
 
-  for (int cy = -r; cy <= r; cy++) {
-    for (int cx = -r; cx <= r; cx++) {
-      if (cx * cx + cy * cy <= r * r) {
-        int py = y + r + cy;
-        if (py <= y + r) {
-          draw_pixel_alpha(x + r + cx, py, color);
-          draw_pixel_alpha(x + w - r - 1 + cx, py, color);
-        }
+  for (int py = y; py <= y + r; py++) {
+    int rel_y = py - (y + r);
+
+    for (int span = r; span >= 0; span--) {
+      if (span * span + rel_y * rel_y <= r * r) {
+        gui_fill_rect_alpha(x + r - span, py, span * 2 + 1, 1, color);
+        gui_fill_rect_alpha(x + w - r - 1 - span, py, span * 2 + 1, 1, color);
+        break;
       }
     }
   }
