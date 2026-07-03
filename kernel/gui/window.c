@@ -20659,31 +20659,32 @@ static void image_viewer_on_draw(struct window *win) {
   int tb_h = 48;
   int tb_x = draw_x + (draw_w - tb_w) / 2;
   int tb_y = draw_y + draw_h - tb_h - 16;
+  int corner_r = 12;
 
   /* Glassmorphism toolbar background */
-  for (int y = tb_y; y < tb_y + tb_h; y++) {
-    for (int x = tb_x; x < tb_x + tb_w; x++) {
-      /* Semi-transparent dark with blur effect simulation */
-      int dist_y = (y - tb_y < tb_h / 2) ? (y - tb_y) : (tb_y + tb_h - y);
-      int alpha = 200 + (dist_y * 30 / (tb_h / 2));
-      if (alpha > 230)
-        alpha = 230;
-      uint32_t bg = ((alpha / 10) << 16) | ((alpha / 10) << 8) | (alpha / 8);
-      draw_pixel(x, y, bg);
-    }
-  }
+  for (int row = 0; row < tb_h; row++) {
+    int dist_y = (row < tb_h / 2) ? row : (tb_h - 1 - row);
+    int alpha = 200 + (dist_y * 30 / (tb_h / 2));
+    int fill_x = tb_x;
+    int fill_w = tb_w;
 
-  /* Rounded corners (top) */
-  int corner_r = 12;
-  for (int cy = 0; cy < corner_r; cy++) {
-    for (int cx = 0; cx < corner_r; cx++) {
-      int dx = corner_r - cx;
-      int dy = corner_r - cy;
-      if (dx * dx + dy * dy > corner_r * corner_r) {
-        draw_pixel(tb_x + cx, tb_y + cy, bg_color);
-        draw_pixel(tb_x + tb_w - 1 - cx, tb_y + cy, bg_color);
+    if (alpha > 230)
+      alpha = 230;
+
+    if (row < corner_r) {
+      int dy = corner_r - 1 - row;
+
+      for (int span = corner_r; span >= 0; span--) {
+        if (span * span + dy * dy <= corner_r * corner_r) {
+          fill_x = tb_x + corner_r - span;
+          fill_w = tb_w - 2 * (corner_r - span);
+          break;
+        }
       }
     }
+
+    gui_draw_rect(fill_x, tb_y + row, fill_w, 1,
+                  ((alpha / 10) << 16) | ((alpha / 10) << 8) | (alpha / 8));
   }
 
   /* Toolbar buttons */
@@ -20702,33 +20703,7 @@ static void image_viewer_on_draw(struct window *win) {
                     mouse_y >= btn_y && mouse_y < btn_y + btn_size);
     uint32_t bg = is_hover ? btn_hover : btn_bg;
 
-    /* Draw rounded button */
-    int r = 8;
-    for (int y = 0; y < btn_size; y++) {
-      for (int x = 0; x < btn_size; x++) {
-        int in_corner = 0;
-        if (x < r && y < r && (r - x) * (r - x) + (r - y) * (r - y) > r * r)
-          in_corner = 1;
-        if (x >= btn_size - r && y < r &&
-            (x - btn_size + r + 1) * (x - btn_size + r + 1) +
-                    (r - y) * (r - y) >
-                r * r)
-          in_corner = 1;
-        if (x < r && y >= btn_size - r &&
-            (r - x) * (r - x) +
-                    (y - btn_size + r + 1) * (y - btn_size + r + 1) >
-                r * r)
-          in_corner = 1;
-        if (x >= btn_size - r && y >= btn_size - r &&
-            (x - btn_size + r + 1) * (x - btn_size + r + 1) +
-                    (y - btn_size + r + 1) * (y - btn_size + r + 1) >
-                r * r)
-          in_corner = 1;
-        if (!in_corner) {
-          draw_pixel(btn_x + x, btn_y + y, bg);
-        }
-      }
-    }
+    draw_rounded_rect(btn_x, btn_y, btn_size, btn_size, 8, bg);
     /* Draw pre-rendered RGBA icon from toolbar_icons.h */
     const uint32_t *icon_data = toolbar_icons[i];
     int icon_x = btn_x + (btn_size - TOOLBAR_ICON_SIZE) / 2;
