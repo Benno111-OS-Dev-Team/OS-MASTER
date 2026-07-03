@@ -12439,40 +12439,34 @@ static void draw_window_internal(struct window *win) {
     /* Close button - Red */
     if (window_close_disabled(win)) {
       draw_circle(btn_cx, btn_cy, btn_r, 0x6B7280);
-      for (int i = -2; i <= 2; i++) {
-        draw_pixel(btn_cx + i, btn_cy + i, 0x374151);
-        draw_pixel(btn_cx + i, btn_cy - i, 0x374151);
-      }
+      gui_draw_line(btn_cx - 2, btn_cy - 2, btn_cx + 2, btn_cy + 2,
+                    0x374151);
+      gui_draw_line(btn_cx - 2, btn_cy + 2, btn_cx + 2, btn_cy - 2,
+                    0x374151);
     } else {
       draw_circle(btn_cx, btn_cy, btn_r, COLOR_BTN_CLOSE);
-      for (int i = -2; i <= 2; i++) {
-        draw_pixel(btn_cx + i, btn_cy + i, 0x7F1D1D);
-        draw_pixel(btn_cx + i, btn_cy - i, 0x7F1D1D);
-      }
+      gui_draw_line(btn_cx - 2, btn_cy - 2, btn_cx + 2, btn_cy + 2,
+                    0x7F1D1D);
+      gui_draw_line(btn_cx - 2, btn_cy + 2, btn_cx + 2, btn_cy - 2,
+                    0x7F1D1D);
     }
 
     /* Minimize button - Amber */
     btn_cx += 18;
     if (window_minimize_disabled(win)) {
       draw_circle(btn_cx, btn_cy, btn_r, 0x6B7280);
-      for (int i = -2; i <= 2; i++) {
-        draw_pixel(btn_cx + i, btn_cy, 0x374151);
-      }
+      gui_draw_line(btn_cx - 2, btn_cy, btn_cx + 2, btn_cy, 0x374151);
     } else {
       draw_circle(btn_cx, btn_cy, btn_r, COLOR_BTN_MINIMIZE);
-      for (int i = -2; i <= 2; i++) {
-        draw_pixel(btn_cx + i, btn_cy, 0x78350F);
-      }
+      gui_draw_line(btn_cx - 2, btn_cy, btn_cx + 2, btn_cy, 0x78350F);
     }
 
     /* Zoom button - Green */
     btn_cx += 18;
     draw_circle(btn_cx, btn_cy, btn_r, COLOR_BTN_ZOOM);
     /* Draw + icon */
-    for (int i = -2; i <= 2; i++) {
-      draw_pixel(btn_cx + i, btn_cy, 0x14532D);
-      draw_pixel(btn_cx, btn_cy + i, 0x14532D);
-    }
+    gui_draw_line(btn_cx - 2, btn_cy, btn_cx + 2, btn_cy, 0x14532D);
+    gui_draw_line(btn_cx, btn_cy - 2, btn_cx, btn_cy + 2, 0x14532D);
 
     /* Window title - centered with modern font styling */
     int title_len = 0;
