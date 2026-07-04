@@ -154,7 +154,9 @@ int gui_blur_effects_requested(void);
 int gui_are_blur_effects_enabled(void);
 int gui_is_gpu_rendering_enabled(void);
 int gui_can_apply_resolution_live(void);
+int gui_is_supported_resolution(uint32_t width, uint32_t height);
 int gui_set_resolution(uint32_t width, uint32_t height);
+int gui_save_resolution_preference(uint32_t width, uint32_t height);
 void gui_start_partial_redraw_clear_debug(void);
 int gui_partial_redraw_clear_debug_enabled(void);
 static void compositor_mark_screen_rect_dirty(void);
@@ -1157,7 +1159,6 @@ static int settings_find_resolution_index(uint32_t width, uint32_t height);
 static void gui_clamp_windows_to_display(void);
 static int gui_apply_resolution(uint32_t width, uint32_t height);
 static int gui_load_saved_resolution(uint32_t *width, uint32_t *height);
-static void gui_save_resolution_preference(uint32_t width, uint32_t height);
 static void gui_apply_saved_boot_resolution(uint32_t **framebuffer,
                                             uint32_t *width,
                                             uint32_t *height,
@@ -4103,9 +4104,12 @@ static int gui_load_saved_resolution(uint32_t *width, uint32_t *height) {
   return -1;
 }
 
-static void gui_save_resolution_preference(uint32_t width, uint32_t height) {
+int gui_save_resolution_preference(uint32_t width, uint32_t height) {
   char manifest[96];
   int idx = 0;
+
+  if (!gui_is_supported_resolution(width, height))
+    return -1;
 
   vfs_mkdir("/System", 0755);
 
@@ -4121,6 +4125,7 @@ static void gui_save_resolution_preference(uint32_t width, uint32_t height) {
 
   media_install_text_file(GUI_DISPLAY_CONFIG_PATH, manifest);
   settings_resolution_saved_idx = settings_find_resolution_index(width, height);
+  return 0;
 }
 
 static void gui_apply_saved_boot_resolution(uint32_t **framebuffer,
@@ -17743,6 +17748,10 @@ int gui_is_gpu_rendering_enabled(void) { return g_gpu_rendering_enabled; }
 
 int gui_can_apply_resolution_live(void) {
   return gui_resolution_live_supported_internal();
+}
+
+int gui_is_supported_resolution(uint32_t width, uint32_t height) {
+  return settings_find_resolution_index(width, height) >= 0;
 }
 
 int gui_set_resolution(uint32_t width, uint32_t height) {

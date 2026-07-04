@@ -982,7 +982,10 @@ void term_execute_command(struct terminal *term, const char *cmd) {
     term_puts(term, "  history   - Show command history\n");
     term_puts(term, "  free      - Memory usage\n");
     term_puts(term, "  ps        - Process list\n");
-    term_puts(term, "  resolution [WxH] - Show or change display resolution\n");
+    term_puts(term, "  resolution            - Show display resolution status\n");
+    term_puts(term, "  resolution list       - Show supported resolution presets\n");
+    term_puts(term, "  resolution WxH        - Apply a live resolution change\n");
+    term_puts(term, "  resolution save WxH   - Save a supported boot resolution\n");
     term_puts(term, "  panic [m] - Trigger debug panic with message\n");
     term_puts(term, "  clear     - Clear screen\n");
     term_puts(term, "  help      - This help message\n");
@@ -1116,6 +1119,44 @@ void term_execute_command(struct terminal *term, const char *cmd) {
       term_puts(term, "\nLive switching: ");
       term_puts(term, gui_can_apply_resolution_live() ? "available\n"
                                                       : "unavailable\n");
+    } else if (str_starts_with(arg, "list")) {
+      static const char *const presets[] = {"1024x768", "1280x720",
+                                            "1600x900", "1920x1080"};
+
+      term_puts(term, "Supported presets:\n");
+      for (int i = 0; i < 4; i++) {
+        term_puts(term, "  ");
+        term_puts(term, presets[i]);
+        term_puts(term, "\n");
+      }
+    } else if (str_starts_with(arg, "save ")) {
+      arg += 5;
+      while (*arg == ' ')
+        arg++;
+
+      width = parse_u32_decimal(arg, &consumed);
+      if (consumed <= 0 || (arg[consumed] != 'x' && arg[consumed] != 'X')) {
+        term_puts(term, "resolution: expected format save WIDTHxHEIGHT\n");
+        return;
+      }
+
+      arg += consumed + 1;
+      height = parse_u32_decimal(arg, &consumed);
+      if (consumed <= 0 || width == 0 || height == 0) {
+        term_puts(term, "resolution: expected format save WIDTHxHEIGHT\n");
+        return;
+      }
+
+      if (gui_save_resolution_preference(width, height) == 0) {
+        term_puts(term, "resolution: saved boot default ");
+        term_put_uint(term, width);
+        term_putc(term, 'x');
+        term_put_uint(term, height);
+        term_puts(term, "\n");
+      } else {
+        term_puts(term,
+                  "resolution: unsupported preset; try 'resolution list'\n");
+      }
     } else {
       width = parse_u32_decimal(arg, &consumed);
       if (consumed <= 0 || (arg[consumed] != 'x' && arg[consumed] != 'X')) {
