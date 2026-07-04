@@ -4031,6 +4031,11 @@ static int gui_apply_resolution(uint32_t width, uint32_t height) {
   g_saved_backbuffer = new_backbuffer;
   gui_use_display_render_target();
 
+  {
+    extern void kapi_refresh_display_state(void);
+    kapi_refresh_display_state();
+  }
+
   if (old_backbuffer)
     kfree(old_backbuffer);
 

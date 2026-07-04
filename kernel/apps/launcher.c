@@ -46,6 +46,17 @@ static uint64_t app_frame_last_ms = 0;
 /* Global kernel API instance */
 static kapi_t global_kapi;
 
+static void kapi_sync_display_state(kapi_t *api) {
+    struct display *d = gui_get_display();
+
+    if (!api)
+        return;
+
+    api->fb_base = d ? d->framebuffer : NULL;
+    api->fb_width = d ? d->width : 0;
+    api->fb_height = d ? d->height : 0;
+}
+
 /* ===================================================================== */
 /* KAPI Implementation Functions */
 /* ===================================================================== */
@@ -600,8 +611,6 @@ static int stub_dma_fill(void *d, uint32_t v, uint32_t l) { (void)d; (void)v; (v
 static const char *stub_cpu_name(void) { return "ARM Cortex-A72"; }
 
 void kapi_init(kapi_t *api) {
-    struct display *d = gui_get_display();
-    
     /* Zero entire struct first */
     char *p = (char *)api;
     for (size_t i = 0; i < sizeof(kapi_t); i++) p[i] = 0;
@@ -659,9 +668,7 @@ void kapi_init(kapi_t *api) {
     api->console_cols = stub_console_size;
 
     /* Framebuffer */
-    api->fb_base = d ? d->framebuffer : NULL;
-    api->fb_width = d ? d->width : 0;
-    api->fb_height = d ? d->height : 0;
+    kapi_sync_display_state(api);
     api->fb_put_pixel = kapi_fb_put_pixel;
     api->fb_fill_rect = kapi_fb_fill_rect;
     api->fb_draw_char = kapi_fb_draw_char;
@@ -834,6 +841,10 @@ void kapi_tick(void) {
     uptime_ticks++;
 }
 
+void kapi_refresh_display_state(void) {
+    kapi_sync_display_state(&global_kapi);
+}
+
 /* Get the global kapi */
 kapi_t *kapi_get(void) {
     static int initialized = 0;
@@ -841,6 +852,7 @@ kapi_t *kapi_get(void) {
         kapi_init(&global_kapi);
         initialized = 1;
     }
+    kapi_sync_display_state(&global_kapi);
     return &global_kapi;
 }
 
