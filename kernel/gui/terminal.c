@@ -433,6 +433,20 @@ static int str_starts_with(const char *str, const char *prefix) {
   return 1;
 }
 
+static uint32_t parse_u32_decimal(const char *text, int *consumed) {
+  uint32_t value = 0;
+  int idx = 0;
+
+  while (text && text[idx] >= '0' && text[idx] <= '9') {
+    value = value * 10u + (uint32_t)(text[idx] - '0');
+    idx++;
+  }
+
+  if (consumed)
+    *consumed = idx;
+  return value;
+}
+
 static char to_lower(char c) {
   if (c >= 'A' && c <= 'Z')
     return (char)(c + 32);
@@ -968,6 +982,7 @@ void term_execute_command(struct terminal *term, const char *cmd) {
     term_puts(term, "  history   - Show command history\n");
     term_puts(term, "  free      - Memory usage\n");
     term_puts(term, "  ps        - Process list\n");
+    term_puts(term, "  resolution [WxH] - Show or change display resolution\n");
     term_puts(term, "  panic [m] - Trigger debug panic with message\n");
     term_puts(term, "  clear     - Clear screen\n");
     term_puts(term, "  help      - This help message\n");
@@ -1076,6 +1091,61 @@ void term_execute_command(struct terminal *term, const char *cmd) {
     term_puts(term, "    1 ?        00:00:00 init\n");
     term_puts(term, "    2 ?        00:00:00 kthread\n");
     term_puts(term, "   10 tty1     00:00:00 shell\n");
+  } else if (str_starts_with(cmd, "resolution") ||
+             str_starts_with(cmd, "display")) {
+    const char *arg = cmd;
+    uint32_t width;
+    uint32_t height;
+    int consumed = 0;
+
+    while (*arg && *arg != ' ')
+      arg++;
+    while (*arg == ' ')
+      arg++;
+
+    if (*arg == '\0') {
+      uint32_t *fb = NULL;
+      uint32_t fb_width = 0;
+      uint32_t fb_height = 0;
+
+      fb_get_info(&fb, &fb_width, &fb_height);
+      term_puts(term, "Current resolution: ");
+      term_put_uint(term, fb_width);
+      term_putc(term, 'x');
+      term_put_uint(term, fb_height);
+      term_puts(term, "\nLive switching: ");
+      term_puts(term, gui_can_apply_resolution_live() ? "available\n"
+                                                      : "unavailable\n");
+    } else {
+      width = parse_u32_decimal(arg, &consumed);
+      if (consumed <= 0 || (arg[consumed] != 'x' && arg[consumed] != 'X')) {
+        term_puts(term, "resolution: expected format WIDTHxHEIGHT\n");
+        return;
+      }
+
+      arg += consumed + 1;
+      height = parse_u32_decimal(arg, &consumed);
+      if (consumed <= 0 || width == 0 || height == 0) {
+        term_puts(term, "resolution: expected format WIDTHxHEIGHT\n");
+        return;
+      }
+
+      if (!gui_can_apply_resolution_live()) {
+        term_puts(term,
+                  "resolution: live switching unavailable on this backend\n");
+        return;
+      }
+
+      if (gui_set_resolution(width, height) == 0) {
+        term_puts(term, "resolution: switched to ");
+        term_put_uint(term, width);
+        term_putc(term, 'x');
+        term_put_uint(term, height);
+        term_puts(term, "\n");
+      } else {
+        term_puts(term, "resolution: mode change failed\n");
+      }
+    }
   } else if (str_starts_with(cmd, "panic") &&
              (cmd[5] == '\0' || cmd[5] == ' ')) {
     const char *panic_msg = cmd + 5;
