@@ -986,6 +986,7 @@ void term_execute_command(struct terminal *term, const char *cmd) {
     term_puts(term, "  resolution list       - Show supported resolution presets\n");
     term_puts(term, "  resolution WxH        - Apply a live resolution change\n");
     term_puts(term, "  resolution save WxH   - Save a supported boot resolution\n");
+    term_puts(term, "  resolution test       - Switch modes and verify live resizing\n");
     term_puts(term, "  panic [m] - Trigger debug panic with message\n");
     term_puts(term, "  clear     - Clear screen\n");
     term_puts(term, "  help      - This help message\n");
@@ -1132,6 +1133,68 @@ void term_execute_command(struct terminal *term, const char *cmd) {
         term_puts(term, label);
         term_puts(term, "\n");
       }
+    } else if (str_starts_with(arg, "test")) {
+      uint32_t *fb = NULL;
+      uint32_t original_width = 0;
+      uint32_t original_height = 0;
+      uint32_t target_width = 0;
+      uint32_t target_height = 0;
+      int preset_count = gui_get_resolution_option_count();
+      int found_target = 0;
+
+      if (!gui_can_apply_resolution_live()) {
+        term_puts(term,
+                  "resolution: live switching unavailable on this backend\n");
+        return;
+      }
+
+      fb_get_info(&fb, &original_width, &original_height);
+      for (int i = 0; i < preset_count; i++) {
+        if (gui_get_resolution_option(i, &target_width, &target_height, NULL) !=
+            0) {
+          continue;
+        }
+        if (target_width != original_width || target_height != original_height) {
+          found_target = 1;
+          break;
+        }
+      }
+
+      if (!found_target) {
+        term_puts(term, "resolution: no alternate preset available for test\n");
+        return;
+      }
+
+      term_puts(term, "resolution: testing live switch to ");
+      term_put_uint(term, target_width);
+      term_putc(term, 'x');
+      term_put_uint(term, target_height);
+      term_puts(term, "...\n");
+
+      if (gui_set_resolution(target_width, target_height) != 0) {
+        term_puts(term, "resolution: test failed during mode switch\n");
+        return;
+      }
+
+      fb_get_info(&fb, &width, &height);
+      if (width != target_width || height != target_height) {
+        term_puts(term, "resolution: test failed, framebuffer size mismatch\n");
+        (void)gui_set_resolution(original_width, original_height);
+        return;
+      }
+
+      if (gui_set_resolution(original_width, original_height) != 0) {
+        term_puts(term, "resolution: test switched but failed to restore mode\n");
+        return;
+      }
+
+      fb_get_info(&fb, &width, &height);
+      if (width != original_width || height != original_height) {
+        term_puts(term, "resolution: restore mismatch after test\n");
+        return;
+      }
+
+      term_puts(term, "resolution: live switching self-test passed\n");
     } else if (str_starts_with(arg, "save ")) {
       arg += 5;
       while (*arg == ' ')

@@ -4051,10 +4051,8 @@ static int gui_apply_resolution(uint32_t width, uint32_t height) {
     if (windows[i].id != 0)
       window_mark_surface_dirty_full(&windows[i]);
   }
-  gui_save_resolution_preference(new_width, new_height);
   new_idx = settings_find_resolution_index(new_width, new_height);
   settings_resolution_current_idx = new_idx;
-  settings_resolution_saved_idx = new_idx;
   if (new_idx >= 0)
     settings_resolution_pending_idx = new_idx;
   compositor_mark_full_redraw();
