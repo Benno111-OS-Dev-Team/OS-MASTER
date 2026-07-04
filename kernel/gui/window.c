@@ -153,6 +153,8 @@ void gui_set_blur_effects_enabled(int enabled);
 int gui_blur_effects_requested(void);
 int gui_are_blur_effects_enabled(void);
 int gui_is_gpu_rendering_enabled(void);
+int gui_can_apply_resolution_live(void);
+int gui_set_resolution(uint32_t width, uint32_t height);
 void gui_start_partial_redraw_clear_debug(void);
 int gui_partial_redraw_clear_debug_enabled(void);
 static void compositor_mark_screen_rect_dirty(void);
@@ -3974,6 +3976,16 @@ static void gui_clamp_windows_to_display(void) {
   }
 }
 
+static int gui_resolution_live_supported_internal(void) {
+#if !defined(ARCH_X86_64) && !defined(ARCH_X86)
+  return 0;
+#else
+  if (str_cmp(g_gpu_backend_name, "bochs-vbe") == 0)
+    return 1;
+  return pci_find_device(0x1234, 0x1111) != NULL;
+#endif
+}
+
 static int gui_apply_resolution(uint32_t width, uint32_t height) {
   uint32_t *new_framebuffer = NULL;
   uint32_t new_width = 0;
@@ -3986,12 +3998,7 @@ static int gui_apply_resolution(uint32_t width, uint32_t height) {
   if (width == primary_display.width && height == primary_display.height)
     return 0;
 
-#if !defined(ARCH_X86_64) && !defined(ARCH_X86)
-  return -1;
-#endif
-
-  if (str_cmp(g_gpu_backend_name, "bochs-vbe") != 0 &&
-      !pci_find_device(0x1234, 0x1111))
+  if (!gui_resolution_live_supported_internal())
     return -1;
 
   if (bochs_init(width, height) != 0)
@@ -13673,7 +13680,9 @@ static void draw_window_internal(struct window *win) {
                           : "Current default",
                       0xFFFFFF, 0x252535);
       gui_draw_string(panel_x + 210, resolution_card_y + 44,
-                      "Apply now or save for reboot",
+                      gui_can_apply_resolution_live()
+                          ? "Apply now or save for reboot"
+                          : "Live switching unavailable on this display backend",
                       0x94A3B8, 0x252535);
 
       for (int i = 0; i < SETTINGS_RESOLUTION_OPTION_COUNT; i++) {
@@ -13699,7 +13708,8 @@ static void draw_window_internal(struct window *win) {
                                                             : GUI_BUTTON_NEUTRAL,
                              1, gui_is_gpu_rendering_enabled());
       gui_draw_system_button(panel_x + 302, resolution_card_y + 66, 90, 24,
-                             "Apply", GUI_BUTTON_NEUTRAL, 1, 0);
+                             "Apply", GUI_BUTTON_NEUTRAL,
+                             gui_can_apply_resolution_live(), 0);
       gui_draw_system_button(panel_x + 400, resolution_card_y + 66, 96, 24,
                              "On Reboot", GUI_BUTTON_NEUTRAL, 1, 0);
     } else if (settings_active_tab == 4) {
@@ -17731,6 +17741,16 @@ void gui_configure_gpu_rendering(int enabled) {
 
 int gui_is_gpu_rendering_enabled(void) { return g_gpu_rendering_enabled; }
 
+int gui_can_apply_resolution_live(void) {
+  return gui_resolution_live_supported_internal();
+}
+
+int gui_set_resolution(uint32_t width, uint32_t height) {
+  if (!width || !height)
+    return -1;
+  return gui_apply_resolution(width, height);
+}
+
 void gui_refresh_hardware_acceleration_policy(void) {
   int enable = 0;
   const char *backend = "framebuffer";
@@ -19535,7 +19555,11 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
               str_copy_safe(settings_status,
                             "Resolution saved as the boot default.",
                             sizeof(settings_status));
-            } else if (gui_apply_resolution(opt->width, opt->height) == 0) {
+            } else if (!gui_can_apply_resolution_live()) {
+              str_copy_safe(settings_status,
+                            "Live resolution switching is unavailable here. Saved for reboot.",
+                            sizeof(settings_status));
+            } else if (gui_set_resolution(opt->width, opt->height) == 0) {
               settings_sync_resolution_picker();
               str_copy_safe(settings_status,
                             "Resolution changed now and saved for reboot.",
