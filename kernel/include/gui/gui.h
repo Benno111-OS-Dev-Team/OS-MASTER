@@ -44,6 +44,9 @@ void gui_configure_gpu_rendering(int enabled);
 int gui_is_gpu_rendering_enabled(void);
 int gui_can_apply_resolution_live(void);
 int gui_is_supported_resolution(uint32_t width, uint32_t height);
+int gui_get_resolution_option_count(void);
+int gui_get_resolution_option(int index, uint32_t *width, uint32_t *height,
+                              const char **label);
 int gui_set_resolution(uint32_t width, uint32_t height);
 int gui_save_resolution_preference(uint32_t width, uint32_t height);
 void gui_refresh_hardware_acceleration_policy(void);

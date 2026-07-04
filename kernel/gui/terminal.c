@@ -1120,13 +1120,16 @@ void term_execute_command(struct terminal *term, const char *cmd) {
       term_puts(term, gui_can_apply_resolution_live() ? "available\n"
                                                       : "unavailable\n");
     } else if (str_starts_with(arg, "list")) {
-      static const char *const presets[] = {"1024x768", "1280x720",
-                                            "1600x900", "1920x1080"};
+      int preset_count = gui_get_resolution_option_count();
 
       term_puts(term, "Supported presets:\n");
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < preset_count; i++) {
+        const char *label = NULL;
+
+        if (gui_get_resolution_option(i, NULL, NULL, &label) != 0 || !label)
+          continue;
         term_puts(term, "  ");
-        term_puts(term, presets[i]);
+        term_puts(term, label);
         term_puts(term, "\n");
       }
     } else if (str_starts_with(arg, "save ")) {

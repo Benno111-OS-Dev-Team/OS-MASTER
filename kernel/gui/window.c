@@ -155,6 +155,9 @@ int gui_are_blur_effects_enabled(void);
 int gui_is_gpu_rendering_enabled(void);
 int gui_can_apply_resolution_live(void);
 int gui_is_supported_resolution(uint32_t width, uint32_t height);
+int gui_get_resolution_option_count(void);
+int gui_get_resolution_option(int index, uint32_t *width, uint32_t *height,
+                              const char **label);
 int gui_set_resolution(uint32_t width, uint32_t height);
 int gui_save_resolution_preference(uint32_t width, uint32_t height);
 void gui_start_partial_redraw_clear_debug(void);
@@ -17752,6 +17755,23 @@ int gui_can_apply_resolution_live(void) {
 
 int gui_is_supported_resolution(uint32_t width, uint32_t height) {
   return settings_find_resolution_index(width, height) >= 0;
+}
+
+int gui_get_resolution_option_count(void) {
+  return SETTINGS_RESOLUTION_OPTION_COUNT;
+}
+
+int gui_get_resolution_option(int index, uint32_t *width, uint32_t *height,
+                              const char **label) {
+  if (index < 0 || index >= SETTINGS_RESOLUTION_OPTION_COUNT)
+    return -1;
+  if (width)
+    *width = settings_resolution_options[index].width;
+  if (height)
+    *height = settings_resolution_options[index].height;
+  if (label)
+    *label = settings_resolution_options[index].label;
+  return 0;
 }
 
 int gui_set_resolution(uint32_t width, uint32_t height) {
