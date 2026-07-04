@@ -17783,6 +17783,77 @@ int gui_set_resolution(uint32_t width, uint32_t height) {
   return gui_apply_resolution(width, height);
 }
 
+int gui_run_resolution_self_test(void) {
+  uint32_t *fb = NULL;
+  uint32_t original_width = 0;
+  uint32_t original_height = 0;
+  uint32_t target_width = 0;
+  uint32_t target_height = 0;
+  uint32_t verify_width = 0;
+  uint32_t verify_height = 0;
+  int preset_count = gui_get_resolution_option_count();
+  int found_target = 0;
+  extern void fb_get_info(uint32_t **buffer, uint32_t *width, uint32_t *height);
+
+  if (!gui_can_apply_resolution_live()) {
+    printk(KERN_INFO "GUI: Resolution self-test unavailable on this backend\n");
+    return -1;
+  }
+
+  fb_get_info(&fb, &original_width, &original_height);
+  for (int i = 0; i < preset_count; i++) {
+    if (gui_get_resolution_option(i, &target_width, &target_height, NULL) != 0)
+      continue;
+    if (target_width != original_width || target_height != original_height) {
+      found_target = 1;
+      break;
+    }
+  }
+
+  if (!found_target) {
+    printk(KERN_WARNING "GUI: Resolution self-test found no alternate preset\n");
+    return -1;
+  }
+
+  printk(KERN_INFO "GUI: Resolution self-test %ux%u -> %ux%u\n",
+         original_width, original_height, target_width, target_height);
+
+  if (gui_set_resolution(target_width, target_height) != 0) {
+    printk(KERN_WARNING "GUI: Resolution self-test failed to switch to %ux%u\n",
+           target_width, target_height);
+    return -1;
+  }
+
+  fb_get_info(&fb, &verify_width, &verify_height);
+  if (verify_width != target_width || verify_height != target_height) {
+    printk(KERN_WARNING
+           "GUI: Resolution self-test framebuffer mismatch after switch "
+           "(got %ux%u expected %ux%u)\n",
+           verify_width, verify_height, target_width, target_height);
+    (void)gui_set_resolution(original_width, original_height);
+    return -1;
+  }
+
+  if (gui_set_resolution(original_width, original_height) != 0) {
+    printk(KERN_WARNING "GUI: Resolution self-test failed to restore %ux%u\n",
+           original_width, original_height);
+    return -1;
+  }
+
+  fb_get_info(&fb, &verify_width, &verify_height);
+  if (verify_width != original_width || verify_height != original_height) {
+    printk(KERN_WARNING
+           "GUI: Resolution self-test restore mismatch "
+           "(got %ux%u expected %ux%u)\n",
+           verify_width, verify_height, original_width, original_height);
+    return -1;
+  }
+
+  printk(KERN_INFO "GUI: Resolution self-test passed at %ux%u\n",
+         original_width, original_height);
+  return 0;
+}
+
 void gui_refresh_hardware_acceleration_policy(void) {
   int enable = 0;
   const char *backend = "framebuffer";

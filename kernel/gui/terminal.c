@@ -1143,6 +1143,7 @@ void term_execute_command(struct terminal *term, const char *cmd) {
       int found_target = 0;
 
       if (!gui_can_apply_resolution_live()) {
+        printk(KERN_INFO "TERM: resolution self-test unavailable on this backend\n");
         term_puts(term,
                   "resolution: live switching unavailable on this backend\n");
         return;
@@ -1161,9 +1162,13 @@ void term_execute_command(struct terminal *term, const char *cmd) {
       }
 
       if (!found_target) {
+        printk(KERN_WARNING "TERM: resolution self-test found no alternate preset\n");
         term_puts(term, "resolution: no alternate preset available for test\n");
         return;
       }
+
+      printk(KERN_INFO "TERM: resolution self-test %ux%u -> %ux%u\n",
+             original_width, original_height, target_width, target_height);
 
       term_puts(term, "resolution: testing live switch to ");
       term_put_uint(term, target_width);
@@ -1172,28 +1177,43 @@ void term_execute_command(struct terminal *term, const char *cmd) {
       term_puts(term, "...\n");
 
       if (gui_set_resolution(target_width, target_height) != 0) {
+        printk(KERN_WARNING "TERM: resolution self-test failed to switch to %ux%u\n",
+               target_width, target_height);
         term_puts(term, "resolution: test failed during mode switch\n");
         return;
       }
 
       fb_get_info(&fb, &width, &height);
       if (width != target_width || height != target_height) {
+        printk(KERN_WARNING
+               "TERM: resolution self-test framebuffer mismatch after switch "
+               "(got %ux%u expected %ux%u)\n",
+               width, height, target_width, target_height);
         term_puts(term, "resolution: test failed, framebuffer size mismatch\n");
         (void)gui_set_resolution(original_width, original_height);
         return;
       }
 
       if (gui_set_resolution(original_width, original_height) != 0) {
+        printk(KERN_WARNING
+               "TERM: resolution self-test failed to restore %ux%u\n",
+               original_width, original_height);
         term_puts(term, "resolution: test switched but failed to restore mode\n");
         return;
       }
 
       fb_get_info(&fb, &width, &height);
       if (width != original_width || height != original_height) {
+        printk(KERN_WARNING
+               "TERM: resolution self-test restore mismatch "
+               "(got %ux%u expected %ux%u)\n",
+               width, height, original_width, original_height);
         term_puts(term, "resolution: restore mismatch after test\n");
         return;
       }
 
+      printk(KERN_INFO "TERM: resolution self-test passed at %ux%u\n",
+             original_width, original_height);
       term_puts(term, "resolution: live switching self-test passed\n");
     } else if (str_starts_with(arg, "save ")) {
       arg += 5;

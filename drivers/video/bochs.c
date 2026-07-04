@@ -7,6 +7,9 @@
 
 #include "types.h"
 #include "printk.h"
+#include "arch/arch.h"
+#include "drivers/pci.h"
+#include "mm/vmm.h"
 
 /* ===================================================================== */
 /* Bochs VBE (VGA BIOS Extensions) Registers */
@@ -17,6 +20,8 @@
 
 #define VBE_DISPI_MMIO_BASE     0x10001000UL  /* Bochs VBE MMIO registers */
 #define VBE_FRAMEBUFFER_BASE    0x10000000UL  /* Default framebuffer location */
+#define VBE_DISPI_IOPORT_INDEX  0x01CE
+#define VBE_DISPI_IOPORT_DATA   0x01D0
 
 /* VBE register offsets (16-bit registers at 0x500 + index*2) */
 #define VBE_DISPI_INDEX_ID          0
@@ -52,6 +57,8 @@
 static struct {
     volatile uint16_t *vbe_regs;
     volatile uint32_t *framebuffer;
+    uint64_t mmio_phys;
+    uint64_t framebuffer_phys;
     uint32_t width;
     uint32_t height;
     uint32_t bpp;
@@ -59,30 +66,72 @@ static struct {
     bool initialized;
 } bochs_display = {0};
 
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+extern uint64_t limine_get_hhdm_offset(void);
+#endif
+
+static void *bochs_phys_to_virt(uint64_t paddr) {
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+    uint64_t hhdm = limine_get_hhdm_offset();
+    if (hhdm)
+        return (void *)(uintptr_t)(paddr + hhdm);
+#endif
+    return phys_to_virt((phys_addr_t)paddr);
+}
+
+static void bochs_resolve_mappings(void) {
+    pci_device_t *dev = pci_find_device(0x1234, 0x1111);
+    uint64_t mmio_phys = VBE_DISPI_MMIO_BASE;
+    uint64_t framebuffer_phys = VBE_FRAMEBUFFER_BASE;
+
+    if (dev) {
+        if (dev->bar0)
+            framebuffer_phys = dev->bar0;
+        if (dev->bar2)
+            mmio_phys = dev->bar2;
+    }
+
+    bochs_display.mmio_phys = mmio_phys;
+    bochs_display.framebuffer_phys = framebuffer_phys;
+    bochs_display.vbe_regs = (volatile uint16_t *)bochs_phys_to_virt(mmio_phys);
+    bochs_display.framebuffer =
+        (volatile uint32_t *)bochs_phys_to_virt(framebuffer_phys);
+}
+
 /* ===================================================================== */
 /* Register Access */
 /* ===================================================================== */
 
 static void vbe_write(uint16_t index, uint16_t value)
 {
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+    outw(VBE_DISPI_IOPORT_INDEX, index);
+    outw(VBE_DISPI_IOPORT_DATA, value);
+#else
     if (bochs_display.vbe_regs) {
-        /* Bochs MMIO: index at offset 0x500, data at 0x501 */
+        /* Bochs MMIO: index at offset 0x500, data at offset 0x502. */
         volatile uint16_t *idx = (volatile uint16_t *)((uintptr_t)bochs_display.vbe_regs + 0x500);
-        volatile uint16_t *data = (volatile uint16_t *)((uintptr_t)bochs_display.vbe_regs + 0x501);
+        volatile uint16_t *data = (volatile uint16_t *)((uintptr_t)bochs_display.vbe_regs + 0x502);
         *idx = index;
         *data = value;
     }
+#endif
 }
 
 static uint16_t vbe_read(uint16_t index)
 {
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+    outw(VBE_DISPI_IOPORT_INDEX, index);
+    return inw(VBE_DISPI_IOPORT_DATA);
+#else
     if (bochs_display.vbe_regs) {
         volatile uint16_t *idx = (volatile uint16_t *)((uintptr_t)bochs_display.vbe_regs + 0x500);
-        volatile uint16_t *data = (volatile uint16_t *)((uintptr_t)bochs_display.vbe_regs + 0x501);
+        volatile uint16_t *data = (volatile uint16_t *)((uintptr_t)bochs_display.vbe_regs + 0x502);
         *idx = index;
         return *data;
     }
     return 0;
+#endif
 }
 
 /* ===================================================================== */
@@ -119,8 +168,12 @@ int bochs_init(uint32_t width, uint32_t height)
     printk(KERN_INFO "BOCHS: Initializing display %ux%u\n", width, height);
     
     /* Set up register and framebuffer pointers */
-    bochs_display.vbe_regs = (volatile uint16_t *)VBE_DISPI_MMIO_BASE;
-    bochs_display.framebuffer = (volatile uint32_t *)VBE_FRAMEBUFFER_BASE;
+    bochs_resolve_mappings();
+    printk(KERN_INFO "BOCHS: MMIO phys=0x%llx virt=%p FB phys=0x%llx virt=%p\n",
+           (unsigned long long)bochs_display.mmio_phys,
+           (const void *)bochs_display.vbe_regs,
+           (unsigned long long)bochs_display.framebuffer_phys,
+           (const void *)bochs_display.framebuffer);
     
     /* Check for Bochs VBE */
     uint16_t vbe_id = vbe_read(VBE_DISPI_INDEX_ID);
@@ -153,7 +206,7 @@ int bochs_init(uint32_t width, uint32_t height)
     bochs_display.initialized = true;
     
     printk(KERN_INFO "BOCHS: Display initialized, FB at 0x%lx\n", 
-           (unsigned long)VBE_FRAMEBUFFER_BASE);
+           (unsigned long)bochs_display.framebuffer_phys);
     
     /* Clear screen to dark blue */
     bochs_clear(0x1E1E2E);

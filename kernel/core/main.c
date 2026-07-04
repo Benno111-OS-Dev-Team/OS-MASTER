@@ -22,6 +22,7 @@
 #include "mm/vmm.h"
 #include "printk.h"
 #include "sched/sched.h"
+#include "string.h"
 #include "types.h"
 #include "gui/gui.h"
 #include "gui/font.h"
@@ -68,6 +69,7 @@ static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
                              const uint8_t *data, size_t size);
 static void keyboard_handler(int key);
 static void keyboard_gui_handler(int key);
+static int cmdline_has_token(const char *cmdline, const char *token);
 static uint64_t profile_split_us(uint64_t *cursor_us) {
   uint64_t now_us = gui_monotonic_us();
   uint64_t delta_us = now_us - *cursor_us;
@@ -79,6 +81,30 @@ static int gui_key_queue_pop(int *key_out);
 #ifdef ARCH_X86_64
 static void start_x86_64_bringup(void);
 #endif
+
+static int cmdline_has_token(const char *cmdline, const char *token) {
+  size_t token_len;
+
+  if (!cmdline || !token || !token[0])
+    return 0;
+
+  token_len = strlen(token);
+  for (const char *p = cmdline; *p; p++) {
+    int boundary_before = (p == cmdline || p[-1] == ' ' || p[-1] == '\t');
+    int boundary_after;
+
+    if (!boundary_before)
+      continue;
+    if (strncmp(p, token, token_len) != 0)
+      continue;
+    boundary_after = (p[token_len] == '\0' || p[token_len] == ' ' ||
+                      p[token_len] == '\t');
+    if (boundary_after)
+      return 1;
+  }
+
+  return 0;
+}
 
 static void panic_append_char(char *buf, size_t max, size_t *idx, char c) {
   if (!buf || !idx || *idx >= max - 1)
@@ -1516,6 +1542,22 @@ static void init_subsystems(void *dtb) {
     //gui_create_file_manager(200, 100); unwanted for now since it's just a placeholder with no real functionality
   }
   gui_refresh_hardware_acceleration_policy();
+
+#ifdef ARCH_X86_64
+  {
+    extern const char *limine_get_kernel_cmdline(void);
+    const char *cmdline = limine_get_kernel_cmdline();
+
+    printk(KERN_INFO "GUI: Kernel cmdline at GUI start: %s\n",
+           cmdline ? cmdline : "(null)");
+    if (cmdline_has_token(cmdline, "resolution-self-test")) {
+      printk(KERN_INFO "GUI: Boot cmdline requested resolution self-test\n");
+      if (gui_run_resolution_self_test() != 0) {
+        printk(KERN_WARNING "GUI: Resolution self-test reported failure\n");
+      }
+    }
+  }
+#endif
 
   printk(KERN_INFO "  Loading keyboard driver...\n");
   printk(KERN_INFO "  Loading NVMe driver...\n");

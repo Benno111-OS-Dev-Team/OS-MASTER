@@ -49,6 +49,7 @@ int gui_get_resolution_option(int index, uint32_t *width, uint32_t *height,
                               const char **label);
 int gui_set_resolution(uint32_t width, uint32_t height);
 int gui_save_resolution_preference(uint32_t width, uint32_t height);
+int gui_run_resolution_self_test(void);
 void gui_refresh_hardware_acceleration_policy(void);
 uint64_t gui_monotonic_us(void);
 void gui_profiler_begin(gui_profiler_span_t *span, const char *label);
