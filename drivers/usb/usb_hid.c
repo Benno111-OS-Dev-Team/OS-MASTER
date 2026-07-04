@@ -16,6 +16,7 @@
 struct usb_hid_keyboard {
   struct usb_device *dev;
   uint8_t last_report[USB_HID_BOOT_REPORT_LEN];
+  uint8_t modifiers;
   int active;
 };
 
@@ -89,6 +90,18 @@ static int usb_hid_mod_active(uint8_t modifiers, uint8_t mask) {
   return (modifiers & mask) != 0;
 }
 
+static uint8_t usb_hid_active_modifiers(void) {
+  uint8_t modifiers = 0;
+
+  for (int i = 0; i < USB_HID_MAX_KEYBOARDS; i++) {
+    if (!g_usb_keyboards[i].active)
+      continue;
+    modifiers |= g_usb_keyboards[i].modifiers;
+  }
+
+  return modifiers;
+}
+
 static void usb_hid_process_keypress(uint8_t modifiers, uint8_t usage) {
   int shift = usb_hid_mod_active(modifiers, 0x02 | 0x20);
   int ctrl = usb_hid_mod_active(modifiers, 0x01 | 0x10);
@@ -159,6 +172,7 @@ int usb_hid_init(struct usb_device *dev) {
       kbd = &g_usb_keyboards[i];
       for (int j = 0; j < USB_HID_BOOT_REPORT_LEN; j++)
         kbd->last_report[j] = 0;
+      kbd->modifiers = 0;
       kbd->dev = dev;
       kbd->active = 1;
       dev->data = kbd;
@@ -184,6 +198,7 @@ void usb_hid_remove(struct usb_device *dev) {
          dev->dev_addr);
   kbd->dev = NULL;
   kbd->active = 0;
+  kbd->modifiers = 0;
   for (int i = 0; i < USB_HID_BOOT_REPORT_LEN; i++)
     kbd->last_report[i] = 0;
   if (dev)
@@ -218,6 +233,8 @@ int usb_hid_submit_boot_keyboard_report(struct usb_device *dev,
     return -1;
 
   modifiers = report[0];
+  kbd->modifiers = modifiers;
+  modifiers = usb_hid_active_modifiers();
   for (int i = 2; i < USB_HID_BOOT_REPORT_LEN; i++) {
     uint8_t usage = report[i];
     if (!usage || report_contains_usage(kbd->last_report, usage))

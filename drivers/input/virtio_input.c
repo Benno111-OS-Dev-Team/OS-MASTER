@@ -122,6 +122,15 @@ struct virtio_input_dev {
   virtio_input_event_t *events;
   uint16_t last_used_idx;
   char name[32];
+  int rel_dx_pending;
+  int rel_dy_pending;
+  int abs_x;
+  int abs_y;
+  uint8_t pointer_buttons;
+  uint8_t pointer_has_absolute;
+  uint8_t shift_held;
+  uint8_t ctrl_held;
+  uint8_t alt_held;
   uint8_t queue_mem[4096];
   virtio_input_event_t event_bufs[QUEUE_SIZE];
 } __attribute__((aligned(4096)));
@@ -146,10 +155,6 @@ static int kbd_dev_count = 0;
 /* Keyboard callback */
 static void (*gui_key_callback)(int key) = 0;
 
-/* Modifier key states */
-static int shift_held = 0;
-static int ctrl_held = 0;
-static int alt_held = 0;
 static int boot_verbose_requested = 0;
 
 #define KEY_WINDOW_SWITCHER 0x110
@@ -257,6 +262,30 @@ static void mmio_write32(volatile uint32_t *addr, uint32_t val) {
   mmio_barrier();
   *addr = val;
   mmio_barrier();
+}
+
+static int keyboards_shift_held(void) {
+  for (int i = 0; i < kbd_dev_count; i++) {
+    if (kbd_devs[i].base && kbd_devs[i].shift_held)
+      return 1;
+  }
+  return 0;
+}
+
+static int keyboards_ctrl_held(void) {
+  for (int i = 0; i < kbd_dev_count; i++) {
+    if (kbd_devs[i].base && kbd_devs[i].ctrl_held)
+      return 1;
+  }
+  return 0;
+}
+
+static int keyboards_alt_held(void) {
+  for (int i = 0; i < kbd_dev_count; i++) {
+    if (kbd_devs[i].base && kbd_devs[i].alt_held)
+      return 1;
+  }
+  return 0;
 }
 
 /* ===================================================================== */
@@ -447,6 +476,11 @@ static int init_virtio_input_device(struct virtio_input_dev *dev) {
 /* ===================================================================== */
 
 void mouse_poll(void) {
+  int combined_buttons = 0;
+  int latest_abs_x = mouse_x;
+  int latest_abs_y = mouse_y;
+  int saw_absolute = 0;
+
   if (mouse_dev_count <= 0) {
     return;
   }
@@ -473,17 +507,20 @@ void mouse_poll(void) {
 
       /* Process event */
       if (ev->type == EV_ABS) {
-        mouse_has_absolute = 1;
+        dev->pointer_has_absolute = 1;
+        saw_absolute = 1;
         if (ev->code == ABS_X) {
-          mouse_x = ev->value;
+          dev->abs_x = ev->value;
+          latest_abs_x = ev->value;
         } else if (ev->code == ABS_Y) {
-          mouse_y = ev->value;
+          dev->abs_y = ev->value;
+          latest_abs_y = ev->value;
         }
       } else if (ev->type == EV_REL) {
         if (ev->code == REL_X) {
-          mouse_x += (int)ev->value * mouse_scale;
+          dev->rel_dx_pending += (int)ev->value * mouse_scale;
         } else if (ev->code == REL_Y) {
-          mouse_y += (int)ev->value * mouse_scale;
+          dev->rel_dy_pending += (int)ev->value * mouse_scale;
         } else if (ev->code == REL_WHEEL) {
           /* Wheel support can be consumed later by the GUI. */
         }
@@ -491,51 +528,25 @@ void mouse_poll(void) {
         int pressed = (ev->value != 0);
         if (ev->code == BTN_LEFT) {
           if (pressed)
-            mouse_buttons |= 1;
+            dev->pointer_buttons |= 1;
           else
-            mouse_buttons &= ~1;
+            dev->pointer_buttons &= (uint8_t)~1;
         } else if (ev->code == BTN_RIGHT) {
           if (pressed)
-            mouse_buttons |= 2;
+            dev->pointer_buttons |= 2;
           else
-            mouse_buttons &= ~2;
+            dev->pointer_buttons &= (uint8_t)~2;
         } else if (ev->code == BTN_MIDDLE) {
           if (pressed)
-            mouse_buttons |= 4;
+            dev->pointer_buttons |= 4;
           else
-            mouse_buttons &= ~4;
+            dev->pointer_buttons &= (uint8_t)~4;
         } else if (ev->code == BTN_TOUCH) {
           if (pressed)
-            mouse_buttons |= 1;
+            dev->pointer_buttons |= 1;
           else
-            mouse_buttons &= ~1;
+            dev->pointer_buttons &= (uint8_t)~1;
         }
-      }
-
-      if (mouse_has_absolute) {
-        if (mouse_x < 0)
-          mouse_x = 0;
-        if (mouse_y < 0)
-          mouse_y = 0;
-        if (mouse_x > 32767)
-          mouse_x = 32767;
-        if (mouse_y > 32767)
-          mouse_y = 32767;
-      } else {
-        int max_x = mouse_bounds_w - 1;
-        int max_y = mouse_bounds_h - 1;
-        if (max_x < 0)
-          max_x = 0;
-        if (max_y < 0)
-          max_y = 0;
-        if (mouse_x < 0)
-          mouse_x = 0;
-        if (mouse_y < 0)
-          mouse_y = 0;
-        if (mouse_x > max_x)
-          mouse_x = max_x;
-        if (mouse_y > max_y)
-          mouse_y = max_y;
       }
 
       /* Re-add descriptor to available ring */
@@ -549,7 +560,50 @@ void mouse_poll(void) {
     mmio_write32(dev->base + VIRTIO_MMIO_QUEUE_NOTIFY / 4, 0);
     mmio_write32(dev->base + VIRTIO_MMIO_INTERRUPT_ACK / 4,
                  mmio_read32(dev->base + VIRTIO_MMIO_INTERRUPT_STATUS / 4));
+
+    mouse_x += dev->rel_dx_pending;
+    mouse_y += dev->rel_dy_pending;
+    dev->rel_dx_pending = 0;
+    dev->rel_dy_pending = 0;
+    combined_buttons |= dev->pointer_buttons;
+    if (dev->pointer_has_absolute) {
+      saw_absolute = 1;
+      latest_abs_x = dev->abs_x;
+      latest_abs_y = dev->abs_y;
+    }
   }
+
+  if (saw_absolute) {
+    mouse_has_absolute = 1;
+    mouse_x = latest_abs_x;
+    mouse_y = latest_abs_y;
+    if (mouse_x < 0)
+      mouse_x = 0;
+    if (mouse_y < 0)
+      mouse_y = 0;
+    if (mouse_x > 32767)
+      mouse_x = 32767;
+    if (mouse_y > 32767)
+      mouse_y = 32767;
+  } else {
+    int max_x = mouse_bounds_w - 1;
+    int max_y = mouse_bounds_h - 1;
+    mouse_has_absolute = 0;
+    if (max_x < 0)
+      max_x = 0;
+    if (max_y < 0)
+      max_y = 0;
+    if (mouse_x < 0)
+      mouse_x = 0;
+    if (mouse_y < 0)
+      mouse_y = 0;
+    if (mouse_x > max_x)
+      mouse_x = max_x;
+    if (mouse_y > max_y)
+      mouse_y = max_y;
+  }
+
+  mouse_buttons = (uint8_t)combined_buttons;
 }
 
 /* ===================================================================== */
@@ -702,22 +756,25 @@ static void keyboard_poll(void) {
       if (ev->type == EV_KEY) {
         /* Track shift key state */
         if (ev->code == 42 || ev->code == 54) {
-          shift_held = (ev->value != 0);
+          dev->shift_held = (ev->value != 0);
         }
 
         /* Track Ctrl key state */
         if (ev->code == 29 || ev->code == 97) {
-          ctrl_held = (ev->value != 0);
+          dev->ctrl_held = (ev->value != 0);
         }
 
         if (ev->code == 56 || ev->code == 100) {
-          alt_held = (ev->value != 0);
+          dev->alt_held = (ev->value != 0);
         }
 
         if (ev->value == 1) {
           int processed = 0;
           int vibe_key = 0;
           char ascii = 0;
+          int shift_held = keyboards_shift_held();
+          int ctrl_held = keyboards_ctrl_held();
+          int alt_held = keyboards_alt_held();
 
           if (ev->code == 103)
             vibe_key = 0x100;
