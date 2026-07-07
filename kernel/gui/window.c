@@ -3171,6 +3171,7 @@ static void gui_draw_system_button(int x, int y, int w, int h,
   uint32_t glow;
   uint32_t border;
   uint32_t text = enabled ? 0xFFFFFF : theme->app_muted;
+  uint32_t shadow = 0x00000000;
   int label_len = 0;
   int label_x;
   int label_y;
@@ -3181,17 +3182,20 @@ static void gui_draw_system_button(int x, int y, int w, int h,
   switch (variant) {
   case GUI_BUTTON_PRIMARY:
     base = theme->accent;
+    text = gui_contrast_title_color(base);
     break;
   case GUI_BUTTON_SUCCESS:
     base = 0x16A34A;
+    text = gui_contrast_title_color(base);
     break;
   case GUI_BUTTON_DANGER:
     base = 0xB42318;
+    text = gui_contrast_title_color(base);
     break;
   case GUI_BUTTON_NEUTRAL:
   default:
     base = theme->surface_alt;
-    text = enabled ? theme->settings_text : theme->app_muted;
+    text = enabled ? gui_contrast_title_color(base) : theme->app_muted;
     break;
   }
 
@@ -3203,11 +3207,16 @@ static void gui_draw_system_button(int x, int y, int w, int h,
     tint = gui_argb(active ? 0xD2 : 0xBA, base);
     glow = gui_argb(active ? 0x3E : 0x24, 0xFFFFFF);
     border = gui_argb(active ? 0xB4 : 0x8A, theme->border);
+    if (active)
+      text = 0xFFFFFF;
   } else {
     tint = gui_argb(active ? 0xDE : 0xCA, base);
     glow = gui_argb(active ? 0x40 : 0x28, 0xFFFFFF);
     border = gui_argb(active ? 0xC8 : 0x96, base);
   }
+
+  shadow = enabled ? gui_argb(0x70, text == 0xFFFFFF ? 0x000000 : 0xFFFFFF)
+                   : 0x00000000;
 
   gui_draw_glass_panel(x, y, w, h, tint, glow, border, 2);
   gui_fill_rect_alpha(x + 1, y + 1, w - 2, h / 2, gui_argb(0x18, 0xFFFFFF));
@@ -3216,6 +3225,9 @@ static void gui_draw_system_button(int x, int y, int w, int h,
     label_len++;
   label_x = x + (w - label_len * 8) / 2;
   label_y = y + (h - 16) / 2;
+  if (enabled) {
+    gui_draw_string(label_x + 1, label_y + 1, label, shadow, 0x00000000);
+  }
   gui_draw_string(label_x, label_y, label, text, 0x00000000);
 }
 
