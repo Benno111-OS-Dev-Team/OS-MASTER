@@ -3881,6 +3881,31 @@ static void build_resolution_string(char *buf, uint32_t width, uint32_t height) 
   buf[idx] = '\0';
 }
 
+void gui_build_display_mode_string(char *buf, size_t size) {
+  int idx = 0;
+
+  if (!buf || size == 0)
+    return;
+
+  build_resolution_string(buf, primary_display.width, primary_display.height);
+  while (buf[idx] && idx < (int)size - 1)
+    idx++;
+  if (idx < (int)size - 3) {
+    buf[idx++] = ' ';
+    buf[idx++] = '@';
+    buf[idx++] = ' ';
+  }
+  if (idx < (int)size - 1)
+    append_decimal(buf, &idx, (int)primary_display.bpp);
+  if (idx < (int)size - 5) {
+    buf[idx++] = '-';
+    buf[idx++] = 'b';
+    buf[idx++] = 'i';
+    buf[idx++] = 't';
+  }
+  buf[idx < (int)size ? idx : (int)size - 1] = '\0';
+}
+
 static int settings_find_resolution_index(uint32_t width, uint32_t height) {
   for (int i = 0; i < SETTINGS_RESOLUTION_OPTION_COUNT; i++) {
     if (settings_resolution_options[i].width == width &&
@@ -13609,8 +13634,7 @@ static void draw_window_internal(struct window *win) {
     const char *arch_info = "Architecture:  ARM64";
 #endif
 
-    build_resolution_string(resolution, primary_display.width,
-                            primary_display.height);
+    gui_build_display_mode_string(resolution, sizeof(resolution));
     build_windows_string(windows_info);
     ui_format_uptime_string(uptime_info, sizeof(uptime_info));
     ui_build_memory_strings(phys_mem_info, sizeof(phys_mem_info), heap_mem_info,
@@ -13762,8 +13786,7 @@ static void draw_window_internal(struct window *win) {
     char installed_buf[24];
     int installed_apps = 0;
 
-    build_resolution_string(resolution, primary_display.width,
-                            primary_display.height);
+    gui_build_display_mode_string(resolution, sizeof(resolution));
     build_windows_string(windows_info);
     ui_format_uptime_string(uptime_info, sizeof(uptime_info));
     ui_build_memory_strings(phys_mem_info, sizeof(phys_mem_info), heap_mem_info,
@@ -14555,8 +14578,7 @@ static void draw_window_internal(struct window *win) {
     extern void storage_build_disk_overview(char *buf, int max);
     extern int storage_describe_controller(int index, char *buf, int max);
 
-    build_resolution_string(resolution, primary_display.width,
-                            primary_display.height);
+    gui_build_display_mode_string(resolution, sizeof(resolution));
     build_windows_string(windows_info);
     build_device_ports_string(usb_ports, xhci_get_connected_count(),
                               xhci_get_port_count());

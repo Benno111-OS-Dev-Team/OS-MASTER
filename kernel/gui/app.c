@@ -37,6 +37,7 @@ extern void gui_set_window_chrome_kind(struct window *win,
                                        gui_window_chrome_kind_t kind);
 extern void gui_get_window_content_rect(const struct window *win, int *x, int *y,
                                         int *w, int *h);
+extern void gui_build_display_mode_string(char *buf, size_t size);
 extern void gui_draw_rect(int x, int y, int w, int h, uint32_t color);
 extern void gui_draw_string(int x, int y, const char *str, uint32_t fg,
                             uint32_t bg);
@@ -229,6 +230,8 @@ static int settings_init(struct application *app) {
 }
 
 static void settings_draw(struct application *app) {
+  char display_mode[48];
+
   if (!app->main_window)
     return;
 
@@ -236,11 +239,13 @@ static void settings_draw(struct application *app) {
   int y;
   gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
                               &content_h);
+  gui_build_display_mode_string(display_mode, sizeof(display_mode));
 
   y = base_y + 28;
   gui_draw_string(base_x + 50, y, "Display", 0xCDD6F4, 0x1E1E2E);
   y += 30;
-  gui_draw_string(base_x + 60, y, "Resolution: 1920x1080", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "Mode:", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 108, y, display_mode, 0x808080, 0x1E1E2E);
   y += 20;
 
   y += 20;
