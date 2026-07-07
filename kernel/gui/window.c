@@ -3991,6 +3991,8 @@ struct window {
   int surface_dirty_w;
   int surface_dirty_h;
   void *userdata;
+  gui_window_layout_kind_t layout_kind;
+  gui_window_chrome_kind_t chrome_kind;
   window_animation_t animation;
   int anim_frame;
   int anim_total_frames;
@@ -4013,6 +4015,82 @@ static struct window *window_stack = NULL; /* Z-order, top is focused */
 static struct window *focused_window = NULL;
 static int startup_window_opening = 0;
 static int next_window_id = 1;
+static void window_mark_surface_dirty_full(struct window *win);
+static void gui_invalidate_window(struct window *win);
+
+static int window_content_origin_y(const struct window *win) {
+  if (!win)
+    return 0;
+  if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER)
+    return 0;
+  return BORDER_WIDTH + (win->has_titlebar ? TITLEBAR_HEIGHT : 0);
+}
+
+static int window_content_origin_x(const struct window *win) {
+  if (!win)
+    return 0;
+  if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER)
+    return 0;
+  return BORDER_WIDTH;
+}
+
+void gui_get_window_content_rect(const struct window *win, int *x, int *y, int *w,
+                                 int *h) {
+  int origin_x = window_content_origin_x(win);
+  int origin_y = window_content_origin_y(win);
+  int width = 0;
+  int height = 0;
+
+  if (!win || win->id == 0) {
+    if (x)
+      *x = 0;
+    if (y)
+      *y = 0;
+    if (w)
+      *w = 0;
+    if (h)
+      *h = 0;
+    return;
+  }
+
+  width = win->width - origin_x - (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER
+                                       ? 0
+                                       : BORDER_WIDTH);
+  height = win->height - origin_y - (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER
+                                         ? 0
+                                         : BORDER_WIDTH);
+
+  if (width < 0)
+    width = 0;
+  if (height < 0)
+    height = 0;
+
+  if (x)
+    *x = win->x + origin_x;
+  if (y)
+    *y = win->y + origin_y;
+  if (w)
+    *w = width;
+  if (h)
+    *h = height;
+}
+
+void gui_set_window_layout_kind(struct window *win, gui_window_layout_kind_t kind) {
+  if (!win)
+    return;
+  win->layout_kind = kind;
+  window_mark_surface_dirty_full(win);
+  gui_invalidate_window(win);
+}
+
+void gui_set_window_chrome_kind(struct window *win, gui_window_chrome_kind_t kind) {
+  if (!win)
+    return;
+  win->chrome_kind = kind;
+  win->has_titlebar = kind != GUI_WINDOW_CHROME_FRAMEBUFFER;
+  window_mark_surface_dirty_full(win);
+  gui_invalidate_window(win);
+}
 
 static void window_get_draw_rect(const struct window *win, int *x, int *y, int *w,
                                  int *h) {
@@ -4659,6 +4737,8 @@ struct window *gui_create_window(const char *title, int x, int y, int w,
   win->focused = false;
   win->has_titlebar = true;
   win->resizable = true;
+  win->layout_kind = GUI_WINDOW_LAYOUT_DEFAULT;
+  win->chrome_kind = GUI_WINDOW_CHROME_SYSTEM;
   win->animation = WINDOW_ANIM_OPEN;
   win->anim_frame = 0;
   win->anim_total_frames = 8;
@@ -12869,14 +12949,26 @@ static void draw_window_internal(struct window *win) {
   window_get_draw_rect(win, &x, &y, &w, &h);
   struct gui_clip_state prev_clip = gui_set_clip_rect(x, y, w, h);
 
-  gui_draw_glass_panel(x, y, w, h,
-                       win->focused ? theme->window_glass_focused
-                                    : theme->window_glass_inactive,
-                       win->focused ? theme->window_glow_focused
-                                    : theme->window_glow_inactive,
-                       0x00000000, 2);
+  if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
+    gui_draw_rect_outline(x, y, w, h,
+                          win->focused ? theme->accent : theme->border, 1);
+  } else if (win->chrome_kind == GUI_WINDOW_CHROME_MINIMAL) {
+    gui_draw_glass_panel(x, y, w, h,
+                         win->focused ? theme->window_glass_focused
+                                      : theme->window_glass_inactive,
+                         win->focused ? theme->window_glow_focused
+                                      : theme->window_glow_inactive,
+                         win->focused ? theme->accent : theme->border, 1);
+  } else {
+    gui_draw_glass_panel(x, y, w, h,
+                         win->focused ? theme->window_glass_focused
+                                      : theme->window_glass_inactive,
+                         win->focused ? theme->window_glow_focused
+                                      : theme->window_glow_inactive,
+                         0x00000000, 2);
+  }
 
-  if (win->has_titlebar) {
+  if (win->has_titlebar && win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
     int title_x0 = x + BORDER_WIDTH;
     int title_y0 = y + BORDER_WIDTH;
     int title_w = w - BORDER_WIDTH * 2;
@@ -12965,14 +13057,29 @@ static void draw_window_internal(struct window *win) {
   }
 
   /* Draw content area */
-  int content_x = x + BORDER_WIDTH;
-  int content_y = y + BORDER_WIDTH + (win->has_titlebar ? TITLEBAR_HEIGHT : 0);
-  int content_w = w - BORDER_WIDTH * 2;
-  int content_h =
-      h - BORDER_WIDTH * 2 - (win->has_titlebar ? TITLEBAR_HEIGHT : 0);
+  int content_x = x + window_content_origin_x(win);
+  int content_y = y + window_content_origin_y(win);
+  int content_w = w - window_content_origin_x(win) -
+                  (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER ? 0
+                                                                     : BORDER_WIDTH);
+  int content_h = h - window_content_origin_y(win) -
+                  (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER ? 0
+                                                                     : BORDER_WIDTH);
 
-  gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0x98171A26);
-  gui_fill_rect_alpha(content_x, content_y, content_w, 1, 0x28FFFFFF);
+  if (win->layout_kind == GUI_WINDOW_LAYOUT_FRAMEBUFFER ||
+      win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
+    gui_draw_rect(content_x, content_y, content_w, content_h, 0x000000);
+  } else if (win->layout_kind == GUI_WINDOW_LAYOUT_SCROLL) {
+    gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0xA01A1F2D);
+    gui_fill_rect_alpha(content_x + content_w - 12, content_y + 8, 4,
+                        content_h - 16, 0x304B5563);
+  } else if (win->layout_kind == GUI_WINDOW_LAYOUT_BUTTONS) {
+    gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0xB01A1A1E);
+    gui_fill_rect_alpha(content_x, content_y, content_w, 1, 0x30FFFFFF);
+  } else {
+    gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0x98171A26);
+    gui_fill_rect_alpha(content_x, content_y, content_w, 1, 0x28FFFFFF);
+  }
 
   /* Draw window-specific content based on title */
   /* Calculator - Modern Design */
@@ -15195,7 +15302,7 @@ static void draw_window_internal(struct window *win) {
   }
 
   /* Draw resize grip in bottom-right corner */
-  {
+  if (win->resizable && win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
     int gx = x + w - 14;
     int gy = y + h - 14;
     uint32_t grip_color = win->focused ? 0x888888 : 0x666666;

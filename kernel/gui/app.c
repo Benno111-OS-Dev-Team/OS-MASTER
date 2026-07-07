@@ -13,10 +13,30 @@
 struct window;
 struct terminal;
 
+typedef enum {
+  GUI_WINDOW_LAYOUT_DEFAULT = 0,
+  GUI_WINDOW_LAYOUT_TEXT,
+  GUI_WINDOW_LAYOUT_BUTTONS,
+  GUI_WINDOW_LAYOUT_SCROLL,
+  GUI_WINDOW_LAYOUT_FRAMEBUFFER
+} gui_window_layout_kind_t;
+
+typedef enum {
+  GUI_WINDOW_CHROME_SYSTEM = 0,
+  GUI_WINDOW_CHROME_MINIMAL,
+  GUI_WINDOW_CHROME_FRAMEBUFFER
+} gui_window_chrome_kind_t;
+
 extern struct window *gui_create_window(const char *title, int x, int y, int w,
                                         int h);
 extern void gui_destroy_window(struct window *win);
 extern void gui_focus_window(struct window *win);
+extern void gui_set_window_layout_kind(struct window *win,
+                                       gui_window_layout_kind_t kind);
+extern void gui_set_window_chrome_kind(struct window *win,
+                                       gui_window_chrome_kind_t kind);
+extern void gui_get_window_content_rect(const struct window *win, int *x, int *y,
+                                        int *w, int *h);
 extern void gui_draw_rect(int x, int y, int w, int h, uint32_t color);
 extern void gui_draw_string(int x, int y, const char *str, uint32_t fg,
                             uint32_t bg);
@@ -150,13 +170,19 @@ static int terminal_init(struct application *app) {
   app->main_window = gui_create_window("Terminal", 100, 100, 656, 424);
   if (!app->main_window)
     return -1;
+  gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_TEXT);
 
-  struct terminal *term = term_create(102 + 2, 100 + 30, 80, 24);
-  app->app_data = term;
+  {
+    int content_x, content_y, content_w, content_h;
+    gui_get_window_content_rect(app->main_window, &content_x, &content_y,
+                                &content_w, &content_h);
+    struct terminal *term = term_create(content_x + 2, content_y, 80, 24);
+    app->app_data = term;
+  }
 
   /* Set as active terminal so keyboard input works */
   extern void term_set_active(struct terminal * term);
-  term_set_active(term);
+  term_set_active(app->app_data);
 
   return 0;
 }
@@ -170,6 +196,8 @@ static void terminal_draw(struct application *app) {
 /* File Manager Application */
 static int file_manager_init(struct application *app) {
   app->main_window = gui_create_window("Files", 200, 150, 600, 400);
+  if (app->main_window)
+    gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_SCROLL);
   return 0;
 }
 
@@ -177,18 +205,26 @@ static void file_manager_draw(struct application *app) {
   if (!app->main_window)
     return;
 
-  /* TODO: Draw file list */
-  gui_draw_string(210, 190, "/ (Root)", 0xCDD6F4, 0x1E1E2E);
-  gui_draw_string(210, 210, "  bin/", 0x89B4FA, 0x1E1E2E);
-  gui_draw_string(210, 230, "  etc/", 0x89B4FA, 0x1E1E2E);
-  gui_draw_string(210, 250, "  home/", 0x89B4FA, 0x1E1E2E);
-  gui_draw_string(210, 270, "  usr/", 0x89B4FA, 0x1E1E2E);
-  gui_draw_string(210, 290, "  var/", 0x89B4FA, 0x1E1E2E);
+  {
+    int base_x, base_y, content_w, content_h;
+    gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
+                                &content_h);
+
+    /* TODO: Draw file list */
+    gui_draw_string(base_x + 8, base_y + 18, "/ (Root)", 0xCDD6F4, 0x1E1E2E);
+    gui_draw_string(base_x + 8, base_y + 38, "  bin/", 0x89B4FA, 0x1E1E2E);
+    gui_draw_string(base_x + 8, base_y + 58, "  etc/", 0x89B4FA, 0x1E1E2E);
+    gui_draw_string(base_x + 8, base_y + 78, "  home/", 0x89B4FA, 0x1E1E2E);
+    gui_draw_string(base_x + 8, base_y + 98, "  usr/", 0x89B4FA, 0x1E1E2E);
+    gui_draw_string(base_x + 8, base_y + 118, "  var/", 0x89B4FA, 0x1E1E2E);
+  }
 }
 
 /* Settings Application */
 static int settings_init(struct application *app) {
   app->main_window = gui_create_window("Settings", 210, 72, 760, 520);
+  if (app->main_window)
+    gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_SCROLL);
   return 0;
 }
 
@@ -196,39 +232,46 @@ static void settings_draw(struct application *app) {
   if (!app->main_window)
     return;
 
-  int y = 140;
-  gui_draw_string(260, y, "Display", 0xCDD6F4, 0x1E1E2E);
+  int base_x, base_y, content_w, content_h;
+  int y;
+  gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
+                              &content_h);
+
+  y = base_y + 28;
+  gui_draw_string(base_x + 50, y, "Display", 0xCDD6F4, 0x1E1E2E);
   y += 30;
-  gui_draw_string(270, y, "Resolution: 1920x1080", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "Resolution: 1920x1080", 0x808080, 0x1E1E2E);
   y += 20;
 
   y += 20;
-  gui_draw_string(260, y, "Sound", 0xCDD6F4, 0x1E1E2E);
+  gui_draw_string(base_x + 50, y, "Sound", 0xCDD6F4, 0x1E1E2E);
   y += 30;
-  gui_draw_string(270, y, "Volume: 80%", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "Volume: 80%", 0x808080, 0x1E1E2E);
   y += 20;
 
   y += 20;
-  gui_draw_string(260, y, "Network", 0xCDD6F4, 0x1E1E2E);
+  gui_draw_string(base_x + 50, y, "Network", 0xCDD6F4, 0x1E1E2E);
   y += 30;
-  gui_draw_string(270, y, "Status: Connected", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "Status: Connected", 0x808080, 0x1E1E2E);
   y += 20;
 
   y += 20;
-  gui_draw_string(260, y, "About", 0xCDD6F4, 0x1E1E2E);
+  gui_draw_string(base_x + 50, y, "About", 0xCDD6F4, 0x1E1E2E);
   y += 30;
-  gui_draw_string(270, y, "OS8 v0.3.0", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "OS8 v0.3.0", 0x808080, 0x1E1E2E);
   y += 20;
 #ifdef ARCH_X86_64
-  gui_draw_string(270, y, "x86_64 Operating System", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "x86_64 Operating System", 0x808080, 0x1E1E2E);
 #else
-  gui_draw_string(270, y, "ARM64 Operating System", 0x808080, 0x1E1E2E);
+  gui_draw_string(base_x + 60, y, "ARM64 Operating System", 0x808080, 0x1E1E2E);
 #endif
 }
 
 /* Simple Text Editor */
 static int editor_init(struct application *app) {
   app->main_window = gui_create_window("Text Editor", 150, 80, 700, 500);
+  if (app->main_window)
+    gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_TEXT);
   return 0;
 }
 
@@ -236,13 +279,19 @@ static void editor_draw(struct application *app) {
   if (!app->main_window)
     return;
 
+  int base_x, base_y, content_w, content_h;
+  gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
+                              &content_h);
+
   /* Toolbar */
-  gui_draw_rect(152, 112, 696, 30, 0x313244);
-  gui_draw_string(160, 118, "File  Edit  View  Help", 0xCDD6F4, 0x313244);
+  gui_draw_rect(base_x, base_y, content_w, 30, 0x313244);
+  gui_draw_string(base_x + 8, base_y + 6, "File  Edit  View  Help", 0xCDD6F4,
+                  0x313244);
 
   /* Status bar */
-  gui_draw_rect(152, 550, 696, 24, 0x313244);
-  gui_draw_string(160, 554, "Line 1, Col 1 | UTF-8", 0x808080, 0x313244);
+  gui_draw_rect(base_x, base_y + content_h - 24, content_w, 24, 0x313244);
+  gui_draw_string(base_x + 8, base_y + content_h - 20, "Line 1, Col 1 | UTF-8",
+                  0x808080, 0x313244);
 }
 
 /* Calculator Application */
@@ -257,6 +306,8 @@ static calc_state_t calc_state = {0, 0, 0, 0};
 
 static int calculator_init(struct application *app) {
   app->main_window = gui_create_window("Calculator", 300, 100, 200, 270);
+  if (app->main_window)
+    gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_BUTTONS);
   calc_state.value = 0;
   calc_state.pending = 0;
   calc_state.op = 0;
@@ -298,8 +349,9 @@ static void calculator_draw(struct application *app) {
   if (!app->main_window)
     return;
 
-  int base_x = 302; /* Window x + border */
-  int base_y = 132; /* Window y + titlebar + border */
+  int base_x, base_y, content_w, content_h;
+  gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
+                              &content_h);
 
   /* Display */
   gui_draw_rect(base_x + 4, base_y, 190, 30, 0xFFFFFF);
@@ -348,6 +400,10 @@ static void calculator_draw(struct application *app) {
 /* Paint Application */
 static int paint_init(struct application *app) {
   app->main_window = gui_create_window("Paint", 150, 80, 500, 400);
+  if (app->main_window) {
+    gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_FRAMEBUFFER);
+    gui_set_window_chrome_kind(app->main_window, GUI_WINDOW_CHROME_MINIMAL);
+  }
   return 0;
 }
 
@@ -355,14 +411,15 @@ static void paint_draw(struct application *app) {
   if (!app->main_window)
     return;
 
-  int base_x = 152;
-  int base_y = 112;
+  int base_x, base_y, content_w, content_h;
+  gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
+                              &content_h);
 
   /* Canvas area */
-  gui_draw_rect(base_x + 4, base_y + 40, 490, 320, 0xFFFFFF);
+  gui_draw_rect(base_x + 4, base_y + 40, content_w - 10, content_h - 44, 0xFFFFFF);
 
   /* Toolbar */
-  gui_draw_rect(base_x + 4, base_y, 490, 36, 0x404040);
+  gui_draw_rect(base_x + 4, base_y, content_w - 10, 36, 0x404040);
   gui_draw_string(base_x + 10, base_y + 10,
                   "Brush: [O]  Line: [/]  Rect: [#]  Color: ", 0xFFFFFF,
                   0x404040);
@@ -381,6 +438,8 @@ static void paint_draw(struct application *app) {
 /* Help Application */
 static int help_init(struct application *app) {
   app->main_window = gui_create_window("Help", 200, 100, 400, 350);
+  if (app->main_window)
+    gui_set_window_layout_kind(app->main_window, GUI_WINDOW_LAYOUT_TEXT);
   return 0;
 }
 
@@ -388,9 +447,11 @@ static void help_draw(struct application *app) {
   if (!app->main_window)
     return;
 
-  int base_x = 202;
-  int base_y = 132;
-  int y = base_y;
+  int base_x, base_y, content_w, content_h;
+  int y;
+  gui_get_window_content_rect(app->main_window, &base_x, &base_y, &content_w,
+                              &content_h);
+  y = base_y;
 
   gui_draw_string(base_x + 10, y, "OS8 Help", 0x89B4FA, 0x1E1E2E);
   y += 24;

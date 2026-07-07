@@ -14,6 +14,20 @@
 struct window;
 struct display;
 
+typedef enum gui_window_layout_kind {
+    GUI_WINDOW_LAYOUT_DEFAULT = 0,
+    GUI_WINDOW_LAYOUT_TEXT,
+    GUI_WINDOW_LAYOUT_BUTTONS,
+    GUI_WINDOW_LAYOUT_SCROLL,
+    GUI_WINDOW_LAYOUT_FRAMEBUFFER
+} gui_window_layout_kind_t;
+
+typedef enum gui_window_chrome_kind {
+    GUI_WINDOW_CHROME_SYSTEM = 0,
+    GUI_WINDOW_CHROME_MINIMAL,
+    GUI_WINDOW_CHROME_FRAMEBUFFER
+} gui_window_chrome_kind_t;
+
 typedef struct gui_frame_profile {
     uint64_t input_poll_us;
     uint64_t net_poll_us;
@@ -63,6 +77,10 @@ void gui_desktop_frame_profiler_reset(void);
 struct window *gui_create_window(const char *title, int x, int y, int w, int h);
 void gui_destroy_window(struct window *win);
 void gui_focus_window(struct window *win);
+void gui_set_window_layout_kind(struct window *win, gui_window_layout_kind_t kind);
+void gui_set_window_chrome_kind(struct window *win, gui_window_chrome_kind_t kind);
+void gui_get_window_content_rect(const struct window *win, int *x, int *y,
+                                 int *w, int *h);
 
 /* Drawing primitives */
 void gui_draw_rect(int x, int y, int w, int h, uint32_t color);
