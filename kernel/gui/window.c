@@ -17378,6 +17378,7 @@ static void draw_desktop(void) {
 
 static gui_frame_profile_t g_desktop_frame_profile = {0};
 static int g_desktop_frame_profile_valid = 0;
+static int g_desktop_frame_profiler_enabled = 0;
 static uint32_t g_desktop_frame_profile_frame_no = 0;
 static int g_desktop_frame_profile_note_count = 0;
 
@@ -17502,6 +17503,8 @@ void gui_desktop_frame_profiler_reset(void) {
 void gui_desktop_frame_profiler_clear_notes(void) {
   int i;
 
+  if (!g_desktop_frame_profiler_enabled)
+    return;
   for (i = 0; i < GUI_PROFILER_NOTE_SLOTS; i++) {
     g_desktop_frame_notes[i].label[0] = '\0';
     g_desktop_frame_notes[i].elapsed_us = 0;
@@ -17513,6 +17516,13 @@ void gui_desktop_frame_profiler_clear_notes(void) {
 void gui_profiler_begin(gui_profiler_span_t *span, const char *label) {
   if (!span)
     return;
+  if (!g_desktop_frame_profiler_enabled) {
+    span->label = label;
+    span->start_us = 0;
+    span->elapsed_us = 0;
+    span->active = 0;
+    return;
+  }
 
   span->label = label;
   span->start_us = gui_monotonic_us();
@@ -17536,6 +17546,8 @@ void gui_desktop_frame_profiler_note(const char *label, uint64_t elapsed_us) {
   gui_profiler_note_t *note;
   int slot;
 
+  if (!g_desktop_frame_profiler_enabled)
+    return;
   if (!label || !label[0])
     return;
 
@@ -17556,7 +17568,7 @@ void gui_desktop_frame_profiler_submit(const gui_frame_profile_t *profile) {
   int panel_x;
   int panel_y;
 
-  if (!profile)
+  if (!g_desktop_frame_profiler_enabled || !profile)
     return;
 
   g_desktop_frame_profile = *profile;
@@ -17589,7 +17601,7 @@ static void gui_draw_desktop_frame_profiler(void) {
   int note_y;
   int i;
 
-  if (!g_desktop_frame_profile_valid)
+  if (!g_desktop_frame_profiler_enabled || !g_desktop_frame_profile_valid)
     return;
 
   panel_x = (int)primary_display.width - panel_w - GUI_PROFILER_PANEL_MARGIN;
@@ -18628,7 +18640,7 @@ static void gui_draw_scene_layers_rect(int dirty_x, int dirty_y, int dirty_w,
     int profiler_y = GUI_PROFILER_PANEL_MARGIN;
     if (profiler_x < GUI_PROFILER_PANEL_MARGIN)
       profiler_x = GUI_PROFILER_PANEL_MARGIN;
-    if (g_desktop_frame_profile_valid &&
+    if (g_desktop_frame_profiler_enabled && g_desktop_frame_profile_valid &&
         rects_intersect(profiler_x, profiler_y, GUI_PROFILER_PANEL_W,
                         GUI_PROFILER_PANEL_H, dirty_x, dirty_y, dirty_w, dirty_h))
       gui_draw_desktop_frame_profiler();
