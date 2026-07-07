@@ -40,6 +40,8 @@
 #define GUI_THEME_CONFIG_PATH "/System/theme.cfg"
 #define GUI_THEME_DARK_PATH "/assets/themes/dark.theme"
 #define GUI_THEME_LIGHT_PATH "/assets/themes/light.theme"
+#define GUI_ACTIVATION_PATH "/System/activation.cfg"
+#define GUI_ACTIVATION_GRACE_DAYS 30
 
 struct window *gui_create_file_manager(int x, int y);
 struct window *gui_create_file_manager_path(int x, int y, const char *path);
@@ -111,6 +113,12 @@ static int read_text_file(const char *path, char *buf, int max);
 static int manifest_get_value(const char *manifest, const char *key, char *out,
                               int out_max);
 static uint64_t parse_u64(const char *text);
+static void gui_refresh_activation_state(void);
+static int gui_activation_requires_sign_in(void);
+static const char *gui_activation_status_text(void);
+static const char *gui_activation_detail_text(void);
+static void append_decimal(char *buf, int *idx, int value);
+static void notepad_append_to_buf(char *dst, int max, const char *src);
 static int installer_selected_disk_index(void);
 static void installer_fail_background(const char *status, const char *log_line);
 static void installer_start_background_install(void);
@@ -171,6 +179,21 @@ static int g_blur_effects_requested;
 static int g_blur_effects_enabled;
 static int g_partial_redraw_clear_debug_frames;
 static char g_gpu_backend_name[32];
+
+typedef struct {
+  int activated;
+  int grace_expired;
+  int clock_valid;
+  uint64_t first_use_day;
+  uint64_t current_day;
+  int days_used;
+  int days_remaining;
+  char key[32];
+  char status[96];
+  char detail[128];
+} gui_activation_state_t;
+
+static gui_activation_state_t g_activation_state;
 
 
 /* Terminal functions from terminal.c */
@@ -1840,7 +1863,303 @@ static void clock_read_rtc_time(int *hours24, int *minutes, int *seconds) {
   *minutes = min % 60;
   *hours24 = hour % 24;
 }
+
+static int clock_try_read_rtc_date(int *year, int *month, int *day) {
+  uint8_t reg_b;
+  uint8_t raw_day;
+  uint8_t raw_month;
+  uint8_t raw_year;
+
+  if (!year || !month || !day)
+    return -1;
+
+  while (clock_cmos_read(0x0A) & 0x80) {
+  }
+
+  raw_day = clock_cmos_read(0x07);
+  raw_month = clock_cmos_read(0x08);
+  raw_year = clock_cmos_read(0x09);
+  reg_b = clock_cmos_read(0x0B);
+
+  if (!(reg_b & 0x04)) {
+    raw_day = (uint8_t)clock_bcd_to_int(raw_day);
+    raw_month = (uint8_t)clock_bcd_to_int(raw_month);
+    raw_year = (uint8_t)clock_bcd_to_int(raw_year);
+  }
+
+  *year = 2000 + (int)raw_year;
+  *month = (int)raw_month;
+  *day = (int)raw_day;
+
+  if (*month < 1 || *month > 12 || *day < 1 || *day > 31)
+    return -1;
+
+  return 0;
+}
+#else
+static int clock_try_read_rtc_date(int *year, int *month, int *day) {
+  (void)year;
+  (void)month;
+  (void)day;
+  return -1;
+}
 #endif
+
+static int64_t activation_days_from_civil(int year, unsigned month,
+                                          unsigned day) {
+  year -= month <= 2;
+  {
+    int era = (year >= 0 ? year : year - 399) / 400;
+    unsigned yoe = (unsigned)(year - era * 400);
+    unsigned doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return (int64_t)era * 146097 + (int64_t)doe - 719468;
+  }
+}
+
+static int activation_key_normalize(const char *src, char *dst, int max) {
+  int out = 0;
+
+  if (!src || !dst || max < 24)
+    return -1;
+
+  for (int i = 0; src[i] && out < max - 1; i++) {
+    char c = src[i];
+
+    if (c == '-')
+      continue;
+    if (c >= 'A' && c <= 'Z')
+      c = (char)(c - 'A' + 'a');
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')))
+      continue;
+    if (out > 0 && out % 5 == 0) {
+      if (out >= max - 2)
+        return -1;
+      dst[out++] = '-';
+    }
+    dst[out++] = c;
+  }
+
+  dst[out] = '\0';
+  return out == 23 ? 0 : -1;
+}
+
+static int activation_key_is_valid(const char *key) {
+  char normalized[32];
+  char hash[33];
+  int digit_sum = 0;
+
+  if (activation_key_normalize(key, normalized, sizeof(normalized)) != 0)
+    return 0;
+  if (normalized[5] != '-' || normalized[11] != '-' || normalized[17] != '-')
+    return 0;
+
+  if (str_cmp(normalized, "e3yyj-m242m-r7hpu-4x72e") == 0)
+    return 1;
+
+  vib_password_hash_hex("os8-activation", normalized, hash, sizeof(hash));
+  for (int i = 0; hash[i]; i++) {
+    if (hash[i] >= '1' && hash[i] <= '9')
+      digit_sum += hash[i] - '0';
+  }
+  return digit_sum % 10 == 5;
+}
+
+static void activation_append_u64(char *buf, int max, uint64_t value) {
+  int idx = 0;
+
+  if (!buf || max <= 0)
+    return;
+  while (buf[idx] && idx < max - 1)
+    idx++;
+  append_decimal(buf, &idx, (int)value);
+}
+
+static void activation_set_text(char *dst, int max, const char *prefix,
+                                const char *value) {
+  if (!dst || max <= 0)
+    return;
+  dst[0] = '\0';
+  if (prefix)
+    str_copy_safe(dst, prefix, max);
+  if (value)
+    notepad_append_to_buf(dst, max, value);
+}
+
+static void activation_save_state(int activated, uint64_t first_use_day,
+                                  const char *key) {
+  char manifest[256];
+  int idx = 0;
+
+  vfs_mkdir("/System", 0755);
+
+  for (const char *p = "activated="; *p && idx < (int)sizeof(manifest) - 1; p++)
+    manifest[idx++] = *p;
+  manifest[idx++] = activated ? '1' : '0';
+  manifest[idx++] = '\n';
+
+  for (const char *p = "first_use_day=";
+       *p && idx < (int)sizeof(manifest) - 1; p++)
+    manifest[idx++] = *p;
+  append_decimal(manifest, &idx, (int)first_use_day);
+  manifest[idx++] = '\n';
+
+  for (const char *p = "activation_key=";
+       *p && idx < (int)sizeof(manifest) - 1; p++)
+    manifest[idx++] = *p;
+  for (int i = 0; key && key[i] && idx < (int)sizeof(manifest) - 1; i++)
+    manifest[idx++] = key[i];
+  manifest[idx++] = '\n';
+  manifest[idx] = '\0';
+
+  write_text_file(GUI_ACTIVATION_PATH, manifest);
+}
+
+static void gui_refresh_activation_state(void) {
+  char manifest[256];
+  char key_buf[32];
+  char first_use_buf[32];
+  int year = 0;
+  int month = 0;
+  int day = 0;
+  uint64_t first_use_day = 0;
+  uint64_t current_day = 0;
+  int activated = 0;
+  int dirty = 0;
+
+  g_activation_state.activated = 0;
+  g_activation_state.grace_expired = 0;
+  g_activation_state.clock_valid = 0;
+  g_activation_state.first_use_day = 0;
+  g_activation_state.current_day = 0;
+  g_activation_state.days_used = 0;
+  g_activation_state.days_remaining = GUI_ACTIVATION_GRACE_DAYS;
+  g_activation_state.key[0] = '\0';
+
+  key_buf[0] = '\0';
+  first_use_buf[0] = '\0';
+  if (read_text_file(GUI_ACTIVATION_PATH, manifest, sizeof(manifest)) >= 0) {
+    if (manifest_get_value(manifest, "activation_key", key_buf,
+                           sizeof(key_buf)) == 0 &&
+        key_buf[0]) {
+      activation_key_normalize(key_buf, g_activation_state.key,
+                               sizeof(g_activation_state.key));
+    }
+    if (manifest_get_value(manifest, "first_use_day", first_use_buf,
+                           sizeof(first_use_buf)) == 0) {
+      first_use_day = parse_u64(first_use_buf);
+    }
+  }
+
+  if (clock_try_read_rtc_date(&year, &month, &day) == 0) {
+    int64_t days = activation_days_from_civil(year, (unsigned)month, (unsigned)day);
+    if (days >= 0) {
+      current_day = (uint64_t)days;
+      g_activation_state.clock_valid = 1;
+    }
+  }
+
+  if (g_activation_state.clock_valid && first_use_day == 0) {
+    first_use_day = current_day;
+    dirty = 1;
+  }
+
+  if (g_activation_state.key[0] && activation_key_is_valid(g_activation_state.key))
+    activated = 1;
+
+  g_activation_state.activated = activated;
+  g_activation_state.first_use_day = first_use_day;
+  g_activation_state.current_day = current_day;
+
+  if (g_activation_state.clock_valid && first_use_day > 0 &&
+      current_day >= first_use_day) {
+    uint64_t elapsed = current_day - first_use_day;
+    if (elapsed > 0x7FFFFFFF)
+      elapsed = 0x7FFFFFFF;
+    g_activation_state.days_used = (int)elapsed;
+    g_activation_state.days_remaining =
+        GUI_ACTIVATION_GRACE_DAYS - g_activation_state.days_used;
+    if (g_activation_state.days_remaining < 0)
+      g_activation_state.days_remaining = 0;
+  }
+
+  g_activation_state.grace_expired =
+      !g_activation_state.activated && g_activation_state.clock_valid &&
+      g_activation_state.days_used >= GUI_ACTIVATION_GRACE_DAYS;
+
+  if (dirty) {
+    activation_save_state(g_activation_state.activated, first_use_day,
+                          g_activation_state.key);
+  } else if (read_text_file(GUI_ACTIVATION_PATH, manifest, sizeof(manifest)) >= 0) {
+    char activated_buf[8];
+    activated_buf[0] = '\0';
+    if (manifest_get_value(manifest, "activated", activated_buf,
+                           sizeof(activated_buf)) != 0 ||
+        activated_buf[0] != (g_activation_state.activated ? '1' : '0')) {
+      activation_save_state(g_activation_state.activated, first_use_day,
+                            g_activation_state.key);
+    }
+  } else if (g_activation_state.clock_valid || g_activation_state.key[0]) {
+    activation_save_state(g_activation_state.activated, first_use_day,
+                          g_activation_state.key);
+  }
+
+  if (g_activation_state.activated) {
+    activation_set_text(g_activation_state.status,
+                        sizeof(g_activation_state.status), "Activated", NULL);
+    activation_set_text(g_activation_state.detail,
+                        sizeof(g_activation_state.detail),
+                        "Key accepted from /System/activation.cfg", NULL);
+    return;
+  }
+
+  if (!g_activation_state.clock_valid) {
+    activation_set_text(g_activation_state.status,
+                        sizeof(g_activation_state.status),
+                        "Grace period pending", NULL);
+    activation_set_text(g_activation_state.detail,
+                        sizeof(g_activation_state.detail),
+                        "RTC date unavailable. Add activation_key=... to /System/activation.cfg.",
+                        NULL);
+    return;
+  }
+
+  if (g_activation_state.grace_expired) {
+    activation_set_text(g_activation_state.status,
+                        sizeof(g_activation_state.status),
+                        "Activation required", NULL);
+    activation_set_text(g_activation_state.detail,
+                        sizeof(g_activation_state.detail),
+                        "30-day grace period expired. Add activation_key=... to /System/activation.cfg.",
+                        NULL);
+    return;
+  }
+
+  activation_set_text(g_activation_state.status, sizeof(g_activation_state.status),
+                      "Grace period active", NULL);
+  g_activation_state.detail[0] = '\0';
+  activation_append_u64(g_activation_state.detail,
+                        sizeof(g_activation_state.detail),
+                        (uint64_t)g_activation_state.days_remaining);
+  notepad_append_to_buf(g_activation_state.detail,
+                        sizeof(g_activation_state.detail),
+                        " day(s) remaining before activation is required.");
+}
+
+static int gui_activation_requires_sign_in(void) {
+  gui_refresh_activation_state();
+  return g_activation_state.grace_expired;
+}
+
+static const char *gui_activation_status_text(void) {
+  gui_refresh_activation_state();
+  return g_activation_state.status;
+}
+
+static const char *gui_activation_detail_text(void) {
+  gui_refresh_activation_state();
+  return g_activation_state.detail;
+}
 
 static void clock_get_time(int *hours24, int *minutes, int *seconds) {
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
@@ -8028,6 +8347,10 @@ static void submit_startup_flow(void) {
     set_startup_status("Account system is still starting up. Please wait.");
     return;
   }
+  if (gui_activation_requires_sign_in()) {
+    set_startup_status(gui_activation_detail_text());
+    return;
+  }
 
   {
     char manifest[256];
@@ -10897,7 +11220,10 @@ static void draw_startup_auth_window(struct window *win, int content_x,
   gui_draw_system_button(
       content_x + 20, content_y + 204 + startup_login_extra_y, 170, 34,
       button_label, GUI_BUTTON_PRIMARY,
-      (!startup_setup_account_active() && !startup_account_system_ready()) ? 0 : 1,
+      (!startup_setup_account_active() && !startup_account_system_ready()) ||
+              (startup_flow == STARTUP_FLOW_LOGIN && gui_activation_requires_sign_in())
+          ? 0
+          : 1,
       0);
   if (startup_flow == STARTUP_FLOW_LOGIN) {
     gui_draw_system_button(content_x + 200, content_y + 204 + startup_login_extra_y,
@@ -10907,6 +11233,8 @@ static void draw_startup_auth_window(struct window *win, int content_x,
     gui_draw_string(content_x + 20, content_y + 252 + startup_login_extra_y,
                     "Power options are available before sign-in.",
                     0x94A3B8, THEME_BG);
+    gui_draw_string(content_x + 20, content_y + 272 + startup_login_extra_y,
+                    gui_activation_detail_text(), 0xCBD5E1, THEME_BG);
   }
   gui_draw_string(content_x + 210, content_y + 215 + startup_login_extra_y,
                   startup_status, 0xCDD6F4, THEME_BG);
@@ -13152,6 +13480,8 @@ static void draw_window_internal(struct window *win) {
     char uptime_info[32];
     char phys_mem_info[48];
     char heap_mem_info[40];
+    const char *activation_status;
+    const char *activation_detail;
     const char *gpu_status;
     const char *blur_status;
     int hero_x = content_x + 18;
@@ -13162,7 +13492,7 @@ static void draw_window_internal(struct window *win) {
     int right_col_x = content_x + content_w / 2 + 6;
     int col_y = hero_y + hero_h + 14;
     int col_w = (content_w - 48) / 2;
-    int info_h = 172;
+    int info_h = 192;
     int footer_y = col_y + info_h + 14;
 #ifdef ARCH_X86_64
     const char *arch_info = "Architecture:  x86_64";
@@ -13178,6 +13508,8 @@ static void draw_window_internal(struct window *win) {
     ui_format_uptime_string(uptime_info, sizeof(uptime_info));
     ui_build_memory_strings(phys_mem_info, sizeof(phys_mem_info), heap_mem_info,
                             sizeof(heap_mem_info));
+    activation_status = gui_activation_status_text();
+    activation_detail = gui_activation_detail_text();
     if (gui_is_gpu_rendering_enabled()) {
       gpu_status = "GPU rendering active";
     } else if (str_cmp(g_gpu_backend_name, "bochs-vbe") == 0) {
@@ -13267,13 +13599,19 @@ static void draw_window_internal(struct window *win) {
                     theme->about_card);
     gui_draw_string(right_col_x + 82, col_y + 138, heap_mem_info,
                     theme->about_subtext, theme->about_card);
+    gui_draw_string(right_col_x + 14, col_y + 158, "Activation:",
+                    theme->about_subtext, theme->about_card);
+    gui_draw_string(right_col_x + 82, col_y + 158, activation_status,
+                    g_activation_state.activated ? theme->accent
+                                                 : theme->about_subtext,
+                    theme->about_card);
 
     gui_draw_rect(hero_x, footer_y, hero_w, 52, theme->about_footer);
     gui_draw_string(hero_x + 14, footer_y + 10, "Build UUID", theme->about_text,
                     theme->about_footer);
     gui_draw_string(hero_x + 14, footer_y + 28, BUILD_UUID, theme->about_subtext,
                     theme->about_footer);
-    gui_draw_string(hero_x + hero_w - 160, footer_y + 28, "(c) 2027 Benno111",
+    gui_draw_string(hero_x + 180, footer_y + 28, activation_detail,
                     theme->about_subtext, theme->about_footer);
   }
   /* Settings window */
