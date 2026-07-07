@@ -13779,6 +13779,7 @@ static void draw_window_internal(struct window *win) {
     int panel_w = content_w - sidebar_w - 3;
     int panel_h = content_h - 42;
     int card_w = (panel_w - 30) / 2;
+    int compact_settings = panel_w < 470;
     int toolbar_y = content_y + 8;
     int toolbar_h = 24;
     int toolbar_x = content_x + 154;
@@ -13867,9 +13868,13 @@ static void draw_window_internal(struct window *win) {
       int tab_y = content_y + 56 + i * 28;
       uint32_t tab_bg = i == settings_active_tab ? theme->settings_tab_active
                                                  : theme->settings_tab_inactive;
-      uint32_t tab_fg = i == settings_active_tab ? theme->settings_bg
-                                                 : theme->settings_text;
+      uint32_t tab_fg = i == settings_active_tab ? 0xFFFFFF
+                                                 : gui_contrast_title_color(tab_bg);
       gui_draw_rect(content_x + 10, tab_y, sidebar_w - 20, 18, tab_bg);
+      gui_draw_rect_outline(content_x + 10, tab_y, sidebar_w - 20, 18,
+                            i == settings_active_tab ? theme->accent
+                                                      : theme->settings_border,
+                            1);
       gui_draw_string(content_x + 16, tab_y + 5, settings_menu_labels[i], tab_fg,
                       tab_bg);
     }
@@ -13885,54 +13890,133 @@ static void draw_window_internal(struct window *win) {
 
     if (settings_active_tab == 0) {
       int card_y = panel_y + 72;
-      gui_draw_rect(panel_x, card_y, panel_w, 72, 0x252535);
+      int info_card_h = compact_settings ? 88 : 72;
+      int stat_card_h = compact_settings ? 88 : 74;
+      int runtime_card_h = compact_settings ? 88 : 74;
+      int action_y;
+
+      gui_draw_rect(panel_x, card_y, panel_w, info_card_h, 0x252535);
       gui_draw_string(panel_x + 16, card_y + 12, "Display", 0x93C5FD, 0x252535);
       gui_draw_string(panel_x + 16, card_y + 32, resolution, 0xFFFFFF, 0x252535);
-      gui_draw_string(panel_x + 180, card_y + 32, windows_info, 0xCBD5E1, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 50, dock_count_buf, 0xA5B4FC, 0x252535);
-      gui_draw_string(panel_x + 180, card_y + 50, installed_buf, 0xA5F3FC, 0x252535);
+      if (compact_settings) {
+        gui_draw_string(panel_x + 16, card_y + 50, windows_info, 0xCBD5E1,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 66, dock_count_buf, 0xA5B4FC,
+                        0x252535);
+        gui_draw_string(panel_x + 180, card_y + 66, installed_buf, 0xA5F3FC,
+                        0x252535);
+      } else {
+        gui_draw_string(panel_x + 180, card_y + 32, windows_info, 0xCBD5E1,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50, dock_count_buf, 0xA5B4FC,
+                        0x252535);
+        gui_draw_string(panel_x + 180, card_y + 50, installed_buf, 0xA5F3FC,
+                        0x252535);
+      }
 
-      card_y += 84;
-      gui_draw_rect(panel_x, card_y, card_w, 74, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 12, "Graphics", 0x89B4FA, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 32, gpu_status, 0xFFFFFF, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 50, blur_status, 0xCBD5E1, 0x252535);
+      card_y += info_card_h + 12;
+      if (compact_settings) {
+        gui_draw_rect(panel_x, card_y, panel_w, stat_card_h, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 12, "Graphics", 0x89B4FA,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 32, gpu_status, 0xFFFFFF,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50, blur_status, 0xCBD5E1,
+                        0x252535);
 
-      gui_draw_rect(panel_x + card_w + 12, card_y, card_w, 74, 0x252535);
-      gui_draw_string(panel_x + card_w + 28, card_y + 12, "Media & Network",
-                      0x89B4FA, 0x252535);
-      gui_draw_string(panel_x + card_w + 28, card_y + 32,
-                      intel_hda_is_playing() ? "Audio is currently playing"
-                                             : "Audio backend standing by",
-                      intel_hda_is_playing() ? 0xA6E3A1 : 0xFFFFFF, 0x252535);
-      gui_draw_string(panel_x + card_w + 28, card_y + 50,
-                      wifi_has_supported_adapter() ? wifi_get_status_text()
-                                                   : "virtio-net online with user-mode NAT",
-                      0xCBD5E1, 0x252535);
+        card_y += stat_card_h + 12;
+        gui_draw_rect(panel_x, card_y, panel_w, stat_card_h, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 12, "Media & Network",
+                        0x89B4FA, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 32,
+                        intel_hda_is_playing() ? "Audio is currently playing"
+                                               : "Audio backend standing by",
+                        intel_hda_is_playing() ? 0xA6E3A1 : 0xFFFFFF, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50,
+                        wifi_has_supported_adapter()
+                            ? wifi_get_status_text()
+                            : "virtio-net online with user-mode NAT",
+                        0xCBD5E1, 0x252535);
 
-      card_y += 88;
-      gui_draw_rect(panel_x, card_y, card_w, 74, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 12, "Runtime", 0x89B4FA, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 32, uptime_info, 0xFFFFFF, 0x252535);
-      gui_draw_string(panel_x + 16, card_y + 50, phys_mem_info, 0xCBD5E1, 0x252535);
+        card_y += stat_card_h + 12;
+        gui_draw_rect(panel_x, card_y, panel_w, runtime_card_h, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 12, "Runtime", 0x89B4FA,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 32, uptime_info, 0xFFFFFF,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50, phys_mem_info, 0xCBD5E1,
+                        0x252535);
 
-      gui_draw_rect(panel_x + card_w + 12, card_y, card_w, 74, 0x252535);
-      gui_draw_string(panel_x + card_w + 28, card_y + 12, "Memory", 0x89B4FA,
+        card_y += runtime_card_h + 12;
+        gui_draw_rect(panel_x, card_y, panel_w, runtime_card_h, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 12, "Memory", 0x89B4FA,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 32, heap_mem_info, 0xFFFFFF,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50, "Live heap usage tracking",
+                        0xCBD5E1, 0x252535);
+      } else {
+        gui_draw_rect(panel_x, card_y, card_w, stat_card_h, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 12, "Graphics", 0x89B4FA,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 32, gpu_status, 0xFFFFFF,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50, blur_status, 0xCBD5E1,
+                        0x252535);
+
+        gui_draw_rect(panel_x + card_w + 12, card_y, card_w, stat_card_h,
                       0x252535);
-      gui_draw_string(panel_x + card_w + 28, card_y + 32, heap_mem_info,
-                      0xFFFFFF, 0x252535);
-      gui_draw_string(panel_x + card_w + 28, card_y + 50,
-                      "Live heap usage tracking", 0xCBD5E1, 0x252535);
+        gui_draw_string(panel_x + card_w + 28, card_y + 12, "Media & Network",
+                        0x89B4FA, 0x252535);
+        gui_draw_string(panel_x + card_w + 28, card_y + 32,
+                        intel_hda_is_playing() ? "Audio is currently playing"
+                                               : "Audio backend standing by",
+                        intel_hda_is_playing() ? 0xA6E3A1 : 0xFFFFFF, 0x252535);
+        gui_draw_string(panel_x + card_w + 28, card_y + 50,
+                        wifi_has_supported_adapter()
+                            ? wifi_get_status_text()
+                            : "virtio-net online with user-mode NAT",
+                        0xCBD5E1, 0x252535);
 
-      card_y += 88;
-      gui_draw_system_button(panel_x, card_y, 108, 30, "Backgrounds",
-                             GUI_BUTTON_PRIMARY, 1, 0);
-      gui_draw_system_button(panel_x + 118, card_y, 98, 30, "App Store",
-                             GUI_BUTTON_PRIMARY, 1, 0);
-      gui_draw_system_button(panel_x + 226, card_y, 92, 30, "Devices",
-                             GUI_BUTTON_PRIMARY, 1, 0);
-      gui_draw_system_button(panel_x + 328, card_y, 84, 30, "About",
-                             GUI_BUTTON_NEUTRAL, 1, 0);
+        card_y += stat_card_h + 14;
+        gui_draw_rect(panel_x, card_y, card_w, runtime_card_h, 0x252535);
+        gui_draw_string(panel_x + 16, card_y + 12, "Runtime", 0x89B4FA,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 32, uptime_info, 0xFFFFFF,
+                        0x252535);
+        gui_draw_string(panel_x + 16, card_y + 50, phys_mem_info, 0xCBD5E1,
+                        0x252535);
+
+        gui_draw_rect(panel_x + card_w + 12, card_y, card_w, runtime_card_h,
+                      0x252535);
+        gui_draw_string(panel_x + card_w + 28, card_y + 12, "Memory", 0x89B4FA,
+                        0x252535);
+        gui_draw_string(panel_x + card_w + 28, card_y + 32, heap_mem_info,
+                        0xFFFFFF, 0x252535);
+        gui_draw_string(panel_x + card_w + 28, card_y + 50,
+                        "Live heap usage tracking", 0xCBD5E1, 0x252535);
+      }
+
+      action_y = card_y + runtime_card_h + 12;
+      if (compact_settings) {
+        gui_draw_system_button(panel_x, action_y, 108, 28, "Backgrounds",
+                               GUI_BUTTON_PRIMARY, 1, 0);
+        gui_draw_system_button(panel_x + 118, action_y, 98, 28, "App Store",
+                               GUI_BUTTON_PRIMARY, 1, 0);
+        gui_draw_system_button(panel_x + 226, action_y, 92, 28, "Devices",
+                               GUI_BUTTON_PRIMARY, 1, 0);
+        gui_draw_system_button(panel_x, action_y + 36, 84, 28, "About",
+                               GUI_BUTTON_NEUTRAL, 1, 0);
+      } else {
+        gui_draw_system_button(panel_x, action_y, 108, 30, "Backgrounds",
+                               GUI_BUTTON_PRIMARY, 1, 0);
+        gui_draw_system_button(panel_x + 118, action_y, 98, 30, "App Store",
+                               GUI_BUTTON_PRIMARY, 1, 0);
+        gui_draw_system_button(panel_x + 226, action_y, 92, 30, "Devices",
+                               GUI_BUTTON_PRIMARY, 1, 0);
+        gui_draw_system_button(panel_x + 328, action_y, 84, 30, "About",
+                               GUI_BUTTON_NEUTRAL, 1, 0);
+      }
     } else if (settings_active_tab == 1) {
       int info_y = panel_y + 72;
       int button_y = panel_y + 118;
