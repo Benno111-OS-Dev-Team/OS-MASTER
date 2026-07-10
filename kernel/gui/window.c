@@ -8107,40 +8107,82 @@ static void gui_flush_account_state_before_power_transition(void) {
     save_account_state();
 }
 
+static int startup_find_setup_disk_index(void) {
+  extern int storage_get_disk_count(void);
+  extern int storage_get_disk_kind(int index);
+  extern int storage_disk_supports_partition_writes(int disk_index);
+  extern int storage_get_partition_count(int disk_index);
+  extern int storage_get_partition_info(int disk_index, int partition_index,
+                                        storage_partition_kind_t *kind,
+                                        char *label, int label_max,
+                                        uint32_t *start_lba,
+                                        uint32_t *sector_count);
+  int disk_count = storage_get_disk_count();
+  int first_writable = -1;
+  int first_fixed_writable = -1;
+
+  for (int i = 0; i < disk_count; i++) {
+    int kind = storage_get_disk_kind(i);
+
+    if (kind == STORAGE_KIND_CDROM)
+      continue;
+    if (!storage_disk_supports_partition_writes(i))
+      continue;
+
+    if (first_writable < 0)
+      first_writable = i;
+    if (kind != STORAGE_KIND_USB_MASS_STORAGE && first_fixed_writable < 0)
+      first_fixed_writable = i;
+
+    for (int part = 0; part < storage_get_partition_count(i); part++) {
+      storage_partition_kind_t part_kind = STORAGE_PARTITION_UNKNOWN;
+      if (storage_get_partition_info(i, part, &part_kind, NULL, 0, NULL,
+                                     NULL) == 0 &&
+          (part_kind == STORAGE_PARTITION_SYSTEM ||
+           part_kind == STORAGE_PARTITION_DATA)) {
+        return i;
+      }
+    }
+  }
+
+  if (first_fixed_writable >= 0)
+    return first_fixed_writable;
+  return first_writable;
+}
+
 static int load_install_target_disk_location(char *buf, int max) {
   char manifest[256];
-  int fallback_disk = -1;
-  int fixed_disk_count = 0;
+  char configured_location[32];
+  int fallback_disk;
+
+  extern int storage_get_disk_index_by_location(const char *location);
+  extern int storage_get_disk_location(int index, char *buf, int max);
 
   if (!buf || max <= 0)
     return -1;
   buf[0] = '\0';
 
-  if (read_text_file("/System/install-target.cfg", manifest, sizeof(manifest)) <
+  configured_location[0] = '\0';
+  if (read_text_file("/System/install-target.cfg", manifest, sizeof(manifest)) >=
       0) {
-    extern int storage_get_disk_count(void);
-    extern int storage_get_disk_kind(int index);
-    extern int storage_get_disk_location(int index, char *buf, int max);
-    int disk_count = storage_get_disk_count();
-
-    for (int i = 0; i < disk_count; i++) {
-      int kind = storage_get_disk_kind(i);
-      if (kind == STORAGE_KIND_CDROM || kind == STORAGE_KIND_USB_MASS_STORAGE)
-        continue;
-      fallback_disk = i;
-      fixed_disk_count++;
-    }
-
-    if (fixed_disk_count == 1 && fallback_disk >= 0 &&
-        storage_get_disk_location(fallback_disk, buf, max) == 0 && buf[0]) {
+    manifest_get_value(manifest, "disk_location", configured_location,
+                       sizeof(configured_location));
+    if (configured_location[0] &&
+        storage_get_disk_index_by_location(configured_location) >= 0) {
+      str_copy_safe(buf, configured_location, max);
       return 0;
     }
-    return -1;
   }
 
-  if (manifest_get_value(manifest, "disk_location", buf, max) != 0 || !buf[0])
-    return -1;
-  return 0;
+  fallback_disk = startup_find_setup_disk_index();
+  if (fallback_disk >= 0 &&
+      storage_get_disk_location(fallback_disk, buf, max) == 0 && buf[0]) {
+    return 0;
+  }
+
+  if (configured_location[0])
+    str_copy_safe(buf, configured_location, max);
+  return -1;
 }
 
 static void startup_default_data_label(int ordinal, char *buf, int max) {
@@ -8178,14 +8220,17 @@ static int startup_assign_account_partition(void) {
 
   if (load_install_target_disk_location(disk_location, sizeof(disk_location)) !=
       0) {
-    set_startup_status("Setup warning: install disk not recorded.");
+    set_startup_status("Setup warning: no writable disk detected yet.");
     return -1;
   }
 
   disk_index = storage_get_disk_index_by_location(disk_location);
   if (disk_index < 0) {
-    set_startup_status("Setup warning: target disk is unavailable.");
-    return -1;
+    disk_index = startup_find_setup_disk_index();
+    if (disk_index < 0) {
+      set_startup_status("Setup warning: target disk is unavailable.");
+      return -1;
+    }
   }
 
   data_partitions =
@@ -9782,6 +9827,7 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
       return -1;
     }
 
+  if (installer_system_image_is_archive(payload_root)) {
     for (int i = 0;
          i < (int)(sizeof(limine_cfg_suffixes) / sizeof(limine_cfg_suffixes[0]));
          i++) {
@@ -9883,6 +9929,7 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
          i++) {
       if (media_zip_file_has_entry(payload_root, required_suffixes[i]))
         continue;
+      str_copy_safe(msg, "install archive unusable: ", sizeof(msg));
       str_copy_safe(msg, "boot archive unusable: ", sizeof(msg));
       installer_append_to_buf(msg, sizeof(msg), payload_root);
       installer_append_to_buf(msg, sizeof(msg), required_suffixes[i]);
@@ -9897,6 +9944,7 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
         return 0;
     }
 
+    str_copy_safe(msg, "install archive unusable: no Limine config in ",
     str_copy_safe(msg, "boot archive unusable: no Limine config in ",
                   sizeof(msg));
     installer_append_to_buf(msg, sizeof(msg), payload_root);
@@ -9927,6 +9975,7 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
       return 0;
   }
 
+  str_copy_safe(msg, "install payload missing: no Limine config in ",
   str_copy_safe(msg, "boot payload missing: no Limine config in ",
                 sizeof(msg));
   installer_append_to_buf(msg, sizeof(msg), payload_root);
@@ -9934,6 +9983,15 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
   return -1;
 }
 
+static int installer_validate_system_image_payload(void) {
+  static const char *payload_candidates[] = {
+      "/install/system-image",
+      "/setup/install/system-image",
+      "/install/system-image.zip",
+      "/setup/install/system-image.zip",
+  };
+
+  installer_select_system_image_payload(NULL);
 static int installer_validate_boot_payload(void) {
   static const char *payload_candidates[] = {
       "/install/boot-files.zip",
@@ -9951,12 +10009,15 @@ static int installer_validate_boot_payload(void) {
        i++) {
     if (!installer_payload_file_exists(payload_candidates[i]))
       continue;
+    if (installer_validate_system_image_candidate(payload_candidates[i]) == 0) {
+      installer_select_system_image_payload(payload_candidates[i]);
     if (installer_validate_boot_payload_candidate(payload_candidates[i]) == 0) {
       installer_select_boot_payload(payload_candidates[i]);
       return 0;
     }
   }
 
+  installer_log("install payload missing: no usable system image payload found");
   installer_log("install payload missing: no usable boot payload found");
   return -1;
 }
