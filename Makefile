@@ -20,6 +20,7 @@ LIBC_DIR := $(ROOT_DIR)/libc
 USERSPACE_DIR := $(ROOT_DIR)/userspace
 RUNTIMES_DIR := $(ROOT_DIR)/runtimes
 IMAGE_DIR := $(ROOT_DIR)/image
+NEWWINDOWS_DIR := $(ROOT_DIR)/newwindows
 SYSROOT := $(BUILD_DIR)/sysroot
 SDK_DIR := $(BUILD_DIR)/sdk
 SDK_INCLUDE_DIR := $(SDK_DIR)/include
@@ -75,10 +76,11 @@ CFLAGS_COMMON := -Wall -Wextra -Wno-unused-function -ffreestanding -fstack-prote
 
 CFLAGS_KERNEL := $(CFLAGS_COMMON) $(CROSS_TARGET) \
                  -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(ROOT_DIR) \
+                 -I$(NEWWINDOWS_DIR)/include \
                  -I$(ROOT_DIR)/shared-api \
                  -mgeneral-regs-only \
                  -fno-builtin -nostdlib -nostdinc \
-                 -DARCH_ARM64
+                 -DARCH_ARM64 -DWINDOW_SKIN_USE_KERNEL_TYPES
 
 CFLAGS_USER := -Wall -Wextra -O2 -g \
                --target=aarch64-linux-musl \
@@ -152,6 +154,7 @@ help:
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/kernel
+	@mkdir -p $(BUILD_DIR)/newwindows/src
 	@mkdir -p $(BUILD_DIR)/bootmanager
 	@mkdir -p $(BUILD_DIR)/drivers
 	@mkdir -p $(BUILD_DIR)/libc
@@ -170,18 +173,20 @@ $(IMAGE_DIR):
 # ============================================================================
 
 KERNEL_SOURCES := $(shell find $(KERNEL_DIR) -name '*.c' -o -name '*.S' 2>/dev/null | grep -v '/x86_64/' | grep -v '/x86/')
+NEWWINDOWS_SOURCES := $(NEWWINDOWS_DIR)/src/window_skin.c
 BOOTMANAGER_SOURCES := $(shell find $(BOOTMANAGER_DIR) -name '*.c' 2>/dev/null)
 # Also include ARM64-specific assembly
 KERNEL_SOURCES += $(shell find $(KERNEL_DIR)/arch/arm64 -name '*.S' 2>/dev/null)
 KERNEL_OBJECTS := $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_DIR)/kernel/%.o,$(filter %.c,$(KERNEL_SOURCES)))
 KERNEL_OBJECTS += $(patsubst $(KERNEL_DIR)/%.S,$(BUILD_DIR)/kernel/%.o,$(filter %.S,$(KERNEL_SOURCES)))
+NEWWINDOWS_OBJECTS := $(patsubst $(NEWWINDOWS_DIR)/%.c,$(BUILD_DIR)/newwindows/%.o,$(NEWWINDOWS_SOURCES))
 BOOTMANAGER_OBJECTS := $(patsubst $(BOOTMANAGER_DIR)/%.c,$(BUILD_DIR)/bootmanager/%.o,$(BOOTMANAGER_SOURCES))
 
 # Include drivers in the kernel
 DRIVER_SOURCES := $(shell find $(DRIVERS_DIR) -name '*.c' 2>/dev/null)
 DRIVER_OBJECTS := $(patsubst $(DRIVERS_DIR)/%.c,$(BUILD_DIR)/drivers/%.o,$(DRIVER_SOURCES))
 
-ALL_KERNEL_OBJECTS := $(KERNEL_OBJECTS) $(BOOTMANAGER_OBJECTS) $(DRIVER_OBJECTS)
+ALL_KERNEL_OBJECTS := $(KERNEL_OBJECTS) $(NEWWINDOWS_OBJECTS) $(BOOTMANAGER_OBJECTS) $(DRIVER_OBJECTS)
 KERNEL_BINARY := $(BUILD_DIR)/kernel/unixos.elf
 
 kernel: $(BUILD_DIR) $(ALL_KERNEL_OBJECTS) $(KERNEL_BINARY)
@@ -201,6 +206,11 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S
 	@mkdir -p $(dir $@)
 	@echo "[AS] $<"
 	@$(AS) $(CFLAGS_KERNEL) -c $< -o $@
+
+$(BUILD_DIR)/newwindows/%.o: $(NEWWINDOWS_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "[CC] $<"
+	@$(CC) $(CFLAGS_KERNEL) -c $< -o $@
 
 $(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c
 	@mkdir -p $(dir $@)

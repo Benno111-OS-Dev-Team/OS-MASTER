@@ -23,6 +23,7 @@
 #include "password_hash.h"
 #include "toolbar_icons.h" /* Toolbar icons for image viewer */
 #include "types.h"
+#include "window_skin.h"
 
 #ifndef BUILD_STRING
 #define BUILD_STRING "unknown build"
@@ -4054,6 +4055,143 @@ static int startup_window_opening = 0;
 static int next_window_id = 1;
 static void window_mark_surface_dirty_full(struct window *win);
 static void gui_invalidate_window(struct window *win);
+
+static SkinColor gui_skin_color_from_u32(uint32_t color) {
+  uint8_t alpha = (uint8_t)((color >> 24) & 0xFF);
+  if ((color & 0xFF000000U) == 0)
+    alpha = 0xFF;
+  return skin_rgba((uint8_t)((color >> 16) & 0xFF),
+                   (uint8_t)((color >> 8) & 0xFF),
+                   (uint8_t)(color & 0xFF), alpha);
+}
+
+static uint32_t gui_skin_color_to_argb(SkinColor color) {
+  return ((uint32_t)color.a << 24) | ((uint32_t)color.r << 16) |
+         ((uint32_t)color.g << 8) | (uint32_t)color.b;
+}
+
+static void gui_skin_fill_rect(void *userdata, SkinRect rect, SkinColor color) {
+  (void)userdata;
+  if (rect.width <= 0 || rect.height <= 0)
+    return;
+  if (color.a >= 0xFF) {
+    gui_draw_rect(rect.x, rect.y, rect.width, rect.height,
+                  gui_skin_color_to_argb(color) & 0x00FFFFFFU);
+    return;
+  }
+  gui_fill_rect_alpha(rect.x, rect.y, rect.width, rect.height,
+                      gui_skin_color_to_argb(color));
+}
+
+static void gui_skin_draw_rect_outline(void *userdata, SkinRect rect,
+                                       SkinColor color) {
+  uint32_t argb = gui_skin_color_to_argb(color);
+  (void)userdata;
+  if (rect.width <= 0 || rect.height <= 0)
+    return;
+  if (color.a >= 0xFF) {
+    gui_draw_rect_outline(rect.x, rect.y, rect.width, rect.height,
+                          argb & 0x00FFFFFFU, 1);
+    return;
+  }
+  gui_fill_rect_alpha(rect.x, rect.y, rect.width, 1, argb);
+  gui_fill_rect_alpha(rect.x, rect.y + rect.height - 1, rect.width, 1, argb);
+  gui_fill_rect_alpha(rect.x, rect.y, 1, rect.height, argb);
+  gui_fill_rect_alpha(rect.x + rect.width - 1, rect.y, 1, rect.height, argb);
+}
+
+static void gui_skin_draw_line(void *userdata, int x1, int y1, int x2, int y2,
+                               SkinColor color) {
+  (void)userdata;
+  gui_draw_line(x1, y1, x2, y2, gui_skin_color_to_argb(color) & 0x00FFFFFFU);
+}
+
+static void gui_skin_draw_text(void *userdata, int x, int y, const char *text,
+                               SkinColor color) {
+  (void)userdata;
+  gui_draw_string(x, y - 6, text, gui_skin_color_to_argb(color) & 0x00FFFFFFU,
+                  0x00000000);
+}
+
+static SkinWindow gui_skin_window_from_window(const struct window *win) {
+  SkinWindow skin_window;
+  skin_window.x = win->x;
+  skin_window.y = win->y;
+  skin_window.width = win->width;
+  skin_window.height = win->height;
+  skin_window.focused = win->focused;
+  skin_window.resizable = win->resizable;
+  skin_window.movable = true;
+  skin_window.title = win->title;
+  return skin_window;
+}
+
+static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
+  WindowSkin skin = skin_make_aurora_sample();
+  const gui_theme_palette_t *theme = gui_theme_palette();
+
+  skin.metrics.titlebar_height = TITLEBAR_HEIGHT;
+  skin.metrics.border_left = BORDER_WIDTH;
+  skin.metrics.border_right = BORDER_WIDTH;
+  skin.metrics.border_top = BORDER_WIDTH;
+  skin.metrics.border_bottom = BORDER_WIDTH;
+  skin.metrics.button_width = 20;
+  skin.metrics.button_height = TITLEBAR_HEIGHT;
+  skin.metrics.button_spacing = 0;
+  skin.metrics.title_padding = 12;
+  skin.metrics.shadow_size = 0;
+  skin.metrics.resize_grip_size = 12;
+
+  skin.border_style = SKIN_BORDER_FLAT;
+  skin.shadow_style = SKIN_SHADOW_NONE;
+  skin.button_texture = SKIN_TEXTURE_GLASS;
+  skin.button_texture_strength = 0.18f;
+  skin.border_blur = g_blur_effects_enabled ? 10.0f : 0.0f;
+  skin.border_transparency = 0.82f;
+  skin.border_reflection = 0.26f;
+  skin.buttons_on_left = true;
+  skin.show_icon = false;
+  skin.show_title = win->has_titlebar;
+  skin.translucent_titlebar = true;
+
+  skin.button_order[0] = SKIN_BUTTON_CLOSE;
+  skin.button_order[1] = SKIN_BUTTON_MINIMIZE;
+  skin.button_order[2] = SKIN_BUTTON_MAXIMIZE;
+
+  skin.colors.frame = gui_skin_color_from_u32(win->focused
+                                                  ? theme->window_glass_focused
+                                                  : theme->window_glass_inactive);
+  skin.colors.frame_inactive =
+      gui_skin_color_from_u32(theme->window_glass_inactive);
+  skin.colors.titlebar =
+      gui_skin_color_from_u32(win->focused ? theme->title_tint_focused
+                                           : theme->title_tint_inactive);
+  skin.colors.titlebar_inactive =
+      gui_skin_color_from_u32(theme->title_tint_inactive);
+  skin.colors.title_text = gui_skin_color_from_u32(theme->settings_text);
+  skin.colors.title_text_inactive =
+      gui_skin_color_from_u32(theme->settings_subtext);
+  skin.colors.client_background = gui_skin_color_from_u32(0x98171A26);
+  skin.colors.border_light =
+      gui_skin_color_from_u32(win->focused ? theme->accent : theme->border);
+  skin.colors.border_dark = gui_skin_color_from_u32(theme->border);
+  skin.colors.button = gui_skin_color_from_u32(0xC4475567);
+  skin.colors.button_hover = gui_skin_color_from_u32(0xE05F738C);
+  skin.colors.button_pressed = gui_skin_color_from_u32(0xFF3B4757);
+  skin.colors.close_button = gui_skin_color_from_u32(COLOR_BTN_CLOSE);
+  skin.colors.close_button_hover = gui_skin_color_from_u32(0xFFF87171);
+  skin.colors.button_icon = gui_skin_color_from_u32(0xFFF8FAFC);
+  skin.colors.shadow = gui_skin_color_from_u32(0x00000000);
+  skin.colors.accent = gui_skin_color_from_u32(theme->accent);
+
+  return skin;
+}
+
+static SkinHit gui_newwindows_hit_test(const struct window *win, int x, int y) {
+  SkinWindow skin_window = gui_skin_window_from_window(win);
+  WindowSkin skin = gui_newwindows_skin_for_window(win);
+  return skin_hit_test(&skin_window, &skin, x, y);
+}
 
 static int window_content_origin_y(const struct window *win) {
   if (!win)
@@ -13005,7 +13143,20 @@ static void draw_window_internal(struct window *win) {
                          0x00000000, 2);
   }
 
-  if (win->has_titlebar && win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
+  if (win->has_titlebar && win->chrome_kind == GUI_WINDOW_CHROME_SYSTEM) {
+    SkinRenderer renderer = {
+        .userdata = NULL,
+        .fill_rect = gui_skin_fill_rect,
+        .draw_rect_outline = gui_skin_draw_rect_outline,
+        .draw_line = gui_skin_draw_line,
+        .draw_text = gui_skin_draw_text,
+    };
+    SkinWindow skin_window = gui_skin_window_from_window(win);
+    WindowSkin skin = gui_newwindows_skin_for_window(win);
+    skin_draw_window_chrome(&renderer, &skin_window, &skin, SKIN_HIT_NONE,
+                            SKIN_HIT_NONE);
+  } else if (win->has_titlebar &&
+             win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
     int title_x0 = x + BORDER_WIDTH;
     int title_y0 = y + BORDER_WIDTH;
     int title_w = w - BORDER_WIDTH * 2;
@@ -19310,6 +19461,29 @@ static int resize_start_win_x = 0, resize_start_win_y = 0;
 #define RESIZE_BORDER                                                          \
   12 /* Pixel width of resize grab area - larger for easier grabbing */
 
+static int gui_resize_edge_from_skin_hit(SkinHit hit) {
+  switch (hit) {
+  case SKIN_HIT_RESIZE_RIGHT:
+    return RESIZE_RIGHT;
+  case SKIN_HIT_RESIZE_BOTTOM:
+    return RESIZE_BOTTOM;
+  case SKIN_HIT_RESIZE_BOTTOM_RIGHT:
+    return RESIZE_BOTTOM_RIGHT;
+  case SKIN_HIT_RESIZE_LEFT:
+    return RESIZE_LEFT;
+  case SKIN_HIT_RESIZE_TOP:
+    return RESIZE_TOP;
+  case SKIN_HIT_RESIZE_TOP_LEFT:
+    return RESIZE_TOP_LEFT;
+  case SKIN_HIT_RESIZE_TOP_RIGHT:
+    return RESIZE_TOP_RIGHT;
+  case SKIN_HIT_RESIZE_BOTTOM_LEFT:
+    return RESIZE_BOTTOM_LEFT;
+  default:
+    return RESIZE_NONE;
+  }
+}
+
 void gui_handle_mouse_event(int x, int y, int buttons) {
   int old_mouse_x = mouse_x;
   int old_mouse_y = mouse_y;
@@ -19787,33 +19961,9 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
       if (win->animation != WINDOW_ANIM_NONE)
         return;
 
-      /* Check for resize edges FIRST (on any visible window) */
-      {
-        int at_left = (x >= draw_x && x < draw_x + RESIZE_BORDER);
-        int at_right = (x >= draw_x + draw_w - RESIZE_BORDER &&
-                        x < draw_x + draw_w);
-        int at_top = (y >= draw_y && y < draw_y + RESIZE_BORDER);
-        int at_bottom = (y >= draw_y + draw_h - RESIZE_BORDER &&
-                         y < draw_y + draw_h);
-
-        /* Determine which edge/corner */
-        int edge = RESIZE_NONE;
-        if (at_bottom && at_right)
-          edge = RESIZE_BOTTOM_RIGHT;
-        else if (at_bottom && at_left)
-          edge = RESIZE_BOTTOM_LEFT;
-        else if (at_top && at_right)
-          edge = RESIZE_TOP_RIGHT;
-        else if (at_top && at_left)
-          edge = RESIZE_TOP_LEFT;
-        else if (at_right)
-          edge = RESIZE_RIGHT;
-        else if (at_bottom)
-          edge = RESIZE_BOTTOM;
-        else if (at_left)
-          edge = RESIZE_LEFT;
-        else if (at_top && !win->has_titlebar)
-          edge = RESIZE_TOP;
+      if (win->chrome_kind == GUI_WINDOW_CHROME_SYSTEM && win->has_titlebar) {
+        SkinHit hit = gui_newwindows_hit_test(win, x, y);
+        int edge = gui_resize_edge_from_skin_hit(hit);
 
         if (edge != RESIZE_NONE) {
           resizing_window = win;
@@ -19826,26 +19976,14 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           resize_start_win_y = win->y;
           return;
         }
-      }
 
-      /* Check for traffic light buttons (on LEFT side now) */
-      if (win->has_titlebar) {
-        int btn_cy = draw_y + BORDER_WIDTH + TITLEBAR_HEIGHT / 2;
-        int btn_r = 8; /* Click radius slightly larger than visual */
-
-        /* Close button (first) */
-        int close_cx = draw_x + BORDER_WIDTH + 18;
-        if ((x - close_cx) * (x - close_cx) + (y - btn_cy) * (y - btn_cy) <=
-            btn_r * btn_r) {
+        if (hit == SKIN_HIT_CLOSE) {
           if (!window_close_disabled(win))
             gui_destroy_window(win);
           return;
         }
 
-        /* Minimize button (second) */
-        int min_cx = close_cx + 20;
-        if ((x - min_cx) * (x - min_cx) + (y - btn_cy) * (y - btn_cy) <=
-            btn_r * btn_r) {
+        if (hit == SKIN_HIT_MINIMIZE) {
           if (!window_minimize_disabled(win)) {
             compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
             win->visible = false;
@@ -19854,20 +19992,15 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           return;
         }
 
-        /* Zoom/Maximize button (third) */
-        int zoom_cx = min_cx + 20;
-        if ((x - zoom_cx) * (x - zoom_cx) + (y - btn_cy) * (y - btn_cy) <=
-            btn_r * btn_r) {
+        if (hit == SKIN_HIT_MAXIMIZE) {
           compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
           if (win->state == WINDOW_MAXIMIZED) {
-            /* Restore */
             win->x = win->saved_x;
             win->y = win->saved_y;
             win->width = win->saved_width;
             win->height = win->saved_height;
             win->state = WINDOW_NORMAL;
           } else {
-            /* Maximize */
             win->saved_x = win->x;
             win->saved_y = win->y;
             win->saved_width = win->width;
@@ -19885,14 +20018,110 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           return;
         }
 
-        /* Start dragging if clicking on title bar */
-        if (y >= win->y + BORDER_WIDTH &&
-            y < win->y + BORDER_WIDTH + TITLEBAR_HEIGHT &&
-            x >= win->x + BORDER_WIDTH + 70) { /* After traffic lights */
+        if (hit == SKIN_HIT_TITLEBAR) {
           dragging_window = win;
           drag_offset_x = x - win->x;
           drag_offset_y = y - win->y;
           return;
+        }
+      } else {
+        {
+          int at_left = (x >= draw_x && x < draw_x + RESIZE_BORDER);
+          int at_right = (x >= draw_x + draw_w - RESIZE_BORDER &&
+                          x < draw_x + draw_w);
+          int at_top = (y >= draw_y && y < draw_y + RESIZE_BORDER);
+          int at_bottom = (y >= draw_y + draw_h - RESIZE_BORDER &&
+                           y < draw_y + draw_h);
+
+          int edge = RESIZE_NONE;
+          if (at_bottom && at_right)
+            edge = RESIZE_BOTTOM_RIGHT;
+          else if (at_bottom && at_left)
+            edge = RESIZE_BOTTOM_LEFT;
+          else if (at_top && at_right)
+            edge = RESIZE_TOP_RIGHT;
+          else if (at_top && at_left)
+            edge = RESIZE_TOP_LEFT;
+          else if (at_right)
+            edge = RESIZE_RIGHT;
+          else if (at_bottom)
+            edge = RESIZE_BOTTOM;
+          else if (at_left)
+            edge = RESIZE_LEFT;
+          else if (at_top && !win->has_titlebar)
+            edge = RESIZE_TOP;
+
+          if (edge != RESIZE_NONE) {
+            resizing_window = win;
+            resize_edge = edge;
+            resize_start_x = x;
+            resize_start_y = y;
+            resize_start_w = win->width;
+            resize_start_h = win->height;
+            resize_start_win_x = win->x;
+            resize_start_win_y = win->y;
+            return;
+          }
+        }
+
+        if (win->has_titlebar) {
+          int btn_cy = draw_y + BORDER_WIDTH + TITLEBAR_HEIGHT / 2;
+          int btn_r = 8;
+          int close_cx = draw_x + BORDER_WIDTH + 18;
+          if ((x - close_cx) * (x - close_cx) + (y - btn_cy) * (y - btn_cy) <=
+              btn_r * btn_r) {
+            if (!window_close_disabled(win))
+              gui_destroy_window(win);
+            return;
+          }
+
+          int min_cx = close_cx + 20;
+          if ((x - min_cx) * (x - min_cx) + (y - btn_cy) * (y - btn_cy) <=
+              btn_r * btn_r) {
+            if (!window_minimize_disabled(win)) {
+              compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+              win->visible = false;
+              win->state = WINDOW_MINIMIZED;
+            }
+            return;
+          }
+
+          int zoom_cx = min_cx + 20;
+          if ((x - zoom_cx) * (x - zoom_cx) + (y - btn_cy) * (y - btn_cy) <=
+              btn_r * btn_r) {
+            compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+            if (win->state == WINDOW_MAXIMIZED) {
+              win->x = win->saved_x;
+              win->y = win->saved_y;
+              win->width = win->saved_width;
+              win->height = win->saved_height;
+              win->state = WINDOW_NORMAL;
+            } else {
+              win->saved_x = win->x;
+              win->saved_y = win->y;
+              win->saved_width = win->width;
+              win->saved_height = win->height;
+              win->x = 0;
+              win->y = MENU_BAR_HEIGHT;
+              win->width = primary_display.width;
+              win->height =
+                  primary_display.height - MENU_BAR_HEIGHT -
+                  dock_reserved_height() - WINDOW_BOTTOM_CLEARANCE;
+              win->state = WINDOW_MAXIMIZED;
+            }
+            window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
+            compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+            return;
+          }
+
+          if (y >= win->y + BORDER_WIDTH &&
+              y < win->y + BORDER_WIDTH + TITLEBAR_HEIGHT &&
+              x >= win->x + BORDER_WIDTH + 70) {
+            dragging_window = win;
+            drag_offset_x = x - win->x;
+            drag_offset_y = y - win->y;
+            return;
+          }
         }
       }
 

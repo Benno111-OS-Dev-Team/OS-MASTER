@@ -13,6 +13,7 @@ ROOT_DIR := $(shell pwd)
 BUILD_DIR := $(ROOT_DIR)/build/$(ARCH)
 GENERATED_DIR := $(BUILD_DIR)/generated
 ASSETS_DIR := $(ROOT_DIR)/assets
+NEWWINDOWS_DIR := $(ROOT_DIR)/newwindows
 BUILD_ASSETS_DIR := $(BUILD_DIR)/assets
 EMBED_SEED_ASSETS ?= 0
 EMBED_INSTALLER_PAYLOAD ?= 0
@@ -111,10 +112,11 @@ DEPFLAGS := -MMD -MP
 
 CFLAGS_KERNEL := $(CFLAGS_COMMON) $(CROSS_TARGET) $(ARCH_CFLAGS) \
                  -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(GENERATED_DIR) \
-                 -I$(ROOT_DIR) \
+                 -I$(NEWWINDOWS_DIR)/include -I$(ROOT_DIR) \
                  -I$(ROOT_DIR)/shared-api \
                  -fno-builtin -nostdlib -nostdinc \
-                 -DARCH_$(shell echo $(ARCH) | tr a-z A-Z | tr - _)
+                 -DARCH_$(shell echo $(ARCH) | tr a-z A-Z | tr - _) \
+                 -DWINDOW_SKIN_USE_KERNEL_TYPES
 
 ASFLAGS := $(CROSS_TARGET) $(ARCH_CFLAGS) -I$(KERNEL_DIR)/include
 
@@ -160,6 +162,7 @@ KERNEL_SOURCES_C += $(shell find $(KERNEL_DIR)/apps -name '*.c' 2>/dev/null)
 KERNEL_SOURCES_C += $(shell find $(KERNEL_DIR)/drivers -name '*.c' 2>/dev/null)
 KERNEL_SOURCES_C += $(shell find $(KERNEL_DIR)/sync -name '*.c' 2>/dev/null)
 KERNEL_SOURCES_C += $(shell find $(KERNEL_DIR)/sandbox -name '*.c' 2>/dev/null)
+NEWWINDOWS_SOURCES_C := $(NEWWINDOWS_DIR)/src/window_skin.c
 BOOTMANAGER_SOURCES_C := $(shell find $(BOOTMANAGER_DIR) -name '*.c' 2>/dev/null)
 KERNEL_SOURCES_C := $(filter-out \
 	$(KERNEL_DIR)/media/hd_wallpaper_landscape.c \
@@ -201,16 +204,17 @@ endif
 # Object files
 KERNEL_OBJECTS := $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_DIR)/kernel/%.o,$(KERNEL_SOURCES_C))
 KERNEL_OBJECTS += $(patsubst $(KERNEL_DIR)/%.S,$(BUILD_DIR)/kernel/%.o,$(KERNEL_SOURCES_ASM))
+NEWWINDOWS_OBJECTS := $(patsubst $(NEWWINDOWS_DIR)/%.c,$(BUILD_DIR)/newwindows/%.o,$(NEWWINDOWS_SOURCES_C))
 BOOTMANAGER_OBJECTS := $(patsubst $(BOOTMANAGER_DIR)/%.c,$(BUILD_DIR)/bootmanager/%.o,$(BOOTMANAGER_SOURCES_C))
 DRIVER_OBJECTS := $(patsubst $(DRIVERS_DIR)/%.c,$(BUILD_DIR)/drivers/%.o,$(DRIVER_SOURCES))
-CODE_HASH_INPUTS := $(sort $(KERNEL_SOURCES_C) $(BOOTMANAGER_SOURCES_C) $(KERNEL_SOURCES_ASM) $(DRIVER_SOURCES) $(ROOT_DIR)/Makefile.multiarch)
+CODE_HASH_INPUTS := $(sort $(KERNEL_SOURCES_C) $(NEWWINDOWS_SOURCES_C) $(BOOTMANAGER_SOURCES_C) $(KERNEL_SOURCES_ASM) $(DRIVER_SOURCES) $(ROOT_DIR)/Makefile.multiarch)
 BUILD_METADATA_HEADER := $(GENERATED_DIR)/build_uuid.h
 BUILD_PREPARED_STAMP := $(BUILD_DIR)/.build-prepared
 BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
 BUILD_STRING ?= $(BUILD_NUMBER) OS8 DEVELOPER PREVIEW
 BUILD_BRANCH ?= $(shell git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 BUILD_COMPILE_TIME ?= $(shell date -u +'%Y-%m-%d %H:%M:%SZ')
-ALL_OBJECTS := $(KERNEL_OBJECTS) $(BOOTMANAGER_OBJECTS) $(DRIVER_OBJECTS)
+ALL_OBJECTS := $(KERNEL_OBJECTS) $(NEWWINDOWS_OBJECTS) $(BOOTMANAGER_OBJECTS) $(DRIVER_OBJECTS)
 ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 
 # ============================================================================
@@ -289,6 +293,7 @@ $(BUILD_PREPARED_STAMP):
 	@mkdir -p $(BUILD_DIR)/kernel/drivers
 	@mkdir -p $(BUILD_DIR)/kernel/sync
 	@mkdir -p $(BUILD_DIR)/kernel/sandbox
+	@mkdir -p $(BUILD_DIR)/newwindows/src
 	@mkdir -p $(BUILD_DIR)/bootmanager
 	@mkdir -p $(BUILD_DIR)/drivers
 	@mkdir -p $(BUILD_ASSETS_DIR)
@@ -406,6 +411,11 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "[AS] $<"
 	@$(AS) $(ASFLAGS) -c $< -o $@ 
+
+$(BUILD_DIR)/newwindows/%.o: $(NEWWINDOWS_DIR)/%.c $(BUILD_METADATA_HEADER)
+	@mkdir -p $(dir $@)
+	@echo "[CC] $<"
+	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
