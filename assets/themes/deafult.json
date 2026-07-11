@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "name": "Deafult",
+  "author": "OS DEV TEAM",
+  "metrics": {
+    "titlebar_height": 36,
+    "border_left": 2,
+    "border_right": 2,
+    "border_top": 2,
+    "border_bottom": 2,
+    "corner_radius": 12,
+    "button_width": 46,
+    "button_height": 36,
+    "button_spacing": 0,
+    "title_padding": 10,
+    "icon_size": 16,
+    "shadow_size": 18,
+    "resize_grip_size": 7
+  },
+  "colors": {
+    "frame": "#D600BACC",
+    "frame_inactive": "#880264B8",
+    "titlebar": "#443F88D9",
+    "titlebar_inactive": "#202532C0",
+    "title_text": "#F7FAFF",
+    "title_text_inactive": "#9AA5B8",
+    "client_background": "#101218",
+    "border_light": "#A5D5FF88",
+    "border_dark": "#353945",
+    "button": "#843379CC",
+    "button_hover": "#BB58AECC",
+    "button_pressed": "#5B2053CC",
+    "close_button": "#C73D59D9",
+    "close_button_hover": "#E24040",
+    "button_icon": "#F4F7FF",
+    "shadow": "#00000099",
+    "accent": "#7D1D9F"
+  },
+  "titlebar": {
+    "alignment": "left",
+    "show_icon": true,
+    "show_title": true,
+    "translucent": true
+  },
+  "buttons": {
+    "layout": "right",
+    "order": [
+      "minimize",
+      "maximize",
+      "close"
+    ],
+    "animate": true,
+    "texture": "none",
+    "texture_strength": 1
+  },
+  "border": {
+    "style": "flat",
+    "blur": 4,
+    "transparency": 0.48,
+    "reflection": 0.28
+  },
+  "shadow": {
+    "style": "soft"
+  }
+}

@@ -18,6 +18,7 @@
   /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h \
   /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h \
   /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/sched/sched.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h \
   /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/gui/gui.h \
   /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/font.h
 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/apps/embedded_apps.h:
@@ -38,5 +39,6 @@
 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/mm/vmm.h:
 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/printk.h:
 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/sched/sched.h:
+/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/string.h:
 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/include/gui/gui.h:
 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/kernel/gui/font.h:

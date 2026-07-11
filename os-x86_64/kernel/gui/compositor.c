@@ -96,6 +96,18 @@ static int dock_hover_index = -1;
 static int dock_smooth_sizes[NUM_DOCK_ICONS] = {0};
 static int dock_magnification_enabled = 1;
 static int dock_labels_enabled = 1;
+static int settings_reduce_motion = 0;
+static int settings_compact_layout = 0;
+static int settings_high_contrast = 0;
+static int settings_night_light = 0;
+static int settings_show_desktop_badges = 1;
+static int settings_alert_banners = 1;
+static int settings_sound_effects = 1;
+static int settings_privacy_guard = 1;
+static int settings_auto_wallpaper = 0;
+static int settings_focus_glow = 1;
+static int settings_developer_panels = 0;
+static uint64_t settings_last_auto_wallpaper_frame = 0;
 
 /* Window dragging state */
 #define DRAG_NONE 0
@@ -108,6 +120,7 @@ static int dock_labels_enabled = 1;
 #define DRAG_HELP 7
 #define DRAG_IMAGE_VIEWER 8
 #define DRAG_TASK_MANAGER 9
+#define DRAG_SETTINGS 10
 static int dragging_window = DRAG_NONE;
 static int drag_offset_x = 0;
 static int drag_offset_y = 0;
@@ -122,8 +135,9 @@ static int drag_offset_y = 0;
 #define WIN_HELP 6
 #define WIN_IMAGE_VIEWER 7
 #define WIN_TASK_MANAGER 8
-#define NUM_MANAGED_WINDOWS 9
-static int window_z_order[NUM_MANAGED_WINDOWS] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+#define WIN_SETTINGS 9
+#define NUM_MANAGED_WINDOWS 10
+static int window_z_order[NUM_MANAGED_WINDOWS] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 static int focused_window_id = WIN_TERMINAL; /* Terminal focused by default */
 
 /* Bring window to front (highest z-order) */
@@ -659,7 +673,7 @@ static void draw_dock(void) {
     int base_center_x = dock_x + UI_SCALE_VAL(16) + i * (DOCK_ICON_SIZE + DOCK_PADDING) +
                         DOCK_ICON_SIZE / 2;
     
-    if (dock_magnification_enabled && mouse_in_dock) {
+    if (dock_magnification_enabled && !settings_reduce_motion && mouse_in_dock) {
       int dist = mouse_x - base_center_x;
       if (dist < 0)
         dist = -dist;
@@ -1374,6 +1388,409 @@ static void draw_file_manager(void) {
     if (text_x < ix) text_x = ix;
     uint32_t color = file_manager.entries[i].is_dir ? THEME_BLUE : THEME_TEXT;
     gui_draw_string(text_x, iy + UI_SCALE_VAL(50), name_buf, color);
+  }
+}
+
+/* ===================================================================== */
+/* Settings                                                              */
+/* ===================================================================== */
+
+typedef enum {
+  SETTINGS_ITEM_TOGGLE = 0,
+  SETTINGS_ITEM_ACTION = 1,
+  SETTINGS_ITEM_INFO = 2
+} settings_item_type_t;
+
+typedef enum {
+  SETTINGS_ACTION_NONE = 0,
+  SETTINGS_ACTION_OPEN_APPEARANCE,
+  SETTINGS_ACTION_OPEN_DESKTOP,
+  SETTINGS_ACTION_OPEN_DOCK,
+  SETTINGS_ACTION_OPEN_SOUND,
+  SETTINGS_ACTION_OPEN_ACCESSIBILITY,
+  SETTINGS_ACTION_OPEN_SYSTEM,
+  SETTINGS_ACTION_NEXT_WALLPAPER,
+  SETTINGS_ACTION_OPEN_TASK_MANAGER,
+  SETTINGS_ACTION_OPEN_FILES,
+  SETTINGS_ACTION_OPEN_HELP
+} settings_action_t;
+
+typedef struct {
+  const char *title;
+  const char *subtitle;
+  int type;
+  int *toggle_value;
+  int action;
+  const char *action_label;
+} settings_item_t;
+
+typedef struct {
+  const char *name;
+  const char *eyebrow;
+  uint32_t accent;
+  const settings_item_t *items;
+  int item_count;
+} settings_category_t;
+
+typedef struct {
+  int visible;
+  int x, y, width, height;
+  int selected_category;
+  int scroll;
+} settings_window_t;
+
+enum {
+  SETTINGS_CAT_OVERVIEW = 0,
+  SETTINGS_CAT_APPEARANCE,
+  SETTINGS_CAT_DESKTOP,
+  SETTINGS_CAT_DOCK,
+  SETTINGS_CAT_SOUND,
+  SETTINGS_CAT_ACCESSIBILITY,
+  SETTINGS_CAT_SYSTEM
+};
+
+static settings_window_t settings = {0, 140, 90, 760, 540, 0, 0};
+
+static const settings_item_t settings_overview_items[] = {
+    {"Workspace hub", "Pinned controls for wallpaper, dock, and desktop behavior.",
+     SETTINGS_ITEM_INFO, (int *)0, SETTINGS_ACTION_NONE, "Ready"},
+    {"Appearance studio", "Open display polish, themes, motion, and contrast settings.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_APPEARANCE, "Open"},
+    {"Desktop layout", "Jump into icon badges, privacy, and wallpaper surfaces.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_DESKTOP, "Review"},
+    {"Dock controls", "Tune labels, magnification, and launch ergonomics.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_DOCK, "Open"},
+    {"System monitor", "Launch the task manager and inspect running apps.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_TASK_MANAGER, "Manage"},
+    {"Quick help", "Open shortcuts and platform notes in the help window.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_HELP, "Open"},
+};
+
+static const settings_item_t settings_appearance_items[] = {
+    {"Night Light", "Warm the settings palette for late-evening work sessions.",
+     SETTINGS_ITEM_TOGGLE, &settings_night_light, SETTINGS_ACTION_NONE, ""},
+    {"Reduce motion", "Calm motion-heavy UI accents inside the shell and dock.",
+     SETTINGS_ITEM_TOGGLE, &settings_reduce_motion, SETTINGS_ACTION_NONE, ""},
+    {"High contrast", "Boost separation between cards, outlines, and text.",
+     SETTINGS_ITEM_TOGGLE, &settings_high_contrast, SETTINGS_ACTION_NONE, ""},
+    {"Compact cards", "Tighten row spacing for denser settings pages.",
+     SETTINGS_ITEM_TOGGLE, &settings_compact_layout, SETTINGS_ACTION_NONE, ""},
+    {"Wallpaper rotation", "Cycle to the next background from the toolbar.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_NEXT_WALLPAPER, "Cycle"},
+    {"Desktop surfaces", "Open the Desktop section to adjust wallpaper behavior.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_DESKTOP, "Open"},
+};
+
+static const settings_item_t settings_desktop_items[] = {
+    {"Desktop badges", "Show decorative indicator badges on desktop icons.",
+     SETTINGS_ITEM_TOGGLE, &settings_show_desktop_badges, SETTINGS_ACTION_NONE, ""},
+    {"Privacy guard", "Keep desktop visuals quieter when sharing your screen.",
+     SETTINGS_ITEM_TOGGLE, &settings_privacy_guard, SETTINGS_ACTION_NONE, ""},
+    {"Alert banners", "Allow the shell to surface desktop-friendly notices.",
+     SETTINGS_ITEM_TOGGLE, &settings_alert_banners, SETTINGS_ACTION_NONE, ""},
+    {"Auto wallpaper", "Rotate the wallpaper automatically while the desktop is active.",
+     SETTINGS_ITEM_TOGGLE, &settings_auto_wallpaper, SETTINGS_ACTION_NONE, ""},
+    {"Browse files", "Open the file manager to continue organizing your workspace.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_FILES, "Open"},
+    {"Cycle wallpaper", "Preview the next background without leaving settings.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_NEXT_WALLPAPER, "Try"},
+};
+
+static const settings_item_t settings_dock_items[] = {
+    {"Dock magnification", "Grow nearby icons to make the dock feel more alive.",
+     SETTINGS_ITEM_TOGGLE, &dock_magnification_enabled, SETTINGS_ACTION_NONE, ""},
+    {"Dock labels", "Show names above dock items on hover.",
+     SETTINGS_ITEM_TOGGLE, &dock_labels_enabled, SETTINGS_ACTION_NONE, ""},
+    {"Focus glow", "Add brighter emphasis to the selected category and hero cards.",
+     SETTINGS_ITEM_TOGGLE, &settings_focus_glow, SETTINGS_ACTION_NONE, ""},
+    {"Reduce motion", "Mirror the accessibility motion preference in dock behavior.",
+     SETTINGS_ITEM_TOGGLE, &settings_reduce_motion, SETTINGS_ACTION_NONE, ""},
+    {"Task overview", "Open the task manager directly from dock controls.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_TASK_MANAGER, "Launch"},
+    {"Sound settings", "Jump to sounds and notification preferences.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_SOUND, "Open"},
+};
+
+static const settings_item_t settings_sound_items[] = {
+    {"Interface sounds", "Play lightweight sound cues for shell interactions.",
+     SETTINGS_ITEM_TOGGLE, &settings_sound_effects, SETTINGS_ACTION_NONE, ""},
+    {"Alert banners", "Pair visible notices with calmer desktop behavior.",
+     SETTINGS_ITEM_TOGGLE, &settings_alert_banners, SETTINGS_ACTION_NONE, ""},
+    {"Privacy guard", "Quiet visual noise when a cleaner stage is needed.",
+     SETTINGS_ITEM_TOGGLE, &settings_privacy_guard, SETTINGS_ACTION_NONE, ""},
+    {"Accessibility audio", "Continue refining the shell for comfortable listening.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_ACCESSIBILITY, "Review"},
+    {"Help & shortcuts", "Open help to review keyboard shortcuts and platform notes.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_HELP, "Open"},
+};
+
+static const settings_item_t settings_accessibility_items[] = {
+    {"High contrast", "Increase legibility across settings surfaces and controls.",
+     SETTINGS_ITEM_TOGGLE, &settings_high_contrast, SETTINGS_ACTION_NONE, ""},
+    {"Reduce motion", "Lower movement in the interface and dock.",
+     SETTINGS_ITEM_TOGGLE, &settings_reduce_motion, SETTINGS_ACTION_NONE, ""},
+    {"Compact cards", "Fit more controls on screen when that is easier to scan.",
+     SETTINGS_ITEM_TOGGLE, &settings_compact_layout, SETTINGS_ACTION_NONE, ""},
+    {"Night Light", "Use warmer tones for extended sessions.",
+     SETTINGS_ITEM_TOGGLE, &settings_night_light, SETTINGS_ACTION_NONE, ""},
+    {"Dock controls", "Open dock settings to keep hover behavior comfortable.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_DOCK, "Open"},
+    {"Help resources", "Open the help window for keyboard shortcuts and guidance.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_HELP, "Open"},
+};
+
+static const settings_item_t settings_system_items[] = {
+    {"Developer panels", "Enable more utility-focused controls in shell surfaces.",
+     SETTINGS_ITEM_TOGGLE, &settings_developer_panels, SETTINGS_ACTION_NONE, ""},
+    {"Auto wallpaper", "Let the workspace rotate its background over time.",
+     SETTINGS_ITEM_TOGGLE, &settings_auto_wallpaper, SETTINGS_ACTION_NONE, ""},
+    {"Task manager", "Inspect running apps, widgets, and shell load.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_TASK_MANAGER, "Manage"},
+    {"Desktop files", "Open the file manager from system tools.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_FILES, "Open"},
+    {"Workspace status", "Current compositor and app surfaces are available.",
+     SETTINGS_ITEM_INFO, (int *)0, SETTINGS_ACTION_NONE, "Online"},
+    {"Appearance studio", "Return to appearance controls and wallpaper presets.",
+     SETTINGS_ITEM_ACTION, (int *)0, SETTINGS_ACTION_OPEN_APPEARANCE, "Open"},
+};
+
+static const settings_category_t settings_categories[] = {
+    {"Overview", "Workspace at a glance", THEME_BLUE, settings_overview_items,
+     (int)(sizeof(settings_overview_items) / sizeof(settings_overview_items[0]))},
+    {"Appearance", "Palette, motion, and polish", THEME_MAUVE, settings_appearance_items,
+     (int)(sizeof(settings_appearance_items) / sizeof(settings_appearance_items[0]))},
+    {"Desktop", "Icons, wallpaper, and surfaces", THEME_GREEN, settings_desktop_items,
+     (int)(sizeof(settings_desktop_items) / sizeof(settings_desktop_items[0]))},
+    {"Dock", "Launch behavior and hover details", THEME_SKY, settings_dock_items,
+     (int)(sizeof(settings_dock_items) / sizeof(settings_dock_items[0]))},
+    {"Sound", "Feedback and quieter notices", THEME_YELLOW, settings_sound_items,
+     (int)(sizeof(settings_sound_items) / sizeof(settings_sound_items[0]))},
+    {"Accessibility", "Comfort-first interaction options", THEME_PEACH, settings_accessibility_items,
+     (int)(sizeof(settings_accessibility_items) / sizeof(settings_accessibility_items[0]))},
+    {"System", "Tools, status, and developer surfaces", THEME_RED, settings_system_items,
+     (int)(sizeof(settings_system_items) / sizeof(settings_system_items[0]))},
+};
+
+static int settings_category_count(void) {
+  return (int)(sizeof(settings_categories) / sizeof(settings_categories[0]));
+}
+
+static int settings_row_height(void) {
+  return settings_compact_layout ? UI_SCALE_VAL(58) : UI_SCALE_VAL(72);
+}
+
+static int settings_visible_rows(int list_height) {
+  int rows = list_height / settings_row_height();
+  if (rows < 1)
+    rows = 1;
+  return rows;
+}
+
+static void settings_clamp_scroll(void) {
+  const settings_category_t *category = &settings_categories[settings.selected_category];
+  int list_height = settings.height - UI_SCALE_VAL(212);
+  int visible_rows = settings_visible_rows(list_height);
+  int max_scroll = category->item_count - visible_rows;
+
+  if (max_scroll < 0)
+    max_scroll = 0;
+  if (settings.scroll < 0)
+    settings.scroll = 0;
+  if (settings.scroll > max_scroll)
+    settings.scroll = max_scroll;
+}
+
+static void settings_open_category(int index) {
+  if (index < 0 || index >= settings_category_count())
+    return;
+  settings.selected_category = index;
+  settings.scroll = 0;
+}
+
+static void settings_toggle_draw(int x, int y, int value, uint32_t accent) {
+  int w = UI_SCALE_VAL(52);
+  int h = UI_SCALE_VAL(24);
+  int knob = UI_SCALE_VAL(18);
+  uint32_t bg = value ? accent : 0x334155;
+
+  gui_draw_rounded_rect(x, y, w, h, UI_SCALE_VAL(12), bg);
+  gui_draw_rounded_rect(x + (value ? (w - knob - UI_SCALE_VAL(3)) : UI_SCALE_VAL(3)),
+                        y + UI_SCALE_VAL(3), knob, knob, UI_SCALE_VAL(9), 0xF8FAFC);
+}
+
+static void settings_action_draw(int x, int y, int w, const char *label, uint32_t accent) {
+  gui_draw_rounded_rect(x, y, w, UI_SCALE_VAL(28), UI_SCALE_VAL(8), accent);
+  gui_draw_string(x + (w - font_string_width(label)) / 2,
+                  y + UI_SCALE_VAL(6), label, 0xFFFFFF);
+}
+
+static void draw_settings_window(void) {
+  if (!settings.visible)
+    return;
+
+  settings_clamp_scroll();
+
+  const settings_category_t *category = &settings_categories[settings.selected_category];
+  uint32_t accent = category->accent;
+  uint32_t shell_bg = settings_high_contrast ? 0x05070C : 0x0B1020;
+  uint32_t panel_bg = settings_night_light ? 0x1F1B16 : 0x111827;
+  uint32_t card_bg = settings_high_contrast ? 0x121826 : 0x172033;
+  uint32_t border = settings_high_contrast ? 0x7C8AA5 : 0x334155;
+  uint32_t text = settings_high_contrast ? 0xFFFFFF : 0xE5E7EB;
+  uint32_t subtext = settings_high_contrast ? 0xD6D9E0 : 0x94A3B8;
+  int x = settings.x;
+  int y = settings.y;
+  int w = settings.width;
+  int h = settings.height;
+  int title_h = UI_SCALE_VAL(32);
+  int sidebar_w = UI_SCALE_VAL(180);
+  int content_x = x + sidebar_w + UI_SCALE_VAL(30);
+  int content_w = w - sidebar_w - UI_SCALE_VAL(46);
+  int content_y = y + title_h + UI_SCALE_VAL(18);
+  int hero_h = UI_SCALE_VAL(90);
+  int toolbar_y = content_y + hero_h + UI_SCALE_VAL(14);
+  int toolbar_h = UI_SCALE_VAL(38);
+  int list_y = toolbar_y + toolbar_h + UI_SCALE_VAL(14);
+  int list_h = y + h - UI_SCALE_VAL(18) - list_y;
+  int row_h = settings_row_height();
+  int visible_rows = settings_visible_rows(list_h);
+  int scrollbar_w = UI_SCALE_VAL(14);
+  int row_w = content_w - scrollbar_w - UI_SCALE_VAL(18);
+
+  fb_fill_rect(x + UI_SCALE_VAL(7), y + UI_SCALE_VAL(7), w, h, 0x05080F);
+  fb_fill_rect(x, y, w, h, shell_bg);
+  fb_fill_rect(x, y, w, title_h, 0x08101D);
+  draw_traffic_lights(x, y, title_h);
+  gui_draw_string(x + UI_SCALE_VAL(82), y + (title_h - FONT_HEIGHT * ui_scale) / 2,
+                  "Settings", 0xF8FAFC);
+
+  fb_fill_rect(x + UI_SCALE_VAL(14), y + title_h + UI_SCALE_VAL(14),
+               sidebar_w, h - title_h - UI_SCALE_VAL(28), panel_bg);
+  fb_draw_rect(x + UI_SCALE_VAL(14), y + title_h + UI_SCALE_VAL(14),
+               sidebar_w, h - title_h - UI_SCALE_VAL(28), border);
+
+  for (int py = 0; py < hero_h; py++) {
+    uint32_t blend = (py * 140) / (hero_h ? hero_h : 1);
+    uint32_t r = ((accent >> 16) & 0xFF) * (180 - blend) / 255 + 18;
+    uint32_t g = ((accent >> 8) & 0xFF) * (180 - blend) / 255 + 24;
+    uint32_t b = (accent & 0xFF) * (180 - blend) / 255 + 36;
+    fb_fill_rect(content_x, content_y + py, content_w, 1, (r << 16) | (g << 8) | b);
+  }
+  if (settings_focus_glow) {
+    fb_draw_rect(content_x - UI_SCALE_VAL(2), content_y - UI_SCALE_VAL(2),
+                 content_w + UI_SCALE_VAL(4), hero_h + UI_SCALE_VAL(4), accent);
+  }
+
+  gui_draw_string(content_x + UI_SCALE_VAL(18), content_y + UI_SCALE_VAL(16),
+                  category->name, 0xFFFFFF);
+  gui_draw_string(content_x + UI_SCALE_VAL(18), content_y + UI_SCALE_VAL(40),
+                  category->eyebrow, 0xE2E8F0);
+  gui_draw_string(content_x + UI_SCALE_VAL(18), content_y + UI_SCALE_VAL(62),
+                  "A refreshed workspace panel with sections, toolbars, and quick actions.",
+                  0xD8E3F1);
+
+  gui_draw_rounded_rect(content_x + content_w - UI_SCALE_VAL(190), content_y + UI_SCALE_VAL(16),
+                        UI_SCALE_VAL(78), UI_SCALE_VAL(26), UI_SCALE_VAL(8), 0x0F172A);
+  gui_draw_string(content_x + content_w - UI_SCALE_VAL(177), content_y + UI_SCALE_VAL(7) + UI_SCALE_VAL(16),
+                  wallpapers[current_wallpaper].name, 0xE5E7EB);
+  gui_draw_rounded_rect(content_x + content_w - UI_SCALE_VAL(100), content_y + UI_SCALE_VAL(16),
+                        UI_SCALE_VAL(82), UI_SCALE_VAL(26), UI_SCALE_VAL(8), 0x0F172A);
+  gui_draw_string(content_x + content_w - UI_SCALE_VAL(90), content_y + UI_SCALE_VAL(23),
+                  settings_reduce_motion ? "Calm UI" : "Live UI", 0xE5E7EB);
+
+  gui_draw_string(x + UI_SCALE_VAL(32), y + title_h + UI_SCALE_VAL(28),
+                  "Settings Home", text);
+  gui_draw_string(x + UI_SCALE_VAL(32), y + title_h + UI_SCALE_VAL(48),
+                  "Menus", subtext);
+
+  for (int i = 0; i < settings_category_count(); i++) {
+    int item_y = y + title_h + UI_SCALE_VAL(74) + i * UI_SCALE_VAL(48);
+    uint32_t item_bg = (i == settings.selected_category) ? accent : 0x0F172A;
+    uint32_t item_fg = (i == settings.selected_category) ? 0xFFFFFF : text;
+    gui_draw_rounded_rect(x + UI_SCALE_VAL(26), item_y, UI_SCALE_VAL(156),
+                          UI_SCALE_VAL(36), UI_SCALE_VAL(10), item_bg);
+    gui_draw_string(x + UI_SCALE_VAL(40), item_y + UI_SCALE_VAL(10),
+                    settings_categories[i].name, item_fg);
+  }
+
+  gui_draw_string(x + UI_SCALE_VAL(32), y + h - UI_SCALE_VAL(54),
+                  settings_developer_panels ? "Developer surfaces enabled" : "Balanced workspace profile",
+                  subtext);
+
+  {
+    struct {
+      const char *label;
+      int action;
+    } chips[] = {
+        {"Appearance", SETTINGS_ACTION_OPEN_APPEARANCE},
+        {"Desktop", SETTINGS_ACTION_OPEN_DESKTOP},
+        {"Dock", SETTINGS_ACTION_OPEN_DOCK},
+        {"Wallpaper", SETTINGS_ACTION_NEXT_WALLPAPER},
+        {"Access", SETTINGS_ACTION_OPEN_ACCESSIBILITY},
+    };
+    int chip_x = content_x;
+    for (int i = 0; i < (int)(sizeof(chips) / sizeof(chips[0])); i++) {
+      int chip_w = font_string_width(chips[i].label) + UI_SCALE_VAL(28);
+      gui_draw_rounded_rect(chip_x, toolbar_y, chip_w, toolbar_h, UI_SCALE_VAL(10),
+                            i == 4 ? accent : card_bg);
+      gui_draw_string(chip_x + UI_SCALE_VAL(14), toolbar_y + UI_SCALE_VAL(11),
+                      chips[i].label, 0xFFFFFF);
+      chip_x += chip_w + UI_SCALE_VAL(10);
+    }
+  }
+
+  for (int i = 0; i < visible_rows; i++) {
+    int item_index = settings.scroll + i;
+    if (item_index >= category->item_count)
+      break;
+
+    const settings_item_t *item = &category->items[item_index];
+    int row_y = list_y + i * row_h;
+    gui_draw_rounded_rect(content_x, row_y, row_w, row_h - UI_SCALE_VAL(8),
+                          UI_SCALE_VAL(12), card_bg);
+    fb_draw_rect(content_x, row_y, row_w, row_h - UI_SCALE_VAL(8), border);
+
+    gui_draw_string(content_x + UI_SCALE_VAL(18), row_y + UI_SCALE_VAL(14),
+                    item->title, text);
+    gui_draw_string(content_x + UI_SCALE_VAL(18), row_y + UI_SCALE_VAL(34),
+                    item->subtitle, subtext);
+
+    if (item->type == SETTINGS_ITEM_TOGGLE && item->toggle_value) {
+      settings_toggle_draw(content_x + row_w - UI_SCALE_VAL(74),
+                           row_y + UI_SCALE_VAL(17), *item->toggle_value, accent);
+      gui_draw_string(content_x + row_w - UI_SCALE_VAL(126), row_y + UI_SCALE_VAL(20),
+                      *item->toggle_value ? "On" : "Off", text);
+    } else if (item->type == SETTINGS_ITEM_ACTION) {
+      settings_action_draw(content_x + row_w - UI_SCALE_VAL(104),
+                           row_y + UI_SCALE_VAL(15), UI_SCALE_VAL(84),
+                           item->action_label, accent);
+    } else {
+      gui_draw_rounded_rect(content_x + row_w - UI_SCALE_VAL(104),
+                            row_y + UI_SCALE_VAL(15), UI_SCALE_VAL(84),
+                            UI_SCALE_VAL(28), UI_SCALE_VAL(8), 0x0F172A);
+      gui_draw_string(content_x + row_w - UI_SCALE_VAL(84),
+                      row_y + UI_SCALE_VAL(22), item->action_label, text);
+    }
+  }
+
+  if (category->item_count > visible_rows) {
+    int track_x = content_x + row_w + UI_SCALE_VAL(8);
+    int track_y = list_y;
+    int track_h = visible_rows * row_h - UI_SCALE_VAL(8);
+    int thumb_h = track_h * visible_rows / category->item_count;
+    int max_scroll = category->item_count - visible_rows;
+    int thumb_y = track_y;
+
+    if (thumb_h < UI_SCALE_VAL(40))
+      thumb_h = UI_SCALE_VAL(40);
+    if (max_scroll > 0) {
+      thumb_y += (track_h - thumb_h) * settings.scroll / max_scroll;
+    }
+
+    gui_draw_rounded_rect(track_x, track_y, scrollbar_w, track_h, UI_SCALE_VAL(7), 0x0F172A);
+    gui_draw_rounded_rect(track_x, thumb_y, scrollbar_w, thumb_h, UI_SCALE_VAL(7), accent);
+    gui_draw_string(track_x + UI_SCALE_VAL(3), track_y + UI_SCALE_VAL(3), "^", 0xFFFFFF);
+    gui_draw_string(track_x + UI_SCALE_VAL(3), track_y + track_h - UI_SCALE_VAL(18), "v", 0xFFFFFF);
   }
 }
 
@@ -2161,6 +2578,7 @@ static task_row_t task_manager_rows[] = {
     {"Snake", "Game", &snake.visible, 106},
     {"Help", "App", &help_win.visible, 107},
     {"Browser", "App", &img_viewer.visible, 108},
+    {"Settings", "App", &settings.visible, 109},
     {"Desktop", "System", (int *)0, 1},
 };
 
@@ -2309,6 +2727,155 @@ static void draw_task_manager(void) {
   }
 }
 
+static void settings_run_action(int action) {
+  switch (action) {
+  case SETTINGS_ACTION_OPEN_APPEARANCE:
+    settings_open_category(SETTINGS_CAT_APPEARANCE);
+    break;
+  case SETTINGS_ACTION_OPEN_DESKTOP:
+    settings_open_category(SETTINGS_CAT_DESKTOP);
+    break;
+  case SETTINGS_ACTION_OPEN_DOCK:
+    settings_open_category(SETTINGS_CAT_DOCK);
+    break;
+  case SETTINGS_ACTION_OPEN_SOUND:
+    settings_open_category(SETTINGS_CAT_SOUND);
+    break;
+  case SETTINGS_ACTION_OPEN_ACCESSIBILITY:
+    settings_open_category(SETTINGS_CAT_ACCESSIBILITY);
+    break;
+  case SETTINGS_ACTION_OPEN_SYSTEM:
+    settings_open_category(SETTINGS_CAT_SYSTEM);
+    break;
+  case SETTINGS_ACTION_NEXT_WALLPAPER:
+    wallpaper_next();
+    break;
+  case SETTINGS_ACTION_OPEN_TASK_MANAGER:
+    task_manager.visible = 1;
+    bring_window_to_front(WIN_TASK_MANAGER);
+    break;
+  case SETTINGS_ACTION_OPEN_FILES:
+    file_manager.visible = 1;
+    fm_refresh();
+    bring_window_to_front(WIN_FILE_MANAGER);
+    break;
+  case SETTINGS_ACTION_OPEN_HELP:
+    help_win.visible = 1;
+    bring_window_to_front(WIN_HELP);
+    break;
+  default:
+    break;
+  }
+}
+
+static int settings_handle_click(int mx, int my) {
+  if (!settings.visible)
+    return 0;
+
+  settings_clamp_scroll();
+
+  {
+    int x = settings.x;
+    int y = settings.y;
+    int w = settings.width;
+    int h = settings.height;
+    int title_h = UI_SCALE_VAL(32);
+    int sidebar_w = UI_SCALE_VAL(180);
+    int content_x = x + sidebar_w + UI_SCALE_VAL(30);
+    int content_w = w - sidebar_w - UI_SCALE_VAL(46);
+    int content_y = y + title_h + UI_SCALE_VAL(18);
+    int hero_h = UI_SCALE_VAL(90);
+    int toolbar_y = content_y + hero_h + UI_SCALE_VAL(14);
+    int toolbar_h = UI_SCALE_VAL(38);
+    int list_y = toolbar_y + toolbar_h + UI_SCALE_VAL(14);
+    int list_h = y + h - UI_SCALE_VAL(18) - list_y;
+    int row_h = settings_row_height();
+    int visible_rows = settings_visible_rows(list_h);
+    int scrollbar_w = UI_SCALE_VAL(14);
+    int row_w = content_w - scrollbar_w - UI_SCALE_VAL(18);
+    const settings_category_t *category = &settings_categories[settings.selected_category];
+
+    if (mx >= x + UI_SCALE_VAL(26) && mx < x + UI_SCALE_VAL(182)) {
+      for (int i = 0; i < settings_category_count(); i++) {
+        int item_y = y + title_h + UI_SCALE_VAL(74) + i * UI_SCALE_VAL(48);
+        if (my >= item_y && my < item_y + UI_SCALE_VAL(36)) {
+          settings_open_category(i);
+          return 1;
+        }
+      }
+    }
+
+    {
+      struct {
+        const char *label;
+        int action;
+      } chips[] = {
+          {"Appearance", SETTINGS_ACTION_OPEN_APPEARANCE},
+          {"Desktop", SETTINGS_ACTION_OPEN_DESKTOP},
+          {"Dock", SETTINGS_ACTION_OPEN_DOCK},
+          {"Wallpaper", SETTINGS_ACTION_NEXT_WALLPAPER},
+          {"Access", SETTINGS_ACTION_OPEN_ACCESSIBILITY},
+      };
+      int chip_x = content_x;
+      for (int i = 0; i < (int)(sizeof(chips) / sizeof(chips[0])); i++) {
+        int chip_w = font_string_width(chips[i].label) + UI_SCALE_VAL(28);
+        if (mx >= chip_x && mx < chip_x + chip_w &&
+            my >= toolbar_y && my < toolbar_y + toolbar_h) {
+          settings_run_action(chips[i].action);
+          return 1;
+        }
+        chip_x += chip_w + UI_SCALE_VAL(10);
+      }
+    }
+
+    for (int i = 0; i < visible_rows; i++) {
+      int item_index = settings.scroll + i;
+      int row_y = list_y + i * row_h;
+      const settings_item_t *item;
+
+      if (item_index >= category->item_count)
+        break;
+      if (mx < content_x || mx >= content_x + row_w ||
+          my < row_y || my >= row_y + row_h - UI_SCALE_VAL(8))
+        continue;
+
+      item = &category->items[item_index];
+      if (item->type == SETTINGS_ITEM_TOGGLE && item->toggle_value) {
+        *item->toggle_value = !*item->toggle_value;
+      } else if (item->type == SETTINGS_ITEM_ACTION) {
+        settings_run_action(item->action);
+      }
+      return 1;
+    }
+
+    if (category->item_count > visible_rows) {
+      int track_x = content_x + row_w + UI_SCALE_VAL(8);
+      int track_y = list_y;
+      int track_h = visible_rows * row_h - UI_SCALE_VAL(8);
+      int max_scroll = category->item_count - visible_rows;
+
+      if (mx >= track_x && mx < track_x + scrollbar_w &&
+          my >= track_y && my < track_y + track_h) {
+        if (my < track_y + UI_SCALE_VAL(20)) {
+          settings.scroll--;
+        } else if (my >= track_y + track_h - UI_SCALE_VAL(20)) {
+          settings.scroll++;
+        } else if (max_scroll > 0) {
+          int pos = my - track_y - UI_SCALE_VAL(20);
+          int span = track_h - UI_SCALE_VAL(40);
+          if (span < 1)
+            span = 1;
+          settings.scroll = pos * max_scroll / span;
+        }
+        settings_clamp_scroll();
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
 /* ===================================================================== */
 /* Desktop Background                                                    */
 /* ===================================================================== */
@@ -2385,6 +2952,7 @@ static void desktop_refresh_icons(void) {
   }
 
   desktop_add_icon("Terminal", 0);
+  desktop_add_icon("Settings", 0);
   full_redraw = 1;
   needs_redraw = 1;
 }
@@ -2418,6 +2986,11 @@ static void draw_desktop_icons(void) {
         gui_draw_circle(x + UI_SCALE_VAL(32), y + UI_SCALE_VAL(24),
                         UI_SCALE_VAL(4), THEME_BASE);
       }
+    }
+
+    if (settings_show_desktop_badges) {
+      gui_draw_circle(x + UI_SCALE_VAL(48), y + UI_SCALE_VAL(10),
+                      UI_SCALE_VAL(5), THEME_SKY);
     }
 
     /* Label */
@@ -2601,6 +3174,14 @@ static void keyboard_callback(int key) {
     return;
   }
 
+  if ((key == 's' || key == 'S') && !terminal.visible && !notepad.visible) {
+    settings.visible = !settings.visible;
+    if (settings.visible) {
+      bring_window_to_front(WIN_SETTINGS);
+    }
+    return;
+  }
+
   /* ESC: Close windows/context menu */
   if (key == KEY_ESC) {
     ctx_menu.visible = 0;
@@ -2611,6 +3192,7 @@ static void keyboard_callback(int key) {
     analog_clock.visible = 0;
     help_win.visible = 0;
     task_manager.visible = 0;
+    settings.visible = 0;
     return;
   }
 
@@ -2844,6 +3426,16 @@ void gui_init(void) {
   img_viewer.x = (screen_width - img_viewer.width) / 2;
   img_viewer.y = (screen_height - img_viewer.height) / 2;
 
+  /* Scale settings */
+  settings.width = UI_SCALE_VAL(780);
+  settings.height = UI_SCALE_VAL(540);
+  if (settings.width > (int)screen_width - 80) settings.width = screen_width - 80;
+  if (settings.height > (int)screen_height - 140) settings.height = screen_height - 140;
+  settings.x = (screen_width - settings.width) / 2;
+  settings.y = UI_SCALE_VAL(56);
+  settings.selected_category = SETTINGS_CAT_OVERVIEW;
+  settings.scroll = 0;
+
   /* Initialize USB (xHCI/EHCI) for keyboard input without splash visuals. */
   usb_xhci_init();
   usb_ehci_init();
@@ -3034,7 +3626,8 @@ static void handle_mouse_click(int x, int y, int button) {
       help_win.visible = 1;
     } else if (rel_y >= UI_SCALE_VAL(38) && rel_y < UI_SCALE_VAL(58)) {
       /* Settings clicked */
-      file_manager.visible = 1;
+      settings.visible = 1;
+      bring_window_to_front(WIN_SETTINGS);
     }
     menu_open = 0;
     return;
@@ -3065,7 +3658,7 @@ static void handle_mouse_click(int x, int y, int button) {
           case 1: file_manager.visible = !file_manager.visible; break; /* Files */
           case 2: calc.visible = !calc.visible; break;                 /* Calculator */
           case 3: notepad.visible = !notepad.visible; break;           /* Notes */
-          case 4: /* Settings - toggle file manager */ file_manager.visible = !file_manager.visible; break;
+          case 4: settings.visible = !settings.visible; if (settings.visible) bring_window_to_front(WIN_SETTINGS); break;
           case 5: analog_clock.visible = !analog_clock.visible; break; /* Clock */
           case 6: snake.visible = !snake.visible; if (snake.visible) snake_init(); break; /* Snake */
           case 7: help_win.visible = !help_win.visible; break;         /* Help */
@@ -3364,6 +3957,11 @@ static void handle_mouse_click(int x, int y, int button) {
     if (x >= ix && x < ix + iw && y >= iy && y < iy + ih) {
       if (strcmp(desktop_icons[i].name, "Terminal") == 0) {
         terminal.visible = !terminal.visible;
+      } else if (strcmp(desktop_icons[i].name, "Settings") == 0) {
+        settings.visible = !settings.visible;
+        if (settings.visible) {
+          bring_window_to_front(WIN_SETTINGS);
+        }
       } else if (desktop_icons[i].is_dir) {
         /* Open folder in file manager */
         file_manager.visible = 1;
@@ -3481,6 +4079,9 @@ static void gui_poll_input(void) {
       case DRAG_TASK_MANAGER:
         old_win_x = task_manager.x; old_win_y = task_manager.y;
         win_w = task_manager.width; win_h = task_manager.height; break;
+      case DRAG_SETTINGS:
+        old_win_x = settings.x; old_win_y = settings.y;
+        win_w = settings.width; win_h = settings.height; break;
     }
     int new_win_x = new_x - drag_offset_x;
     int new_win_y = new_y - drag_offset_y;
@@ -3529,6 +4130,10 @@ static void gui_poll_input(void) {
       case DRAG_TASK_MANAGER:
         task_manager.x = new_win_x;
         task_manager.y = new_win_y;
+        break;
+      case DRAG_SETTINGS:
+        settings.x = new_win_x;
+        settings.y = new_win_y;
         break;
     }
     if (new_win_x != old_win_x || new_win_y != old_win_y) {
@@ -3584,6 +4189,7 @@ static void gui_poll_input(void) {
       {&help_win.visible, &help_win.x, &help_win.y, &help_win.width, &help_win.height, WIN_HELP, DRAG_HELP},
       {&img_viewer.visible, &img_viewer.x, &img_viewer.y, &img_viewer.width, &img_viewer.height, WIN_IMAGE_VIEWER, DRAG_IMAGE_VIEWER},
       {&task_manager.visible, &task_manager.x, &task_manager.y, &task_manager.width, &task_manager.height, WIN_TASK_MANAGER, DRAG_TASK_MANAGER},
+      {&settings.visible, &settings.x, &settings.y, &settings.width, &settings.height, WIN_SETTINGS, DRAG_SETTINGS},
     };
     int num_windows = sizeof(windows) / sizeof(windows[0]);
     
@@ -3742,6 +4348,9 @@ static void gui_poll_input(void) {
         else if (win_id == WIN_TASK_MANAGER) {
           task_manager_handle_click(mouse_x, mouse_y);
         }
+        else if (win_id == WIN_SETTINGS) {
+          settings_handle_click(mouse_x, mouse_y);
+        }
         
         clicked_window = 1;
         break;
@@ -3807,6 +4416,7 @@ static void gui_draw_all(void) {
       case WIN_HELP: draw_help_window(); break;
       case WIN_IMAGE_VIEWER: draw_image_viewer(); break;
       case WIN_TASK_MANAGER: draw_task_manager(); break;
+      case WIN_SETTINGS: draw_settings_window(); break;
     }
   }
   
@@ -3818,6 +4428,13 @@ static void gui_draw_all(void) {
 
 void gui_compose(void) {
   gui_poll_input();
+
+  if (settings_auto_wallpaper && frame_count > 0 &&
+      (frame_count % 600) == 0 &&
+      settings_last_auto_wallpaper_frame != frame_count) {
+    wallpaper_next();
+    settings_last_auto_wallpaper_frame = frame_count;
+  }
 
   if (wallpaper_cache_dirty) {
     full_redraw = 1;
