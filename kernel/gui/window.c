@@ -4051,6 +4051,11 @@ struct window {
 static struct window windows[MAX_WINDOWS];
 static struct window *window_stack = NULL; /* Z-order, top is focused */
 static struct window *focused_window = NULL;
+static struct window *chrome_hot_window = NULL;
+static struct window *chrome_pressed_window = NULL;
+static SkinHit chrome_hot_hit = SKIN_HIT_NONE;
+static SkinHit chrome_pressed_hit = SKIN_HIT_NONE;
+static SkinDragState chrome_drag_state = {0};
 static int startup_window_opening = 0;
 static int next_window_id = 1;
 static void window_mark_surface_dirty_full(struct window *win);
@@ -4063,6 +4068,32 @@ static SkinColor gui_skin_color_from_u32(uint32_t color) {
   return skin_rgba((uint8_t)((color >> 16) & 0xFF),
                    (uint8_t)((color >> 8) & 0xFF),
                    (uint8_t)(color & 0xFF), alpha);
+}
+
+static int window_uses_newwindows_chrome(const struct window *win) {
+  return win && (win->chrome_kind == GUI_WINDOW_CHROME_SYSTEM ||
+                 win->chrome_kind == GUI_WINDOW_CHROME_MINIMAL ||
+                 win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER);
+}
+
+static void gui_clear_chrome_visual_state_for_window(struct window *win) {
+  int dirty = 0;
+
+  if (!win)
+    return;
+
+  if (chrome_hot_window == win) {
+    chrome_hot_window = NULL;
+    chrome_hot_hit = SKIN_HIT_NONE;
+    dirty = 1;
+  }
+  if (chrome_pressed_window == win) {
+    chrome_pressed_window = NULL;
+    chrome_pressed_hit = SKIN_HIT_NONE;
+    dirty = 1;
+  }
+  if (dirty)
+    gui_invalidate_window(win);
 }
 
 static uint32_t gui_skin_color_to_argb(SkinColor color) {
@@ -4126,24 +4157,30 @@ static SkinWindow gui_skin_window_from_window(const struct window *win) {
   return skin_window;
 }
 
+static int gui_newwindows_allows_button_row(const struct window *win) {
+  return win && win->has_titlebar &&
+         win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER;
+}
+
 static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
   WindowSkin skin = skin_make_aurora_sample();
   const gui_theme_palette_t *theme = gui_theme_palette();
 
-  skin.metrics.titlebar_height = TITLEBAR_HEIGHT;
+  skin.metrics.titlebar_height = win->has_titlebar ? TITLEBAR_HEIGHT : 0;
   skin.metrics.border_left = BORDER_WIDTH;
   skin.metrics.border_right = BORDER_WIDTH;
   skin.metrics.border_top = BORDER_WIDTH;
   skin.metrics.border_bottom = BORDER_WIDTH;
-  skin.metrics.button_width = 20;
-  skin.metrics.button_height = TITLEBAR_HEIGHT;
+  skin.metrics.button_width = gui_newwindows_allows_button_row(win) ? 20 : 0;
+  skin.metrics.button_height =
+      gui_newwindows_allows_button_row(win) ? TITLEBAR_HEIGHT : 0;
   skin.metrics.button_spacing = 0;
   skin.metrics.title_padding = 12;
-  skin.metrics.shadow_size = 0;
+  skin.metrics.shadow_size = 12;
   skin.metrics.resize_grip_size = 12;
 
   skin.border_style = SKIN_BORDER_FLAT;
-  skin.shadow_style = SKIN_SHADOW_NONE;
+  skin.shadow_style = SKIN_SHADOW_SOFT;
   skin.button_texture = SKIN_TEXTURE_GLASS;
   skin.button_texture_strength = 0.18f;
   skin.border_blur = g_blur_effects_enabled ? 10.0f : 0.0f;
@@ -4157,6 +4194,37 @@ static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
   skin.button_order[0] = SKIN_BUTTON_CLOSE;
   skin.button_order[1] = SKIN_BUTTON_MINIMIZE;
   skin.button_order[2] = SKIN_BUTTON_MAXIMIZE;
+
+  if (win->chrome_kind == GUI_WINDOW_CHROME_MINIMAL) {
+    skin.metrics.titlebar_height = win->has_titlebar ? 24 : 0;
+    skin.metrics.button_width = gui_newwindows_allows_button_row(win) ? 18 : 0;
+    skin.metrics.button_height =
+        gui_newwindows_allows_button_row(win) ? 24 : 0;
+    skin.metrics.title_padding = 10;
+    skin.metrics.shadow_size = 8;
+    skin.button_texture = SKIN_TEXTURE_NONE;
+    skin.button_texture_strength = 0.0f;
+    skin.border_transparency = 0.92f;
+    skin.border_reflection = 0.10f;
+  } else if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
+    skin.metrics.border_left = 1;
+    skin.metrics.border_right = 1;
+    skin.metrics.border_top = 1;
+    skin.metrics.border_bottom = 1;
+    skin.metrics.titlebar_height = 0;
+    skin.metrics.button_width = 0;
+    skin.metrics.button_height = 0;
+    skin.metrics.shadow_size = 0;
+    skin.metrics.resize_grip_size = 10;
+    skin.shadow_style = SKIN_SHADOW_NONE;
+    skin.button_texture = SKIN_TEXTURE_NONE;
+    skin.button_texture_strength = 0.0f;
+    skin.border_blur = 0.0f;
+    skin.border_transparency = 1.0f;
+    skin.border_reflection = 0.0f;
+    skin.show_title = false;
+    skin.translucent_titlebar = false;
+  }
 
   skin.colors.frame = gui_skin_color_from_u32(win->focused
                                                   ? theme->window_glass_focused
@@ -4181,8 +4249,32 @@ static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
   skin.colors.close_button = gui_skin_color_from_u32(COLOR_BTN_CLOSE);
   skin.colors.close_button_hover = gui_skin_color_from_u32(0xFFF87171);
   skin.colors.button_icon = gui_skin_color_from_u32(0xFFF8FAFC);
-  skin.colors.shadow = gui_skin_color_from_u32(0x00000000);
+  skin.colors.shadow = gui_skin_color_from_u32(0x50000000);
   skin.colors.accent = gui_skin_color_from_u32(theme->accent);
+
+  if (win->chrome_kind == GUI_WINDOW_CHROME_MINIMAL) {
+    skin.colors.frame =
+        gui_skin_color_from_u32(win->focused ? theme->surface : theme->surface_alt);
+    skin.colors.frame_inactive = gui_skin_color_from_u32(theme->surface_alt);
+    skin.colors.titlebar =
+        gui_skin_color_from_u32(win->focused ? theme->surface_alt : theme->surface);
+    skin.colors.titlebar_inactive = gui_skin_color_from_u32(theme->surface);
+    skin.colors.button = gui_skin_color_from_u32(0xFF3F4D5C);
+    skin.colors.button_hover = gui_skin_color_from_u32(0xFF536579);
+    skin.colors.button_pressed = gui_skin_color_from_u32(0xFF2D3947);
+    skin.colors.shadow = gui_skin_color_from_u32(0x38000000);
+  } else if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
+    skin.colors.frame =
+        gui_skin_color_from_u32(win->focused ? theme->accent : theme->border);
+    skin.colors.frame_inactive = gui_skin_color_from_u32(theme->border);
+    skin.colors.titlebar = gui_skin_color_from_u32(0x00000000);
+    skin.colors.titlebar_inactive = gui_skin_color_from_u32(0x00000000);
+    skin.colors.client_background = gui_skin_color_from_u32(0x00000000);
+    skin.colors.border_light =
+        gui_skin_color_from_u32(win->focused ? theme->accent : theme->border);
+    skin.colors.border_dark = gui_skin_color_from_u32(theme->border);
+    skin.colors.shadow = gui_skin_color_from_u32(0x00000000);
+  }
 
   return skin;
 }
@@ -4193,26 +4285,67 @@ static SkinHit gui_newwindows_hit_test(const struct window *win, int x, int y) {
   return skin_hit_test(&skin_window, &skin, x, y);
 }
 
+static void gui_newwindows_content_insets(const struct window *win, int *left,
+                                          int *top, int *right, int *bottom) {
+  WindowSkin skin;
+
+  if (!win) {
+    if (left)
+      *left = 0;
+    if (top)
+      *top = 0;
+    if (right)
+      *right = 0;
+    if (bottom)
+      *bottom = 0;
+    return;
+  }
+
+  if (!window_uses_newwindows_chrome(win)) {
+    if (left)
+      *left = BORDER_WIDTH;
+    if (top)
+      *top = BORDER_WIDTH + (win->has_titlebar ? TITLEBAR_HEIGHT : 0);
+    if (right)
+      *right = BORDER_WIDTH;
+    if (bottom)
+      *bottom = BORDER_WIDTH;
+    return;
+  }
+
+  skin = gui_newwindows_skin_for_window(win);
+  if (left)
+    *left = skin.metrics.border_left;
+  if (top)
+    *top = skin.metrics.border_top + skin.metrics.titlebar_height;
+  if (right)
+    *right = skin.metrics.border_right;
+  if (bottom)
+    *bottom = skin.metrics.border_bottom;
+}
+
 static int window_content_origin_y(const struct window *win) {
+  int top = 0;
   if (!win)
     return 0;
-  if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER)
-    return 0;
-  return BORDER_WIDTH + (win->has_titlebar ? TITLEBAR_HEIGHT : 0);
+  gui_newwindows_content_insets(win, NULL, &top, NULL, NULL);
+  return top;
 }
 
 static int window_content_origin_x(const struct window *win) {
+  int left = 0;
   if (!win)
     return 0;
-  if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER)
-    return 0;
-  return BORDER_WIDTH;
+  gui_newwindows_content_insets(win, &left, NULL, NULL, NULL);
+  return left;
 }
 
 void gui_get_window_content_rect(const struct window *win, int *x, int *y, int *w,
                                  int *h) {
   int origin_x = window_content_origin_x(win);
   int origin_y = window_content_origin_y(win);
+  int inset_right = 0;
+  int inset_bottom = 0;
   int width = 0;
   int height = 0;
 
@@ -4228,12 +4361,9 @@ void gui_get_window_content_rect(const struct window *win, int *x, int *y, int *
     return;
   }
 
-  width = win->width - origin_x - (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER
-                                       ? 0
-                                       : BORDER_WIDTH);
-  height = win->height - origin_y - (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER
-                                         ? 0
-                                         : BORDER_WIDTH);
+  gui_newwindows_content_insets(win, NULL, NULL, &inset_right, &inset_bottom);
+  width = win->width - origin_x - inset_right;
+  height = win->height - origin_y - inset_bottom;
 
   if (width < 0)
     width = 0;
@@ -4261,6 +4391,7 @@ void gui_set_window_layout_kind(struct window *win, gui_window_layout_kind_t kin
 void gui_set_window_chrome_kind(struct window *win, gui_window_chrome_kind_t kind) {
   if (!win)
     return;
+  gui_clear_chrome_visual_state_for_window(win);
   win->chrome_kind = kind;
   win->has_titlebar = kind != GUI_WINDOW_CHROME_FRAMEBUFFER;
   window_mark_surface_dirty_full(win);
@@ -4972,6 +5103,7 @@ static void gui_destroy_window_immediate(struct window *win) {
 
   window_get_draw_rect(win, &dirty_x, &dirty_y, &dirty_w, &dirty_h);
   compositor_mark_dirty(dirty_x, dirty_y, dirty_w, dirty_h);
+  gui_clear_chrome_visual_state_for_window(win);
 
   if (win->on_close) {
     win->on_close(win);
@@ -13124,26 +13256,7 @@ static void draw_window_internal(struct window *win) {
   window_get_draw_rect(win, &x, &y, &w, &h);
   struct gui_clip_state prev_clip = gui_set_clip_rect(x, y, w, h);
 
-  if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
-    gui_draw_rect_outline(x, y, w, h,
-                          win->focused ? theme->accent : theme->border, 1);
-  } else if (win->chrome_kind == GUI_WINDOW_CHROME_MINIMAL) {
-    gui_draw_glass_panel(x, y, w, h,
-                         win->focused ? theme->window_glass_focused
-                                      : theme->window_glass_inactive,
-                         win->focused ? theme->window_glow_focused
-                                      : theme->window_glow_inactive,
-                         win->focused ? theme->accent : theme->border, 1);
-  } else {
-    gui_draw_glass_panel(x, y, w, h,
-                         win->focused ? theme->window_glass_focused
-                                      : theme->window_glass_inactive,
-                         win->focused ? theme->window_glow_focused
-                                      : theme->window_glow_inactive,
-                         0x00000000, 2);
-  }
-
-  if (win->has_titlebar && win->chrome_kind == GUI_WINDOW_CHROME_SYSTEM) {
+  if (window_uses_newwindows_chrome(win)) {
     SkinRenderer renderer = {
         .userdata = NULL,
         .fill_rect = gui_skin_fill_rect,
@@ -13153,8 +13266,18 @@ static void draw_window_internal(struct window *win) {
     };
     SkinWindow skin_window = gui_skin_window_from_window(win);
     WindowSkin skin = gui_newwindows_skin_for_window(win);
-    skin_draw_window_chrome(&renderer, &skin_window, &skin, SKIN_HIT_NONE,
-                            SKIN_HIT_NONE);
+    SkinHit hot_hit = chrome_hot_window == win ? chrome_hot_hit : SKIN_HIT_NONE;
+    SkinHit pressed_hit =
+        chrome_pressed_window == win ? chrome_pressed_hit : SKIN_HIT_NONE;
+
+    if (g_blur_effects_enabled && skin.border_blur > 0.0f) {
+      int blur_stride =
+          gui_adjust_blur_stride_for_area(w, h, (int)skin.border_blur / 4 + 1);
+      if (blur_stride > 0)
+        gui_apply_backdrop_blur(x, y, w, h, blur_stride);
+    }
+
+    skin_draw_window_chrome(&renderer, &skin_window, &skin, hot_hit, pressed_hit);
   } else if (win->has_titlebar &&
              win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
     int title_x0 = x + BORDER_WIDTH;
@@ -13247,12 +13370,11 @@ static void draw_window_internal(struct window *win) {
   /* Draw content area */
   int content_x = x + window_content_origin_x(win);
   int content_y = y + window_content_origin_y(win);
-  int content_w = w - window_content_origin_x(win) -
-                  (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER ? 0
-                                                                     : BORDER_WIDTH);
-  int content_h = h - window_content_origin_y(win) -
-                  (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER ? 0
-                                                                     : BORDER_WIDTH);
+  int inset_right = 0;
+  int inset_bottom = 0;
+  gui_newwindows_content_insets(win, NULL, NULL, &inset_right, &inset_bottom);
+  int content_w = w - window_content_origin_x(win) - inset_right;
+  int content_h = h - window_content_origin_y(win) - inset_bottom;
 
   if (win->layout_kind == GUI_WINDOW_LAYOUT_FRAMEBUFFER ||
       win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
@@ -15571,7 +15693,7 @@ static void draw_window_internal(struct window *win) {
   }
 
   /* Draw resize grip in bottom-right corner */
-  if (win->resizable && win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
+  if (win->resizable && !window_uses_newwindows_chrome(win)) {
     int gx = x + w - 14;
     int gy = y + h - 14;
     uint32_t grip_color = win->focused ? 0x888888 : 0x666666;
@@ -19458,6 +19580,19 @@ static int resize_start_x = 0, resize_start_y = 0;
 static int resize_start_w = 0, resize_start_h = 0;
 static int resize_start_win_x = 0, resize_start_win_y = 0;
 
+static void window_begin_resize(struct window *win, int edge, int x, int y) {
+  if (!win || edge == RESIZE_NONE)
+    return;
+  resizing_window = win;
+  resize_edge = edge;
+  resize_start_x = x;
+  resize_start_y = y;
+  resize_start_w = win->width;
+  resize_start_h = win->height;
+  resize_start_win_x = win->x;
+  resize_start_win_y = win->y;
+}
+
 #define RESIZE_BORDER                                                          \
   12 /* Pixel width of resize grab area - larger for easier grabbing */
 
@@ -19482,6 +19617,215 @@ static int gui_resize_edge_from_skin_hit(SkinHit hit) {
   default:
     return RESIZE_NONE;
   }
+}
+
+static void gui_set_newwindows_pointer_state(struct window *hot_window,
+                                             SkinHit hot_hit,
+                                             struct window *pressed_window,
+                                             SkinHit pressed_hit) {
+  struct window *old_hot_window = chrome_hot_window;
+  struct window *old_pressed_window = chrome_pressed_window;
+  SkinHit old_hot_hit = chrome_hot_hit;
+  SkinHit old_pressed_hit = chrome_pressed_hit;
+
+  chrome_hot_window = hot_window;
+  chrome_hot_hit = hot_hit;
+  chrome_pressed_window = pressed_window;
+  chrome_pressed_hit = pressed_hit;
+
+  if (old_hot_window && (old_hot_window != chrome_hot_window ||
+                         old_hot_hit != chrome_hot_hit))
+    gui_invalidate_window(old_hot_window);
+  if (chrome_hot_window && (old_hot_window != chrome_hot_window ||
+                            old_hot_hit != chrome_hot_hit))
+    gui_invalidate_window(chrome_hot_window);
+  if (old_pressed_window &&
+      (old_pressed_window != chrome_pressed_window ||
+       old_pressed_hit != chrome_pressed_hit))
+    gui_invalidate_window(old_pressed_window);
+  if (chrome_pressed_window &&
+      (old_pressed_window != chrome_pressed_window ||
+       old_pressed_hit != chrome_pressed_hit))
+    gui_invalidate_window(chrome_pressed_window);
+}
+
+static void gui_update_newwindows_hover_state(int x, int y) {
+  struct window *hot_window = NULL;
+  SkinHit hot_hit = SKIN_HIT_NONE;
+
+  if (chrome_pressed_window) {
+    hot_window = chrome_pressed_window;
+    hot_hit = gui_newwindows_hit_test(chrome_pressed_window, x, y);
+    if (hot_hit != chrome_pressed_hit)
+      hot_hit = SKIN_HIT_NONE;
+  } else {
+    for (struct window *win = window_stack; win; win = win->next) {
+      int draw_x, draw_y, draw_w, draw_h;
+      if (!win->visible || !window_uses_newwindows_chrome(win))
+        continue;
+      window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
+      if (x < draw_x || x >= draw_x + draw_w || y < draw_y || y >= draw_y + draw_h)
+        continue;
+      hot_hit = gui_newwindows_hit_test(win, x, y);
+      hot_window = win;
+      break;
+    }
+  }
+
+  gui_set_newwindows_pointer_state(hot_window, hot_hit, chrome_pressed_window,
+                                   chrome_pressed_hit);
+}
+
+static void window_restore_saved_bounds(struct window *win) {
+  if (!win)
+    return;
+  win->x = win->saved_x;
+  win->y = win->saved_y;
+  win->width = win->saved_width;
+  win->height = win->saved_height;
+  win->state = WINDOW_NORMAL;
+  window_mark_surface_dirty_full(win);
+}
+
+static void window_apply_maximized_bounds(struct window *win) {
+  if (!win)
+    return;
+  win->x = 0;
+  win->y = MENU_BAR_HEIGHT;
+  win->width = primary_display.width;
+  win->height = primary_display.height - MENU_BAR_HEIGHT -
+                dock_reserved_height() - WINDOW_BOTTOM_CLEARANCE;
+  win->state = WINDOW_MAXIMIZED;
+  window_mark_surface_dirty_full(win);
+}
+
+static void window_toggle_maximize(struct window *win) {
+  int draw_x, draw_y, draw_w, draw_h;
+
+  if (!win)
+    return;
+
+  window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
+  compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+
+  if (win->state == WINDOW_MAXIMIZED) {
+    window_restore_saved_bounds(win);
+  } else {
+    win->saved_x = win->x;
+    win->saved_y = win->y;
+    win->saved_width = win->width;
+    win->saved_height = win->height;
+    window_apply_maximized_bounds(win);
+  }
+
+  window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
+  compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+}
+
+static void window_minimize(struct window *win) {
+  int draw_x, draw_y, draw_w, draw_h;
+
+  if (!win)
+    return;
+
+  window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
+  compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+  gui_clear_chrome_visual_state_for_window(win);
+  win->visible = false;
+  win->state = WINDOW_MINIMIZED;
+}
+
+static void window_activate_chrome_hit(struct window *win, SkinHit hit) {
+  if (!win)
+    return;
+
+  if (hit == SKIN_HIT_CLOSE) {
+    if (!window_close_disabled(win))
+      gui_destroy_window(win);
+    return;
+  }
+
+  if (hit == SKIN_HIT_MINIMIZE) {
+    if (!window_minimize_disabled(win))
+      window_minimize(win);
+    return;
+  }
+
+  if (hit == SKIN_HIT_MAXIMIZE) {
+    window_toggle_maximize(win);
+  }
+}
+
+static SkinRect gui_window_desktop_bounds(void) {
+  SkinRect bounds;
+  bounds.x = 0;
+  bounds.y = MENU_BAR_HEIGHT;
+  bounds.width = (int)primary_display.width;
+  bounds.height = (int)primary_display.height - MENU_BAR_HEIGHT -
+                  dock_reserved_height() - WINDOW_BOTTOM_CLEARANCE;
+  if (bounds.height < 1)
+    bounds.height = 1;
+  return bounds;
+}
+
+static void window_begin_drag(struct window *win, int x, int y, SkinHit hit) {
+  if (!win)
+    return;
+
+  dragging_window = win;
+  drag_offset_x = x - win->x;
+  drag_offset_y = y - win->y;
+  chrome_drag_state.active = false;
+
+  if (window_uses_newwindows_chrome(win)) {
+    SkinWindow skin_window = gui_skin_window_from_window(win);
+    skin_begin_drag(&chrome_drag_state, &skin_window, hit, x, y);
+  }
+}
+
+static void window_update_drag(struct window *win, int x, int y) {
+  int old_x, old_y, old_w, old_h;
+
+  if (!win)
+    return;
+
+  window_get_draw_rect(win, &old_x, &old_y, &old_w, &old_h);
+
+  if (win->state == WINDOW_MAXIMIZED) {
+    window_restore_saved_bounds(win);
+    drag_offset_x = win->width / 2;
+    if (drag_offset_x < 40)
+      drag_offset_x = 40;
+    if (drag_offset_y > TITLEBAR_HEIGHT)
+      drag_offset_y = TITLEBAR_HEIGHT;
+    win->x = x - drag_offset_x;
+    win->y = y - drag_offset_y;
+    chrome_drag_state.active = false;
+  } else if (window_uses_newwindows_chrome(win) && chrome_drag_state.active) {
+    SkinWindow skin_window = gui_skin_window_from_window(win);
+    SkinRect desktop_bounds = gui_window_desktop_bounds();
+    skin_update_drag(&chrome_drag_state, &skin_window, x, y, desktop_bounds);
+    win->x = skin_window.x;
+    win->y = skin_window.y;
+  } else {
+    win->x = x - drag_offset_x;
+    win->y = y - drag_offset_y;
+  }
+
+  if (win->y < MENU_BAR_HEIGHT)
+    win->y = MENU_BAR_HEIGHT;
+  if (win->y > (int)primary_display.height - dock_reserved_height() -
+                   TITLEBAR_HEIGHT - WINDOW_BOTTOM_CLEARANCE)
+    win->y = primary_display.height - dock_reserved_height() - TITLEBAR_HEIGHT -
+             WINDOW_BOTTOM_CLEARANCE;
+  if (win->x > (int)primary_display.width - 100)
+    win->x = primary_display.width - 100;
+  if (win->x < 0)
+    win->x = 0;
+
+  compositor_mark_dirty(old_x, old_y, old_w, old_h);
+  window_get_draw_rect(win, &old_x, &old_y, &old_w, &old_h);
+  compositor_mark_dirty(old_x, old_y, old_w, old_h);
 }
 
 void gui_handle_mouse_event(int x, int y, int buttons) {
@@ -19520,6 +19864,8 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
         wifi_tray_contains_point(mouse_x, mouse_y))
       wifi_tray_mark_dirty();
   }
+
+  gui_update_newwindows_hover_state(x, y);
 
   int left_click = (buttons & 1) && !(old_buttons & 1); /* Just pressed */
   int left_held = (buttons & 1);
@@ -19693,39 +20039,7 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
 
   /* Handle window dragging */
   if (dragging_window && left_held) {
-    int old_x, old_y, old_w, old_h;
-    window_get_draw_rect(dragging_window, &old_x, &old_y, &old_w, &old_h);
-
-    if (dragging_window->state == WINDOW_MAXIMIZED) {
-      dragging_window->x = dragging_window->saved_x;
-      dragging_window->y = dragging_window->saved_y;
-      dragging_window->width = dragging_window->saved_width;
-      dragging_window->height = dragging_window->saved_height;
-      dragging_window->state = WINDOW_NORMAL;
-      drag_offset_x = dragging_window->width / 2;
-      if (drag_offset_x < 40)
-        drag_offset_x = 40;
-    }
-
-    /* Move window with mouse */
-    dragging_window->x = x - drag_offset_x;
-    dragging_window->y = y - drag_offset_y;
-
-    /* Clamp to screen */
-    if (dragging_window->y < MENU_BAR_HEIGHT)
-      dragging_window->y = MENU_BAR_HEIGHT;
-    if (dragging_window->y >
-        (int)primary_display.height - dock_reserved_height() -
-            TITLEBAR_HEIGHT - WINDOW_BOTTOM_CLEARANCE)
-      dragging_window->y =
-          primary_display.height - dock_reserved_height() - TITLEBAR_HEIGHT -
-          WINDOW_BOTTOM_CLEARANCE;
-    if (dragging_window->x > (int)primary_display.width - 100)
-      dragging_window->x = primary_display.width - 100;
-
-    compositor_mark_dirty(old_x, old_y, old_w, old_h);
-    window_get_draw_rect(dragging_window, &old_x, &old_y, &old_w, &old_h);
-    compositor_mark_dirty(old_x, old_y, old_w, old_h);
+    window_update_drag(dragging_window, x, y);
   }
 
   /* Handle window resizing */
@@ -19779,7 +20093,19 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
     if (dragging_window) {
       snap_window_to_zone(dragging_window, x, y);
     }
+    if (chrome_pressed_window) {
+      struct window *released_window = chrome_pressed_window;
+      SkinHit released_hit = chrome_pressed_hit;
+      SkinHit current_hit = gui_newwindows_hit_test(released_window, x, y);
+      gui_set_newwindows_pointer_state(
+          current_hit == released_hit ? released_window : NULL,
+          current_hit == released_hit ? current_hit : SKIN_HIT_NONE, NULL,
+          SKIN_HIT_NONE);
+      if (current_hit == released_hit)
+        window_activate_chrome_hit(released_window, released_hit);
+    }
     dragging_window = 0;
+    chrome_drag_state.active = false;
     resizing_window = 0;
     resize_edge = RESIZE_NONE;
     if (desktop_session_active())
@@ -19961,67 +20287,33 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
       if (win->animation != WINDOW_ANIM_NONE)
         return;
 
-      if (win->chrome_kind == GUI_WINDOW_CHROME_SYSTEM && win->has_titlebar) {
+      if (window_uses_newwindows_chrome(win)) {
         SkinHit hit = gui_newwindows_hit_test(win, x, y);
         int edge = gui_resize_edge_from_skin_hit(hit);
 
         if (edge != RESIZE_NONE) {
-          resizing_window = win;
-          resize_edge = edge;
-          resize_start_x = x;
-          resize_start_y = y;
-          resize_start_w = win->width;
-          resize_start_h = win->height;
-          resize_start_win_x = win->x;
-          resize_start_win_y = win->y;
+          window_begin_resize(win, edge, x, y);
           return;
         }
 
         if (hit == SKIN_HIT_CLOSE) {
-          if (!window_close_disabled(win))
-            gui_destroy_window(win);
+          gui_set_newwindows_pointer_state(win, hit, win, hit);
           return;
         }
 
         if (hit == SKIN_HIT_MINIMIZE) {
-          if (!window_minimize_disabled(win)) {
-            compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
-            win->visible = false;
-            win->state = WINDOW_MINIMIZED;
-          }
+          gui_set_newwindows_pointer_state(win, hit, win, hit);
           return;
         }
 
         if (hit == SKIN_HIT_MAXIMIZE) {
-          compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
-          if (win->state == WINDOW_MAXIMIZED) {
-            win->x = win->saved_x;
-            win->y = win->saved_y;
-            win->width = win->saved_width;
-            win->height = win->saved_height;
-            win->state = WINDOW_NORMAL;
-          } else {
-            win->saved_x = win->x;
-            win->saved_y = win->y;
-            win->saved_width = win->width;
-            win->saved_height = win->height;
-            win->x = 0;
-            win->y = MENU_BAR_HEIGHT;
-            win->width = primary_display.width;
-            win->height =
-                primary_display.height - MENU_BAR_HEIGHT -
-                dock_reserved_height() - WINDOW_BOTTOM_CLEARANCE;
-            win->state = WINDOW_MAXIMIZED;
-          }
-          window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
-          compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+          gui_set_newwindows_pointer_state(win, hit, win, hit);
           return;
         }
 
         if (hit == SKIN_HIT_TITLEBAR) {
-          dragging_window = win;
-          drag_offset_x = x - win->x;
-          drag_offset_y = y - win->y;
+          gui_set_newwindows_pointer_state(win, hit, NULL, SKIN_HIT_NONE);
+          window_begin_drag(win, x, y, hit);
           return;
         }
       } else {
@@ -20052,14 +20344,7 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
             edge = RESIZE_TOP;
 
           if (edge != RESIZE_NONE) {
-            resizing_window = win;
-            resize_edge = edge;
-            resize_start_x = x;
-            resize_start_y = y;
-            resize_start_w = win->width;
-            resize_start_h = win->height;
-            resize_start_win_x = win->x;
-            resize_start_win_y = win->y;
+            window_begin_resize(win, edge, x, y);
             return;
           }
         }
@@ -20079,9 +20364,7 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           if ((x - min_cx) * (x - min_cx) + (y - btn_cy) * (y - btn_cy) <=
               btn_r * btn_r) {
             if (!window_minimize_disabled(win)) {
-              compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
-              win->visible = false;
-              win->state = WINDOW_MINIMIZED;
+              window_minimize(win);
             }
             return;
           }
@@ -20089,37 +20372,14 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           int zoom_cx = min_cx + 20;
           if ((x - zoom_cx) * (x - zoom_cx) + (y - btn_cy) * (y - btn_cy) <=
               btn_r * btn_r) {
-            compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
-            if (win->state == WINDOW_MAXIMIZED) {
-              win->x = win->saved_x;
-              win->y = win->saved_y;
-              win->width = win->saved_width;
-              win->height = win->saved_height;
-              win->state = WINDOW_NORMAL;
-            } else {
-              win->saved_x = win->x;
-              win->saved_y = win->y;
-              win->saved_width = win->width;
-              win->saved_height = win->height;
-              win->x = 0;
-              win->y = MENU_BAR_HEIGHT;
-              win->width = primary_display.width;
-              win->height =
-                  primary_display.height - MENU_BAR_HEIGHT -
-                  dock_reserved_height() - WINDOW_BOTTOM_CLEARANCE;
-              win->state = WINDOW_MAXIMIZED;
-            }
-            window_get_draw_rect(win, &draw_x, &draw_y, &draw_w, &draw_h);
-            compositor_mark_dirty(draw_x, draw_y, draw_w, draw_h);
+            window_toggle_maximize(win);
             return;
           }
 
           if (y >= win->y + BORDER_WIDTH &&
               y < win->y + BORDER_WIDTH + TITLEBAR_HEIGHT &&
               x >= win->x + BORDER_WIDTH + 70) {
-            dragging_window = win;
-            drag_offset_x = x - win->x;
-            drag_offset_y = y - win->y;
+            window_begin_drag(win, x, y, SKIN_HIT_TITLEBAR);
             return;
           }
         }
