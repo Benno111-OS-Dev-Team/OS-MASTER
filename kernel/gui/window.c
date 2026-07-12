@@ -16264,6 +16264,8 @@ static int main_menu_item_bounds(int item_index, int *x, int *y, int *w,
   case MAIN_MENU_ITEM_SETTINGS:
   case MAIN_MENU_ITEM_BROWSER:
   case MAIN_MENU_ITEM_APPSTORE:
+    if (main_menu_all_programs_open)
+      return 0;
     if (x)
       *x = left_x;
     if (y)
