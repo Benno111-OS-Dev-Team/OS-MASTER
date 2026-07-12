@@ -3224,6 +3224,110 @@ static double svg_measure_text_element_width(const uint8_t *data, size_t size,
                                           initial_font_size, &ws);
 }
 
+static void svg_render_text_container_range(
+    svg_render_ctx_t *ctx, const uint8_t *data, size_t close_start,
+    size_t tag_start, size_t tag_end, const svg_style_t *container_style,
+    svg_transform_t transform, double *current_x, double *current_y,
+    double *font_size, svg_text_ws_state_t *ws) {
+  size_t pos;
+
+  if (!ctx || !data || !container_style || !current_x || !current_y ||
+      !font_size || !ws)
+    return;
+
+  pos = tag_end + 1;
+  while (pos < close_start) {
+    if (data[pos] == '<') {
+      size_t inner_start = pos;
+      size_t inner_end;
+      int closing = 0;
+      pos++;
+      if (pos >= close_start)
+        break;
+      if (data[pos] == '/') {
+        closing = 1;
+        pos++;
+      }
+      while (pos < close_start && data[pos] != '>')
+        pos++;
+      if (pos >= close_start)
+        break;
+      inner_end = pos;
+
+      if (!closing &&
+          media_bytes_starts_with(data, inner_end, inner_start + 1, "tspan")) {
+        size_t tspan_close_start = 0, tspan_close_end = 0;
+        svg_style_t span_style = *container_style;
+        double span_x = *current_x;
+        double span_y = *current_y;
+        double dx = 0.0, dy = 0.0;
+        double span_font_size = *font_size;
+        svg_text_ws_state_t preview = *ws;
+        double advance;
+
+        svg_apply_style_attrs(data, inner_start, inner_end, &span_style);
+        if (span_style.has_font_size)
+          span_font_size = span_style.font_size;
+        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "x",
+                                             &span_x) != 0)
+          span_x = *current_x;
+        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "y",
+                                             &span_y) != 0)
+          span_y = *current_y;
+        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "dx",
+                                             &dx))
+          span_x += dx;
+        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "dy",
+                                             &dy))
+          span_y += dy;
+        if (svg_parse_attr_number_if_present(data, inner_start, inner_end,
+                                             "font-size", &span_font_size)) {
+          span_style.font_size = span_font_size;
+          span_style.has_font_size = 1;
+        }
+        if (svg_find_closing_tag(data, close_start, inner_end + 1, "tspan",
+                                 &tspan_close_start, &tspan_close_end) != 0)
+          break;
+        if (svg_style_is_displayed(&span_style)) {
+          advance = svg_measure_text_container_width(
+              data, close_start, inner_start, inner_end, "tspan", &span_style,
+              span_x, span_font_size, &preview);
+          svg_render_text_container_range(ctx, data, tspan_close_start,
+                                          inner_start, inner_end, &span_style,
+                                          transform, &span_x, &span_y,
+                                          &span_font_size, ws);
+          *current_x = span_x + advance;
+          *current_y = span_y;
+          *font_size = span_font_size;
+        }
+        pos = tspan_close_end + 1;
+        continue;
+      }
+
+      pos = inner_end + 1;
+      continue;
+    }
+
+    {
+      size_t text_start = pos;
+      while (pos < close_start && data[pos] != '<')
+        pos++;
+      if (pos > text_start) {
+        double advance;
+        svg_text_ws_state_t preview = *ws;
+
+        advance = svg_measure_text_block_width(data + text_start,
+                                               pos - text_start, *font_size,
+                                               container_style, &preview);
+        svg_render_text_block(ctx, data + text_start, pos - text_start,
+                              container_style, transform, *current_x,
+                              *current_y, *font_size, ws);
+        *current_x += advance;
+      }
+    }
+  }
+}
+
 static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
                                     size_t size, size_t tag_start,
                                     size_t tag_end, size_t *consumed_end,
@@ -3268,98 +3372,10 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
   }
 
   pos = tag_end + 1;
-  while (pos < close_start) {
-    if (data[pos] == '<') {
-      size_t inner_start = pos;
-      size_t inner_end;
-      int closing = 0;
-      pos++;
-      if (pos >= close_start)
-        break;
-      if (data[pos] == '/') {
-        closing = 1;
-        pos++;
-      }
-      while (pos < close_start && data[pos] != '>')
-        pos++;
-      if (pos >= close_start)
-        break;
-      inner_end = pos;
-
-      if (!closing &&
-          media_bytes_starts_with(data, inner_end, inner_start + 1, "tspan")) {
-        size_t tspan_close_start = 0, tspan_close_end = 0;
-        svg_style_t span_style = text_style;
-        double span_x = current_x;
-        double span_y = current_y;
-        double dx = 0.0, dy = 0.0;
-        double span_font_size = font_size;
-        size_t text_start;
-
-        svg_apply_style_attrs(data, inner_start, inner_end, &span_style);
-        if (span_style.has_font_size)
-          span_font_size = span_style.font_size;
-        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "x",
-                                             &span_x) != 0)
-          span_x = current_x;
-        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "y",
-                                             &span_y) != 0)
-          span_y = current_y;
-        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "dx",
-                                             &dx))
-          span_x += dx;
-        if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "dy",
-                                             &dy))
-          span_y += dy;
-        if (svg_parse_attr_number_if_present(data, inner_start, inner_end,
-                                             "font-size", &span_font_size)) {
-          span_style.font_size = span_font_size;
-          span_style.has_font_size = 1;
-        }
-        if (svg_find_closing_tag(data, close_start, inner_end + 1, "tspan",
-                                 &tspan_close_start, &tspan_close_end) != 0)
-          break;
-        text_start = inner_end + 1;
-        if (svg_style_is_displayed(&span_style) && tspan_close_start > text_start) {
-          double advance;
-          svg_text_ws_state_t preview = ws;
-          advance = svg_measure_text_container_width(data, close_start,
-                                                     inner_start, inner_end,
-                                                     "tspan", &span_style,
-                                                     span_x, span_font_size,
-                                                     &preview);
-          svg_render_text_block(ctx, data + text_start,
-                                tspan_close_start - text_start, &span_style,
-                                transform, span_x, span_y, span_font_size, &ws);
-          current_x = span_x + advance;
-          current_y = span_y;
-          font_size = span_font_size;
-        }
-        pos = tspan_close_end + 1;
-        continue;
-      }
-
-      pos = inner_end + 1;
-      continue;
-    }
-
-    {
-      size_t text_start = pos;
-      while (pos < close_start && data[pos] != '<')
-        pos++;
-      if (pos > text_start) {
-        double advance;
-        svg_text_ws_state_t preview = ws;
-        advance = svg_measure_text_block_width(data + text_start,
-                                               pos - text_start, font_size,
-                                               &text_style, &preview);
-        svg_render_text_block(ctx, data + text_start, pos - text_start,
-                              &text_style, transform, current_x, current_y,
-                              font_size, &ws);
-        current_x += advance;
-      }
-    }
-  }
+  (void)pos;
+  svg_render_text_container_range(ctx, data, close_start, tag_start, tag_end,
+                                  &text_style, transform, &current_x,
+                                  &current_y, &font_size, &ws);
 
   *consumed_end = close_end;
 }
@@ -3609,6 +3625,33 @@ static void svg_append_rounded_rect(svg_path_buffer_t *buf, double x, double y,
                    (svg_point_t){x, y + ry - cy},
                    (svg_point_t){x + rx - cx, y},
                    (svg_point_t){x + rx, y});
+  if (buf->count > 0)
+    buf->closes[buf->count - 1] = 1;
+}
+
+static void svg_append_ellipse_path(svg_path_buffer_t *buf, double cx, double cy,
+                                    double rx, double ry) {
+  const double kappa = 0.5522847498307936;
+  double cpx = rx * kappa;
+  double cpy = ry * kappa;
+
+  svg_path_buffer_append(buf, (svg_point_t){cx + rx, cy}, 1, 0);
+  svg_append_cubic(buf, (svg_point_t){cx + rx, cy},
+                   (svg_point_t){cx + rx, cy + cpy},
+                   (svg_point_t){cx + cpx, cy + ry},
+                   (svg_point_t){cx, cy + ry});
+  svg_append_cubic(buf, (svg_point_t){cx, cy + ry},
+                   (svg_point_t){cx - cpx, cy + ry},
+                   (svg_point_t){cx - rx, cy + cpy},
+                   (svg_point_t){cx - rx, cy});
+  svg_append_cubic(buf, (svg_point_t){cx - rx, cy},
+                   (svg_point_t){cx - rx, cy - cpy},
+                   (svg_point_t){cx - cpx, cy - ry},
+                   (svg_point_t){cx, cy - ry});
+  svg_append_cubic(buf, (svg_point_t){cx, cy - ry},
+                   (svg_point_t){cx + cpx, cy - ry},
+                   (svg_point_t){cx + rx, cy - cpy},
+                   (svg_point_t){cx + rx, cy});
   if (buf->count > 0)
     buf->closes[buf->count - 1] = 1;
 }
@@ -5014,9 +5057,8 @@ static int svg_render_referenced_element_internal(
   }
   if (media_bytes_starts_with(data, tag_end, tag_start + 1, "circle")) {
     double cx = 0.0, cy = 0.0, r = 0.0;
-    double local_r;
     size_t vs = 0, vl = 0;
-    svg_point_t center, edge;
+    svg_path_buffer_t buf = {0};
     if (!svg_style_is_visible(&style))
       return 1;
     if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0)
@@ -5025,47 +5067,17 @@ static int svg_render_referenced_element_internal(
       svg_parse_length_number(data, vs, vl, viewport_h, &cy);
     if (svg_find_attr(data, tag_start, tag_end, "r", &vs, &vl) == 0)
       svg_parse_length_number(data, vs, vl, viewport_diag, &r);
-    local_r = r;
-    center = svg_transform_point(transform, (svg_point_t){cx, cy});
-    edge = svg_transform_point(transform, (svg_point_t){cx + r, cy});
-    r = svg_absd(edge.x - center.x);
-    if (style.fill.kind != SVG_PAINT_NONE)
-      svg_draw_disc(ctx, center.x, center.y, r, &style.fill,
-                    svg_fill_alpha_mul(&style), transform, cx - local_r,
-                    cy - local_r, local_r * 2.0, local_r * 2.0);
-    if (style.stroke.kind != SVG_PAINT_NONE && style.stroke_width > 0.0) {
-      double outer = r + style.stroke_width * 0.5;
-      double inner = r - style.stroke_width * 0.5;
-      int min_x = (int)(center.x - outer - 1.0);
-      int max_x = (int)(center.x + outer + 1.0);
-      int min_y = (int)(center.y - outer - 1.0);
-      int max_y = (int)(center.y + outer + 1.0);
-      double o2 = outer * outer;
-      double i2 = inner > 0.0 ? inner * inner : 0.0;
-      for (int py = min_y; py <= max_y; py++) {
-        for (int px = min_x; px <= max_x; px++) {
-          double dx = ((double)px + 0.5) - center.x;
-          double dy = ((double)py + 0.5) - center.y;
-          double d2 = dx * dx + dy * dy;
-          if (d2 <= o2 && d2 >= i2) {
-            uint32_t color;
-            uint8_t alpha;
-            svg_sample_paint(ctx, &style.stroke, transform, (double)px + 0.5,
-                             (double)py + 0.5, cx - local_r, cy - local_r,
-                             local_r * 2.0, local_r * 2.0, &color, &alpha);
-            alpha = svg_multiply_alpha(alpha, svg_stroke_alpha_mul(&style));
-            svg_blend_pixel(&ctx->image, px, py, color, alpha);
-          }
-        }
-      }
+    if (r > 0.0) {
+      svg_append_ellipse_path(&buf, cx, cy, r, r);
+      svg_render_path_buffer(ctx, &buf, &style, transform);
     }
+    svg_path_buffer_free(&buf);
     return 1;
   }
   if (media_bytes_starts_with(data, tag_end, tag_start + 1, "ellipse")) {
     double cx = 0.0, cy = 0.0, rx = 0.0, ry = 0.0;
     size_t vs = 0, vl = 0;
-    svg_point_t center, edge_x, edge_y;
-    double radius_x, radius_y;
+    svg_path_buffer_t buf = {0};
     if (!svg_style_is_visible(&style))
       return 1;
     if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0)
@@ -5076,64 +5088,11 @@ static int svg_render_referenced_element_internal(
       svg_parse_length_number(data, vs, vl, viewport_w, &rx);
     if (svg_find_attr(data, tag_start, tag_end, "ry", &vs, &vl) == 0)
       svg_parse_length_number(data, vs, vl, viewport_h, &ry);
-    center = svg_transform_point(transform, (svg_point_t){cx, cy});
-    edge_x = svg_transform_point(transform, (svg_point_t){cx + rx, cy});
-    edge_y = svg_transform_point(transform, (svg_point_t){cx, cy + ry});
-    radius_x = svg_absd(edge_x.x - center.x);
-    radius_y = svg_absd(edge_y.y - center.y);
-    if (radius_x > 0.0 && radius_y > 0.0) {
-      int min_x = (int)(center.x - radius_x - style.stroke_width - 1.0);
-      int max_x = (int)(center.x + radius_x + style.stroke_width + 1.0);
-      int min_y = (int)(center.y - radius_y - style.stroke_width - 1.0);
-      int max_y = (int)(center.y + radius_y + style.stroke_width + 1.0);
-      double inner_rx = radius_x - style.stroke_width * 0.5;
-      double inner_ry = radius_y - style.stroke_width * 0.5;
-      double outer_rx = radius_x + style.stroke_width * 0.5;
-      double outer_ry = radius_y + style.stroke_width * 0.5;
-      for (int py = min_y; py <= max_y; py++) {
-        for (int px = min_x; px <= max_x; px++) {
-          double dx = (((double)px + 0.5) - center.x) / radius_x;
-          double dy = (((double)py + 0.5) - center.y) / radius_y;
-          double dist = dx * dx + dy * dy;
-          if (style.fill.kind != SVG_PAINT_NONE && dist <= 1.0) {
-            uint32_t color;
-            uint8_t alpha;
-            svg_sample_paint(ctx, &style.fill, transform, (double)px + 0.5,
-                             (double)py + 0.5, cx - rx, cy - ry, rx * 2.0,
-                             ry * 2.0, &color, &alpha);
-            alpha = svg_multiply_alpha(alpha, svg_fill_alpha_mul(&style));
-            svg_blend_pixel(&ctx->image, px, py, color, alpha);
-          }
-          if (style.stroke.kind != SVG_PAINT_NONE &&
-              style.stroke_width > 0.0) {
-            double inner_dist = 0.0;
-            double outer_dist;
-            uint32_t color;
-            uint8_t alpha;
-            if (outer_rx <= 0.0 || outer_ry <= 0.0)
-              continue;
-            outer_dist = ((((double)px + 0.5) - center.x) / outer_rx) *
-                         ((((double)px + 0.5) - center.x) / outer_rx) +
-                         ((((double)py + 0.5) - center.y) / outer_ry) *
-                         ((((double)py + 0.5) - center.y) / outer_ry);
-            if (inner_rx > 0.0 && inner_ry > 0.0) {
-              inner_dist = ((((double)px + 0.5) - center.x) / inner_rx) *
-                           ((((double)px + 0.5) - center.x) / inner_rx) +
-                           ((((double)py + 0.5) - center.y) / inner_ry) *
-                           ((((double)py + 0.5) - center.y) / inner_ry);
-            }
-            if (outer_dist <= 1.0 && (inner_rx <= 0.0 || inner_ry <= 0.0 ||
-                                      inner_dist >= 1.0)) {
-              svg_sample_paint(ctx, &style.stroke, transform, (double)px + 0.5,
-                               (double)py + 0.5, cx - rx, cy - ry, rx * 2.0,
-                               ry * 2.0, &color, &alpha);
-              alpha = svg_multiply_alpha(alpha, svg_stroke_alpha_mul(&style));
-              svg_blend_pixel(&ctx->image, px, py, color, alpha);
-            }
-          }
-        }
-      }
+    if (rx > 0.0 && ry > 0.0) {
+      svg_append_ellipse_path(&buf, cx, cy, rx, ry);
+      svg_render_path_buffer(ctx, &buf, &style, transform);
     }
+    svg_path_buffer_free(&buf);
     return 1;
   }
   if (media_bytes_starts_with(data, tag_end, tag_start + 1, "image")) {
@@ -5702,9 +5661,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         svg_path_buffer_free(&buf);
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "circle")) {
         double cx = 0.0, cy = 0.0, r = 0.0;
-        double local_r;
         size_t vs = 0, vl = 0;
-        svg_point_t center, edge;
+        svg_path_buffer_t buf = {0};
         if (!svg_style_is_visible(&style))
           continue;
         if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0) {
@@ -5716,46 +5674,15 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         if (svg_find_attr(data, tag_start, tag_end, "r", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_diag, &r);
         }
-        local_r = r;
-        center = svg_transform_point(transform, (svg_point_t){cx, cy});
-        edge = svg_transform_point(transform, (svg_point_t){cx + r, cy});
-        r = svg_absd(edge.x - center.x);
-        if (style.fill.kind != SVG_PAINT_NONE)
-          svg_draw_disc(&ctx, center.x, center.y, r, &style.fill,
-                        svg_fill_alpha_mul(&style), transform, cx - local_r,
-                        cy - local_r, local_r * 2.0, local_r * 2.0);
-        if (style.stroke.kind != SVG_PAINT_NONE && style.stroke_width > 0.0) {
-          double outer = r + style.stroke_width * 0.5;
-          double inner = r - style.stroke_width * 0.5;
-          int min_x = (int)(center.x - outer - 1.0);
-          int max_x = (int)(center.x + outer + 1.0);
-          int min_y = (int)(center.y - outer - 1.0);
-          int max_y = (int)(center.y + outer + 1.0);
-          double o2 = outer * outer;
-          double i2 = inner > 0.0 ? inner * inner : 0.0;
-          for (int py = min_y; py <= max_y; py++) {
-            for (int px = min_x; px <= max_x; px++) {
-              double dx = ((double)px + 0.5) - center.x;
-              double dy = ((double)py + 0.5) - center.y;
-              double d2 = dx * dx + dy * dy;
-              if (d2 <= o2 && d2 >= i2) {
-                uint32_t color;
-                uint8_t alpha;
-                svg_sample_paint(&ctx, &style.stroke, transform,
-                                 (double)px + 0.5, (double)py + 0.5,
-                                 cx - local_r, cy - local_r, local_r * 2.0,
-                                 local_r * 2.0, &color, &alpha);
-                alpha = svg_multiply_alpha(alpha, svg_stroke_alpha_mul(&style));
-                svg_blend_pixel(&ctx.image, px, py, color, alpha);
-              }
-            }
-          }
+        if (r > 0.0) {
+          svg_append_ellipse_path(&buf, cx, cy, r, r);
+          svg_render_path_buffer(&ctx, &buf, &style, transform);
         }
+        svg_path_buffer_free(&buf);
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "ellipse")) {
         double cx = 0.0, cy = 0.0, rx = 0.0, ry = 0.0;
         size_t vs = 0, vl = 0;
-        svg_point_t center, edge_x, edge_y;
-        double radius_x, radius_y;
+        svg_path_buffer_t buf = {0};
         if (!svg_style_is_visible(&style))
           continue;
         if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0) {
@@ -5770,65 +5697,11 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         if (svg_find_attr(data, tag_start, tag_end, "ry", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_h, &ry);
         }
-        center = svg_transform_point(transform, (svg_point_t){cx, cy});
-        edge_x = svg_transform_point(transform, (svg_point_t){cx + rx, cy});
-        edge_y = svg_transform_point(transform, (svg_point_t){cx, cy + ry});
-        radius_x = svg_absd(edge_x.x - center.x);
-        radius_y = svg_absd(edge_y.y - center.y);
-        if (radius_x > 0.0 && radius_y > 0.0) {
-          int min_x = (int)(center.x - radius_x - style.stroke_width - 1.0);
-          int max_x = (int)(center.x + radius_x + style.stroke_width + 1.0);
-          int min_y = (int)(center.y - radius_y - style.stroke_width - 1.0);
-          int max_y = (int)(center.y + radius_y + style.stroke_width + 1.0);
-          double inner_rx = radius_x - style.stroke_width * 0.5;
-          double inner_ry = radius_y - style.stroke_width * 0.5;
-          double outer_rx = radius_x + style.stroke_width * 0.5;
-          double outer_ry = radius_y + style.stroke_width * 0.5;
-          for (int py = min_y; py <= max_y; py++) {
-            for (int px = min_x; px <= max_x; px++) {
-              double dx = (((double)px + 0.5) - center.x) / radius_x;
-              double dy = (((double)py + 0.5) - center.y) / radius_y;
-              double dist = dx * dx + dy * dy;
-              if (style.fill.kind != SVG_PAINT_NONE && dist <= 1.0) {
-                uint32_t color;
-                uint8_t alpha;
-                svg_sample_paint(&ctx, &style.fill, transform, (double)px + 0.5,
-                                 (double)py + 0.5, cx - rx, cy - ry, rx * 2.0,
-                                 ry * 2.0, &color, &alpha);
-                alpha = svg_multiply_alpha(alpha, svg_fill_alpha_mul(&style));
-                svg_blend_pixel(&ctx.image, px, py, color, alpha);
-              }
-              if (style.stroke.kind != SVG_PAINT_NONE &&
-                  style.stroke_width > 0.0) {
-                double inner_dist = 0.0;
-                double outer_dist;
-                uint32_t color;
-                uint8_t alpha;
-                if (outer_rx <= 0.0 || outer_ry <= 0.0)
-                  continue;
-                outer_dist = ((((double)px + 0.5) - center.x) / outer_rx) *
-                             ((((double)px + 0.5) - center.x) / outer_rx) +
-                             ((((double)py + 0.5) - center.y) / outer_ry) *
-                             ((((double)py + 0.5) - center.y) / outer_ry);
-                if (inner_rx > 0.0 && inner_ry > 0.0) {
-                  inner_dist = ((((double)px + 0.5) - center.x) / inner_rx) *
-                               ((((double)px + 0.5) - center.x) / inner_rx) +
-                               ((((double)py + 0.5) - center.y) / inner_ry) *
-                               ((((double)py + 0.5) - center.y) / inner_ry);
-                }
-                if (outer_dist <= 1.0 && (inner_rx <= 0.0 || inner_ry <= 0.0 ||
-                                          inner_dist >= 1.0)) {
-                  svg_sample_paint(&ctx, &style.stroke, transform,
-                                   (double)px + 0.5, (double)py + 0.5,
-                                   cx - rx, cy - ry, rx * 2.0, ry * 2.0, &color,
-                                   &alpha);
-                  alpha = svg_multiply_alpha(alpha, svg_stroke_alpha_mul(&style));
-                  svg_blend_pixel(&ctx.image, px, py, color, alpha);
-                }
-              }
-            }
-          }
+        if (rx > 0.0 && ry > 0.0) {
+          svg_append_ellipse_path(&buf, cx, cy, rx, ry);
+          svg_render_path_buffer(&ctx, &buf, &style, transform);
         }
+        svg_path_buffer_free(&buf);
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "image")) {
         size_t vs = 0, vl = 0;
         double x = 0.0, y = 0.0, w = 0.0, h = 0.0;
