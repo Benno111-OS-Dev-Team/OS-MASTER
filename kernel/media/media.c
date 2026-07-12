@@ -1370,6 +1370,7 @@ typedef struct {
   char id[32];
   int kind;
   int units;
+  int spread_method;
   svg_transform_t transform;
   double x1, y1, x2, y2;
   double cx, cy, r;
@@ -1405,6 +1406,9 @@ typedef struct {
 #define SVG_GRADIENT_RADIAL 2
 #define SVG_GRADIENT_UNITS_OBJECT 0
 #define SVG_GRADIENT_UNITS_USERSPACE 1
+#define SVG_GRADIENT_SPREAD_PAD 0
+#define SVG_GRADIENT_SPREAD_REFLECT 1
+#define SVG_GRADIENT_SPREAD_REPEAT 2
 
 #define SVG_STROKE_JOIN_MITER 0
 #define SVG_STROKE_JOIN_ROUND 1
@@ -2483,6 +2487,28 @@ static void svg_gradient_add_stop(svg_gradient_t *g, double offset,
   svg_gradient_sync_endpoints(g);
 }
 
+static double svg_gradient_apply_spread(const svg_gradient_t *g, double t) {
+  if (!g)
+    return svg_clamp(t, 0.0, 1.0);
+  if (g->spread_method == SVG_GRADIENT_SPREAD_REPEAT) {
+    while (t < 0.0)
+      t += 1.0;
+    while (t >= 1.0)
+      t -= 1.0;
+    return t;
+  }
+  if (g->spread_method == SVG_GRADIENT_SPREAD_REFLECT) {
+    while (t < 0.0)
+      t += 2.0;
+    while (t >= 2.0)
+      t -= 2.0;
+    if (t > 1.0)
+      t = 2.0 - t;
+    return t;
+  }
+  return svg_clamp(t, 0.0, 1.0);
+}
+
 static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
                              svg_transform_t transform, double x, double y,
                              double bbox_x, double bbox_y, double bbox_w,
@@ -2595,10 +2621,7 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
           t = svg_sqrt_approx((wx * wx + wy * wy) / rr);
       }
     }
-    if (t < 0.0)
-      t = 0.0;
-    if (t > 1.0)
-      t = 1.0;
+    t = svg_gradient_apply_spread(g, t);
     if (g->stop_count > 0) {
       int upper = 0;
       while (upper < g->stop_count && g->stop_offsets[upper] < t)
@@ -2818,11 +2841,12 @@ static double svg_measure_text_block_width(const uint8_t *text, size_t len,
   return (double)visible * cell * (double)FONT_WIDTH;
 }
 
-static double svg_measure_text_element_width(const uint8_t *data, size_t size,
-                                             size_t tag_start, size_t tag_end,
-                                             const svg_style_t *base_style,
-                                             double initial_x,
-                                             double initial_font_size) {
+static double svg_measure_text_container_width(const uint8_t *data, size_t size,
+                                               size_t tag_start, size_t tag_end,
+                                               const char *tag_name,
+                                               const svg_style_t *base_style,
+                                               double initial_x,
+                                               double initial_font_size) {
   size_t close_start = 0, close_end = 0;
   svg_style_t text_style;
   double current_x = initial_x;
@@ -2830,9 +2854,9 @@ static double svg_measure_text_element_width(const uint8_t *data, size_t size,
   double font_size = initial_font_size;
   size_t pos;
 
-  if (!data || !base_style)
+  if (!data || !base_style || !tag_name)
     return 0.0;
-  if (svg_find_closing_tag(data, size, tag_end + 1, "text", &close_start,
+  if (svg_find_closing_tag(data, size, tag_end + 1, tag_name, &close_start,
                            &close_end) != 0)
     return 0.0;
 
@@ -2875,10 +2899,10 @@ static double svg_measure_text_element_width(const uint8_t *data, size_t size,
         if (span_style.has_font_size)
           span_font_size = span_style.font_size;
         if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "x",
-                                             &span_x) == 0)
+                                             &span_x) != 0)
           span_x = current_x;
         if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "y",
-                                             &span_y) == 0)
+                                             &span_y) != 0)
           span_y = current_y;
         if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "dx",
                                              &dx))
@@ -2890,12 +2914,11 @@ static double svg_measure_text_element_width(const uint8_t *data, size_t size,
                                  &tspan_close_start, &tspan_close_end) != 0)
           break;
         text_start = inner_end + 1;
-        current_x = span_x + svg_measure_text_block_width(
-                                 data + text_start,
-                                 tspan_close_start > text_start
-                                     ? tspan_close_start - text_start
-                                     : 0,
-                                 span_font_size);
+        current_x = span_x +
+                    svg_measure_text_container_width(data, close_start,
+                                                     inner_start, inner_end,
+                                                     "tspan", &span_style,
+                                                     span_x, span_font_size);
         current_y = span_y;
         font_size = span_font_size;
         pos = tspan_close_end + 1;
@@ -2918,6 +2941,16 @@ static double svg_measure_text_element_width(const uint8_t *data, size_t size,
   }
 
   return current_x - initial_x;
+}
+
+static double svg_measure_text_element_width(const uint8_t *data, size_t size,
+                                             size_t tag_start, size_t tag_end,
+                                             const svg_style_t *base_style,
+                                             double initial_x,
+                                             double initial_font_size) {
+  return svg_measure_text_container_width(data, size, tag_start, tag_end, "text",
+                                          base_style, initial_x,
+                                          initial_font_size);
 }
 
 static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
@@ -2991,10 +3024,10 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
         if (span_style.has_font_size)
           span_font_size = span_style.font_size;
         if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "x",
-                                             &span_x) == 0)
+                                             &span_x) != 0)
           span_x = current_x;
         if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "y",
-                                             &span_y) == 0)
+                                             &span_y) != 0)
           span_y = current_y;
         if (svg_parse_attr_number_if_present(data, inner_start, inner_end, "dx",
                                              &dx))
@@ -3015,10 +3048,11 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
           svg_render_text_block(ctx, data + text_start,
                                 tspan_close_start - text_start, &span_style,
                                 transform, span_x, span_y, span_font_size);
-          current_x =
-              span_x + (double)(tspan_close_start - text_start) *
-                           (span_font_size / (double)FONT_HEIGHT) *
-                           (double)FONT_WIDTH;
+          current_x = span_x +
+                      svg_measure_text_container_width(data, close_start,
+                                                       inner_start, inner_end,
+                                                       "tspan", &span_style,
+                                                       span_x, span_font_size);
           current_y = span_y;
           font_size = span_font_size;
         }
@@ -3038,8 +3072,9 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
         svg_render_text_block(ctx, data + text_start, pos - text_start,
                               &text_style, transform, current_x, current_y,
                               font_size);
-        current_x += (double)(pos - text_start) *
-                     (font_size / (double)FONT_HEIGHT) * (double)FONT_WIDTH;
+        current_x +=
+            svg_measure_text_block_width(data + text_start, pos - text_start,
+                                         font_size);
       }
     }
   }
@@ -4119,6 +4154,7 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
           g = *base;
         } else {
           g.units = SVG_GRADIENT_UNITS_OBJECT;
+          g.spread_method = SVG_GRADIENT_SPREAD_PAD;
           g.transform = svg_transform_identity();
           g.x1 = g.y1 = 0.0;
           g.x2 = 1.0;
@@ -4139,6 +4175,15 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         if (svg_find_attr(data, tag_start, tag_end, "gradientUnits", &vs, &vl) == 0 &&
             svg_match_text(data + vs, vl, "userSpaceOnUse")) {
           g.units = SVG_GRADIENT_UNITS_USERSPACE;
+        }
+        if (svg_find_attr(data, tag_start, tag_end, "spreadMethod", &vs, &vl) == 0) {
+          if (svg_match_text(data + vs, vl, "reflect")) {
+            g.spread_method = SVG_GRADIENT_SPREAD_REFLECT;
+          } else if (svg_match_text(data + vs, vl, "repeat")) {
+            g.spread_method = SVG_GRADIENT_SPREAD_REPEAT;
+          } else {
+            g.spread_method = SVG_GRADIENT_SPREAD_PAD;
+          }
         }
         if (svg_find_attr(data, tag_start, tag_end, "gradientTransform", &vs, &vl) == 0)
           g.transform = svg_parse_transform_value(data + vs, vl);
