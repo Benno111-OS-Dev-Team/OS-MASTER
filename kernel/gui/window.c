@@ -1293,7 +1293,7 @@ static const char *settings_default_status_message(int page) {
   case 8:
     return "Recovery tools and reset actions.";
   case 10:
-    return "Configure the desktop sidebar and its layout.";
+    return "Configure the sidebar widget launcher and its layout.";
   case 11:
     return "Tune theme slots, accent colors, and developer visuals.";
   default:
@@ -14744,7 +14744,7 @@ static void draw_window_internal(struct window *win) {
 
       block_y += 46;
       gui_draw_rect(panel_x, block_y, panel_w, 88, 0x252535);
-      gui_draw_string(panel_x + 16, block_y + 12, "Desktop sidebar", 0x89B4FA,
+      gui_draw_string(panel_x + 16, block_y + 12, "Widget launcher", 0x89B4FA,
                       0x252535);
       gui_draw_string(panel_x + 16, block_y + 32, sidebar_layout_buf, 0xFFFFFF,
                       0x252535);
@@ -14766,9 +14766,9 @@ static void draw_window_internal(struct window *win) {
                                  : GUI_BUTTON_NEUTRAL,
                              1, 0);
       gui_draw_system_button(panel_x + 272, block_y + 52, 90, 24, "Narrower",
-                             GUI_BUTTON_NEUTRAL, sidebar_width > 124, 0);
+                             GUI_BUTTON_NEUTRAL, sidebar_width > 176, 0);
       gui_draw_system_button(panel_x + 372, block_y + 52, 74, 24, "Wider",
-                             GUI_BUTTON_NEUTRAL, sidebar_width < 220, 0);
+                             GUI_BUTTON_NEUTRAL, sidebar_width < 288, 0);
     } else if (settings_active_tab == 5) {
       int block_y = panel_y + 72;
       const char *username = account_username[0] ? account_username : "Guest session";
@@ -14964,7 +14964,7 @@ static void draw_window_internal(struct window *win) {
       notepad_append_to_buf(sidebar_width_buf, sizeof(sidebar_width_buf), " px");
 
       gui_draw_rect(panel_x, block_y, panel_w, 82, 0x252535);
-      gui_draw_string(panel_x + 16, block_y + 12, "Desktop sidebar", 0x89B4FA,
+      gui_draw_string(panel_x + 16, block_y + 12, "Widget launcher", 0x89B4FA,
                       0x252535);
       gui_draw_string(panel_x + 16, block_y + 32, sidebar_layout_buf, 0xFFFFFF,
                       0x252535);
@@ -14988,19 +14988,19 @@ static void draw_window_internal(struct window *win) {
                                  : GUI_BUTTON_NEUTRAL,
                              1, 0);
       gui_draw_system_button(panel_x + 272, block_y, 90, 24, "Narrower",
-                             GUI_BUTTON_NEUTRAL, sidebar_width > 124, 0);
+                             GUI_BUTTON_NEUTRAL, sidebar_width > 176, 0);
       gui_draw_system_button(panel_x + 372, block_y, 74, 24, "Wider",
-                             GUI_BUTTON_NEUTRAL, sidebar_width < 220, 0);
+                             GUI_BUTTON_NEUTRAL, sidebar_width < 288, 0);
 
       block_y += 40;
       gui_draw_rect(panel_x, block_y, panel_w, 88, 0x252535);
       gui_draw_string(panel_x + 16, block_y + 12, "Layout notes", 0x89B4FA,
                       0x252535);
       gui_draw_string(panel_x + 16, block_y + 32,
-                      "Pin the sidebar to either edge and resize it to match your workspace.",
+                      "Pin the widget launcher to either edge and resize it to match your workspace.",
                       0xFFFFFF, 0x252535);
       gui_draw_string(panel_x + 16, block_y + 52,
-                      "The quick toolbar above links here so layout controls stay easy to reach.",
+                      "Launcher widgets keep apps and quick places together in one rail.",
                       0xCBD5E1, 0x252535);
     } else if (settings_active_tab == 11) {
       gui_draw_string(panel_x + 18, panel_y + 72, "Developer theme lab",

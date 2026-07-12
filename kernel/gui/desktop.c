@@ -65,15 +65,18 @@ void desktop_arrange_icons(void);
 #define DESKTOP_START_X 20
 #define DESKTOP_START_Y 50 /* Below menu bar */
 #define DESKTOP_SIDEBAR_CONFIG_PATH "/System/sidebar.cfg"
-#define DESKTOP_SIDEBAR_ITEM_COUNT 6
-#define DESKTOP_SIDEBAR_MIN_WIDTH 124
-#define DESKTOP_SIDEBAR_MAX_WIDTH 220
-#define DESKTOP_SIDEBAR_DEFAULT_WIDTH 156
+#define DESKTOP_SIDEBAR_MIN_WIDTH 176
+#define DESKTOP_SIDEBAR_MAX_WIDTH 288
+#define DESKTOP_SIDEBAR_DEFAULT_WIDTH 208
 #define DESKTOP_SIDEBAR_MARGIN 12
-#define DESKTOP_SIDEBAR_ROW_H 42
 #define DESKTOP_SIDEBAR_ICON_SIZE 20
 #define DESKTOP_SIDEBAR_TOP_PAD 12
-#define DESKTOP_SIDEBAR_ROW_GAP 6
+#define DESKTOP_SIDEBAR_WIDGET_GAP 12
+#define DESKTOP_SIDEBAR_WIDGET_HEADER_H 24
+#define DESKTOP_SIDEBAR_WIDGET_PAD 12
+#define DESKTOP_SIDEBAR_TILE_H 42
+#define DESKTOP_SIDEBAR_TILE_GAP 8
+#define DESKTOP_SIDEBAR_HEADER_H 60
 
 /* Icon Types */
 #define ICON_TYPE_FILE 0
@@ -103,9 +106,14 @@ void desktop_arrange_icons(void);
 #define COLOR_SIDEBAR_BG 0x162130
 #define COLOR_SIDEBAR_EDGE 0x31465F
 #define COLOR_SIDEBAR_TOP 0x41576F
-#define COLOR_SIDEBAR_ROW 0x223246
-#define COLOR_SIDEBAR_ROW_HOVER 0x2C425B
+#define COLOR_SIDEBAR_HEADER 0x1D2C40
+#define COLOR_SIDEBAR_CARD 0x1D2B3C
+#define COLOR_SIDEBAR_CARD_EDGE 0x35506A
+#define COLOR_SIDEBAR_TILE 0x223246
+#define COLOR_SIDEBAR_TILE_HOVER 0x2F4762
+#define COLOR_SIDEBAR_TILE_ACCENT 0x4D7CB2
 #define COLOR_SIDEBAR_TEXT 0xEAF4FF
+#define COLOR_SIDEBAR_SUBTEXT 0xA8BDD4
 
 /* ===================================================================== */
 /* Desktop Icon Structure */
@@ -159,6 +167,13 @@ typedef struct sidebar_item {
   sidebar_item_kind_t kind;
 } sidebar_item_t;
 
+typedef struct sidebar_widget {
+  const char *title;
+  const sidebar_item_t *items;
+  int item_count;
+  int columns;
+} sidebar_widget_t;
+
 /* ===================================================================== */
 /* Desktop State */
 /* ===================================================================== */
@@ -203,14 +218,45 @@ static dirty_rect_t dirty_regions[32];
 static int dirty_count = 0;
 static int full_redraw_needed = 1;
 
-static const sidebar_item_t desktop_sidebar_items[DESKTOP_SIDEBAR_ITEM_COUNT] = {
+static const sidebar_item_t desktop_sidebar_places[] = {
     {"Home", "/", SIDEBAR_ITEM_FOLDER},
     {"Documents", "/Documents", SIDEBAR_ITEM_FOLDER},
     {"Desktop", DESKTOP_PATH, SIDEBAR_ITEM_FOLDER},
     {"Apps", "/System/Apps", SIDEBAR_ITEM_FOLDER},
-    {"Terminal", "terminal", SIDEBAR_ITEM_APP},
-    {"Settings", "settings", SIDEBAR_ITEM_APP},
 };
+
+static const sidebar_item_t desktop_sidebar_launcher_items[] = {
+    {"Terminal", "terminal", SIDEBAR_ITEM_APP},
+    {"Files", "files", SIDEBAR_ITEM_APP},
+    {"Notes", "notes", SIDEBAR_ITEM_APP},
+    {"Calc", "calculator", SIDEBAR_ITEM_APP},
+    {"Settings", "settings", SIDEBAR_ITEM_APP},
+    {"Clock", "clock", SIDEBAR_ITEM_APP},
+};
+
+static const sidebar_item_t desktop_sidebar_tools_items[] = {
+    {"Browser", "browser", SIDEBAR_ITEM_APP},
+    {"Store", "appstore", SIDEBAR_ITEM_APP},
+    {"Help", "help", SIDEBAR_ITEM_APP},
+    {"Apps", "/System/Apps", SIDEBAR_ITEM_FOLDER},
+};
+
+static const sidebar_widget_t desktop_sidebar_widgets[] = {
+    {"Places", desktop_sidebar_places,
+     (int)(sizeof(desktop_sidebar_places) / sizeof(desktop_sidebar_places[0])),
+     1},
+    {"Launcher", desktop_sidebar_launcher_items,
+     (int)(sizeof(desktop_sidebar_launcher_items) /
+           sizeof(desktop_sidebar_launcher_items[0])),
+     2},
+    {"Tools", desktop_sidebar_tools_items,
+     (int)(sizeof(desktop_sidebar_tools_items) /
+           sizeof(desktop_sidebar_tools_items[0])),
+     2},
+};
+
+#define DESKTOP_SIDEBAR_WIDGET_COUNT                                           \
+  ((int)(sizeof(desktop_sidebar_widgets) / sizeof(desktop_sidebar_widgets[0])))
 
 #define CONTEXT_MENU_ITEM_HEIGHT 24
 #define CONTEXT_MENU_SEPARATOR_HEIGHT 8
@@ -451,18 +497,53 @@ static int desktop_sidebar_item_at(int x, int y) {
   int panel_y;
   int panel_w;
   int panel_h;
-  int row_y;
+  int cursor_y;
+  int flat_index = 0;
 
   if (!desktop_sidebar_rect(&panel_x, &panel_y, &panel_w, &panel_h))
     return -1;
-  if (x < panel_x || x >= panel_x + panel_w || y < panel_y || y >= panel_y + panel_h)
+  if (x < panel_x || x >= panel_x + panel_w || y < panel_y ||
+      y >= panel_y + panel_h)
     return -1;
 
-  row_y = panel_y + DESKTOP_SIDEBAR_TOP_PAD;
-  for (int i = 0; i < DESKTOP_SIDEBAR_ITEM_COUNT; i++) {
-    if (y >= row_y && y < row_y + DESKTOP_SIDEBAR_ROW_H)
-      return i;
-    row_y += DESKTOP_SIDEBAR_ROW_H + DESKTOP_SIDEBAR_ROW_GAP;
+  cursor_y = panel_y + DESKTOP_SIDEBAR_HEADER_H + DESKTOP_SIDEBAR_TOP_PAD;
+  for (int w = 0; w < DESKTOP_SIDEBAR_WIDGET_COUNT; w++) {
+    const sidebar_widget_t *widget = &desktop_sidebar_widgets[w];
+    int card_x = panel_x + 10;
+    int card_y = cursor_y;
+    int card_w = panel_w - 20;
+    int tile_area_y = card_y + DESKTOP_SIDEBAR_WIDGET_HEADER_H +
+                      DESKTOP_SIDEBAR_WIDGET_PAD;
+    int tile_w;
+    int rows;
+    int card_h;
+
+    if (card_w < 32)
+      card_w = 32;
+    tile_w = (card_w - DESKTOP_SIDEBAR_WIDGET_PAD * 2 -
+              (widget->columns - 1) * DESKTOP_SIDEBAR_TILE_GAP) /
+             widget->columns;
+    if (tile_w < 48)
+      tile_w = 48;
+    rows = (widget->item_count + widget->columns - 1) / widget->columns;
+    card_h = DESKTOP_SIDEBAR_WIDGET_HEADER_H + DESKTOP_SIDEBAR_WIDGET_PAD * 2 +
+             rows * DESKTOP_SIDEBAR_TILE_H +
+             (rows - 1) * DESKTOP_SIDEBAR_TILE_GAP;
+
+    for (int i = 0; i < widget->item_count; i++, flat_index++) {
+      int col = i % widget->columns;
+      int row = i / widget->columns;
+      int tile_x = card_x + DESKTOP_SIDEBAR_WIDGET_PAD +
+                   col * (tile_w + DESKTOP_SIDEBAR_TILE_GAP);
+      int tile_y =
+          tile_area_y + row * (DESKTOP_SIDEBAR_TILE_H + DESKTOP_SIDEBAR_TILE_GAP);
+
+      if (x >= tile_x && x < tile_x + tile_w && y >= tile_y &&
+          y < tile_y + DESKTOP_SIDEBAR_TILE_H)
+        return flat_index;
+    }
+
+    cursor_y += card_h + DESKTOP_SIDEBAR_WIDGET_GAP;
   }
   return -1;
 }
@@ -478,11 +559,23 @@ static void desktop_sidebar_mark_region(void) {
 }
 
 static void desktop_open_sidebar_item(int index) {
-  const sidebar_item_t *item;
+  const sidebar_item_t *item = NULL;
+  int flat_index = 0;
 
-  if (index < 0 || index >= DESKTOP_SIDEBAR_ITEM_COUNT)
+  if (index < 0)
     return;
-  item = &desktop_sidebar_items[index];
+
+  for (int w = 0; w < DESKTOP_SIDEBAR_WIDGET_COUNT && !item; w++) {
+    const sidebar_widget_t *widget = &desktop_sidebar_widgets[w];
+    for (int i = 0; i < widget->item_count; i++, flat_index++) {
+      if (flat_index == index) {
+        item = &widget->items[i];
+        break;
+      }
+    }
+  }
+  if (!item)
+    return;
 
   if (item->kind == SIDEBAR_ITEM_FOLDER) {
     gui_create_file_manager_path(200, 100, item->target);
@@ -1207,7 +1300,8 @@ static void draw_sidebar(void) {
   int panel_y;
   int panel_w;
   int panel_h;
-  int row_y;
+  int cursor_y;
+  int flat_index = 0;
 
   if (!desktop_sidebar_rect(&panel_x, &panel_y, &panel_w, &panel_h))
     return;
@@ -1217,16 +1311,64 @@ static void draw_sidebar(void) {
   gui_draw_rect(panel_x, panel_y, panel_w, 1, COLOR_SIDEBAR_TOP);
   gui_draw_rect(panel_x, panel_y + panel_h - 1, panel_w, 1, COLOR_SIDEBAR_TOP);
 
-  row_y = panel_y + DESKTOP_SIDEBAR_TOP_PAD;
-  for (int i = 0; i < DESKTOP_SIDEBAR_ITEM_COUNT; i++) {
-    uint32_t row_color =
-        i == desktop_sidebar_hover_index ? COLOR_SIDEBAR_ROW_HOVER : COLOR_SIDEBAR_ROW;
-    gui_draw_rect(panel_x + 8, row_y, panel_w - 16, DESKTOP_SIDEBAR_ROW_H,
-                  row_color);
-    draw_sidebar_item_icon(&desktop_sidebar_items[i], panel_x + 14, row_y + 10);
-    gui_draw_string(panel_x + 42, row_y + 14, desktop_sidebar_items[i].label,
-                    COLOR_SIDEBAR_TEXT, row_color);
-    row_y += DESKTOP_SIDEBAR_ROW_H + DESKTOP_SIDEBAR_ROW_GAP;
+  gui_draw_rect(panel_x + 10, panel_y + 12, panel_w - 20, 40, COLOR_SIDEBAR_HEADER);
+  gui_draw_string(panel_x + 18, panel_y + 20, "Sidebar Widgets", COLOR_SIDEBAR_TEXT,
+                  COLOR_SIDEBAR_HEADER);
+  gui_draw_string(panel_x + 18, panel_y + 34, "Launcher and quick places",
+                  COLOR_SIDEBAR_SUBTEXT, COLOR_SIDEBAR_HEADER);
+
+  cursor_y = panel_y + DESKTOP_SIDEBAR_HEADER_H + DESKTOP_SIDEBAR_TOP_PAD;
+  for (int w = 0; w < DESKTOP_SIDEBAR_WIDGET_COUNT; w++) {
+    const sidebar_widget_t *widget = &desktop_sidebar_widgets[w];
+    int card_x = panel_x + 10;
+    int card_y = cursor_y;
+    int card_w = panel_w - 20;
+    int tile_area_y = card_y + DESKTOP_SIDEBAR_WIDGET_HEADER_H +
+                      DESKTOP_SIDEBAR_WIDGET_PAD;
+    int tile_w;
+    int rows;
+    int card_h;
+
+    if (card_w < 32)
+      card_w = 32;
+    tile_w = (card_w - DESKTOP_SIDEBAR_WIDGET_PAD * 2 -
+              (widget->columns - 1) * DESKTOP_SIDEBAR_TILE_GAP) /
+             widget->columns;
+    if (tile_w < 48)
+      tile_w = 48;
+    rows = (widget->item_count + widget->columns - 1) / widget->columns;
+    card_h = DESKTOP_SIDEBAR_WIDGET_HEADER_H + DESKTOP_SIDEBAR_WIDGET_PAD * 2 +
+             rows * DESKTOP_SIDEBAR_TILE_H +
+             (rows - 1) * DESKTOP_SIDEBAR_TILE_GAP;
+
+    gui_draw_rect(card_x, card_y, card_w, card_h, COLOR_SIDEBAR_CARD);
+    gui_draw_rect_outline(card_x, card_y, card_w, card_h, COLOR_SIDEBAR_CARD_EDGE,
+                          1);
+    gui_draw_rect(card_x, card_y, card_w, 1, COLOR_SIDEBAR_TOP);
+    gui_draw_string(card_x + 12, card_y + 8, widget->title, COLOR_SIDEBAR_TEXT,
+                    COLOR_SIDEBAR_CARD);
+
+    for (int i = 0; i < widget->item_count; i++, flat_index++) {
+      const sidebar_item_t *item = &widget->items[i];
+      int col = i % widget->columns;
+      int row = i / widget->columns;
+      int tile_x = card_x + DESKTOP_SIDEBAR_WIDGET_PAD +
+                   col * (tile_w + DESKTOP_SIDEBAR_TILE_GAP);
+      int tile_y =
+          tile_area_y + row * (DESKTOP_SIDEBAR_TILE_H + DESKTOP_SIDEBAR_TILE_GAP);
+      uint32_t tile_color = flat_index == desktop_sidebar_hover_index
+                                ? COLOR_SIDEBAR_TILE_HOVER
+                                : COLOR_SIDEBAR_TILE;
+
+      gui_draw_rect(tile_x, tile_y, tile_w, DESKTOP_SIDEBAR_TILE_H, tile_color);
+      gui_draw_rect(tile_x, tile_y, 4, DESKTOP_SIDEBAR_TILE_H,
+                    COLOR_SIDEBAR_TILE_ACCENT);
+      draw_sidebar_item_icon(item, tile_x + 10, tile_y + 10);
+      gui_draw_string(tile_x + 36, tile_y + 14, item->label, COLOR_SIDEBAR_TEXT,
+                      tile_color);
+    }
+
+    cursor_y += card_h + DESKTOP_SIDEBAR_WIDGET_GAP;
   }
 }
 
