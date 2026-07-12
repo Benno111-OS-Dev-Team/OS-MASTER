@@ -1361,11 +1361,19 @@ typedef struct {
   int stroke_linejoin;
   int text_anchor;
   int has_font_size;
+  int display_none;
+  int visibility_hidden;
+  int preserve_space;
   double stroke_miterlimit;
   uint8_t opacity;
   uint8_t fill_opacity;
   uint8_t stroke_opacity;
 } svg_style_t;
+
+typedef struct {
+  int seen_non_space;
+  int pending_space;
+} svg_text_ws_state_t;
 
 #define SVG_GRADIENT_MAX_STOPS 8
 
@@ -1549,6 +1557,13 @@ static int svg_tag_is_self_closing(const uint8_t *data, size_t start, size_t end
 
 static svg_transform_t svg_transform_identity(void) {
   svg_transform_t t = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+  return t;
+}
+
+static svg_transform_t svg_transform_translate(double tx, double ty) {
+  svg_transform_t t = svg_transform_identity();
+  t.e = tx;
+  t.f = ty;
   return t;
 }
 
@@ -1781,6 +1796,44 @@ static int svg_find_attr(const uint8_t *data, size_t start, size_t end,
   return -ENOENT;
 }
 
+static int svg_find_element_by_id(const uint8_t *data, size_t size, const char *id,
+                                  size_t *tag_start, size_t *tag_end) {
+  size_t id_len = 0;
+
+  if (!data || !id)
+    return -EINVAL;
+  while (id[id_len])
+    id_len++;
+
+  for (size_t i = 0; i < size; i++) {
+    size_t end;
+    size_t value_start = 0;
+    size_t value_len = 0;
+
+    if (data[i] != '<')
+      continue;
+    if (i + 1 < size && (data[i + 1] == '/' || data[i + 1] == '!' ||
+                         data[i + 1] == '?'))
+      continue;
+    end = i + 1;
+    while (end < size && data[end] != '>')
+      end++;
+    if (end >= size)
+      break;
+    if (svg_find_attr(data, i, end, "id", &value_start, &value_len) == 0 &&
+        value_len == id_len &&
+        media_bytes_starts_with(data + value_start, value_len, 0, id)) {
+      if (tag_start)
+        *tag_start = i;
+      if (tag_end)
+        *tag_end = end;
+      return 0;
+    }
+    i = end;
+  }
+  return -ENOENT;
+}
+
 static uint8_t svg_ascii_tolower(uint8_t ch) {
   if (ch >= 'A' && ch <= 'Z')
     return (uint8_t)(ch + ('a' - 'A'));
@@ -1979,10 +2032,21 @@ static void svg_init_default_style(svg_style_t *style) {
   style->stroke_linejoin = SVG_STROKE_JOIN_MITER;
   style->text_anchor = SVG_TEXT_ANCHOR_START;
   style->has_font_size = 0;
+  style->display_none = 0;
+  style->visibility_hidden = 0;
+  style->preserve_space = 0;
   style->stroke_miterlimit = 4.0;
   style->opacity = 255;
   style->fill_opacity = 255;
   style->stroke_opacity = 255;
+}
+
+static int svg_style_is_displayed(const svg_style_t *style) {
+  return style && !style->display_none;
+}
+
+static int svg_style_is_visible(const svg_style_t *style) {
+  return style && !style->visibility_hidden;
 }
 
 static void svg_copy_ref(char *dst, size_t dst_size, const uint8_t *src,
@@ -2131,6 +2195,14 @@ static void svg_apply_style_property(const uint8_t *name, size_t name_len,
     pos = vs;
     if (svg_parse_number(value, ve, &pos, &limit) == 0 && limit > 0.0)
       style->stroke_miterlimit = limit;
+  } else if (svg_attr_name_equals(name, ns, ne, "display")) {
+    style->display_none = svg_match_text(value + vs, ve - vs, "none") ? 1 : 0;
+  } else if (svg_attr_name_equals(name, ns, ne, "visibility")) {
+    style->visibility_hidden =
+        (svg_match_text(value + vs, ve - vs, "hidden") ||
+         svg_match_text(value + vs, ve - vs, "collapse"))
+            ? 1
+            : 0;
   } else if (svg_attr_name_equals(name, ns, ne, "opacity")) {
     svg_parse_opacity_value(value + vs, ve - vs, &style->opacity);
   } else if (svg_attr_name_equals(name, ns, ne, "fill-opacity")) {
@@ -2277,6 +2349,21 @@ static void svg_apply_style_attrs(const uint8_t *data, size_t start, size_t end,
     double limit = style->stroke_miterlimit;
     if (svg_parse_number(data, end, &pos, &limit) == 0 && limit > 0.0)
       style->stroke_miterlimit = limit;
+  }
+  if (svg_find_attr(data, start, end, "display", &value_start, &value_len) == 0)
+    style->display_none = svg_match_text(data + value_start, value_len, "none") ? 1 : 0;
+  if (svg_find_attr(data, start, end, "visibility", &value_start, &value_len) == 0) {
+    style->visibility_hidden =
+        (svg_match_text(data + value_start, value_len, "hidden") ||
+         svg_match_text(data + value_start, value_len, "collapse"))
+            ? 1
+            : 0;
+  }
+  if (svg_find_attr(data, start, end, "xml:space", &value_start, &value_len) == 0) {
+    if (svg_match_text(data + value_start, value_len, "preserve"))
+      style->preserve_space = 1;
+    else if (svg_match_text(data + value_start, value_len, "default"))
+      style->preserve_space = 0;
   }
   if (svg_find_attr(data, start, end, "opacity", &value_start, &value_len) == 0)
     svg_parse_opacity_value(data + value_start, value_len, &style->opacity);
@@ -2828,10 +2915,62 @@ static int svg_find_closing_tag(const uint8_t *data, size_t size,
   return -ENOENT;
 }
 
+static double svg_measure_text_block_width_state(
+    const uint8_t *text, size_t len, double font_size,
+    const svg_style_t *style, svg_text_ws_state_t *ws) {
+  double cell;
+  int visible = 0;
+  svg_text_ws_state_t local = {0};
+
+  if (!text || !style || len == 0)
+    return 0.0;
+  if (font_size <= 0.0)
+    font_size = (double)FONT_HEIGHT;
+  cell = font_size / (double)FONT_HEIGHT;
+  if (cell <= 0.0)
+    cell = 1.0;
+
+  for (size_t i = 0; i < len; i++) {
+    uint8_t ch = text[i];
+
+    if (style->preserve_space) {
+      if (ch == '\r' || ch == '\n' || ch == '\t')
+        continue;
+      visible++;
+      continue;
+    }
+
+    if (svg_is_space(ch)) {
+      if (ws) {
+        if (ws->seen_non_space)
+          ws->pending_space = 1;
+      } else if (local.seen_non_space) {
+        local.pending_space = 1;
+      }
+      continue;
+    }
+    if (ws ? ws->pending_space != 0 : local.pending_space != 0) {
+      visible++;
+      if (ws)
+        ws->pending_space = 0;
+      else
+        local.pending_space = 0;
+    }
+    visible++;
+    if (ws)
+      ws->seen_non_space = 1;
+    else
+      local.seen_non_space = 1;
+  }
+
+  return (double)visible * cell * (double)FONT_WIDTH;
+}
+
 static void svg_render_text_block(svg_render_ctx_t *ctx, const uint8_t *text,
                                   size_t len, const svg_style_t *style,
                                   svg_transform_t transform, double baseline_x,
-                                  double baseline_y, double font_size) {
+                                  double baseline_y, double font_size,
+                                  svg_text_ws_state_t *ws) {
   double cell;
   double pen_x;
   double pen_y;
@@ -2842,7 +2981,7 @@ static void svg_render_text_block(svg_render_ctx_t *ctx, const uint8_t *text,
   uint8_t fill_mul;
   uint8_t stroke_mul;
 
-  if (!ctx || !text || !style || len == 0)
+  if (!ctx || !text || !style || len == 0 || !svg_style_is_visible(style))
     return;
   if (font_size <= 0.0)
     font_size = (double)FONT_HEIGHT;
@@ -2854,7 +2993,13 @@ static void svg_render_text_block(svg_render_ctx_t *ctx, const uint8_t *text,
   pen_y = baseline_y - font_size;
   bbox_x = baseline_x;
   bbox_y = baseline_y - font_size;
-  bbox_w = (double)len * cell * (double)FONT_WIDTH;
+  if (style->preserve_space)
+    bbox_w = svg_measure_text_block_width_state(text, len, font_size, style, NULL);
+  else {
+    svg_text_ws_state_t preview = ws ? *ws : (svg_text_ws_state_t){0};
+    bbox_w =
+        svg_measure_text_block_width_state(text, len, font_size, style, &preview);
+  }
   bbox_h = font_size;
   fill_mul = svg_fill_alpha_mul(style);
   stroke_mul = svg_stroke_alpha_mul(style);
@@ -2863,8 +3008,23 @@ static void svg_render_text_block(svg_render_ctx_t *ctx, const uint8_t *text,
     uint8_t ch = text[i];
     const uint8_t *glyph;
 
-    if (ch == '\r' || ch == '\n' || ch == '\t')
-      continue;
+    if (style->preserve_space) {
+      if (ch == '\r' || ch == '\n' || ch == '\t')
+        continue;
+    } else {
+      if (svg_is_space(ch)) {
+        if (ws && ws->seen_non_space)
+          ws->pending_space = 1;
+        continue;
+      }
+      if (ws && ws->pending_space) {
+        ch = ' ';
+        ws->pending_space = 0;
+        i--;
+      } else if (ws) {
+        ws->seen_non_space = 1;
+      }
+    }
     glyph = font_data[ch];
 
     if (style->stroke.kind != SVG_PAINT_NONE && style->stroke_width > 0.0 &&
@@ -2934,27 +3094,16 @@ static void svg_render_text_block(svg_render_ctx_t *ctx, const uint8_t *text,
     }
 
     pen_x += cell * (double)FONT_WIDTH;
+    if (!style->preserve_space && ws && i + 1 < len && !svg_is_space(text[i + 1]))
+      ws->seen_non_space = 1;
   }
 }
 
 static double svg_measure_text_block_width(const uint8_t *text, size_t len,
-                                           double font_size) {
-  double cell;
-  int visible = 0;
-  if (!text || len == 0)
-    return 0.0;
-  if (font_size <= 0.0)
-    font_size = (double)FONT_HEIGHT;
-  cell = font_size / (double)FONT_HEIGHT;
-  if (cell <= 0.0)
-    cell = 1.0;
-  for (size_t i = 0; i < len; i++) {
-    uint8_t ch = text[i];
-    if (ch == '\r' || ch == '\n' || ch == '\t')
-      continue;
-    visible++;
-  }
-  return (double)visible * cell * (double)FONT_WIDTH;
+                                           double font_size,
+                                           const svg_style_t *style,
+                                           svg_text_ws_state_t *ws) {
+  return svg_measure_text_block_width_state(text, len, font_size, style, ws);
 }
 
 static double svg_measure_text_container_width(const uint8_t *data, size_t size,
@@ -2962,7 +3111,8 @@ static double svg_measure_text_container_width(const uint8_t *data, size_t size,
                                                const char *tag_name,
                                                const svg_style_t *base_style,
                                                double initial_x,
-                                               double initial_font_size) {
+                                               double initial_font_size,
+                                               svg_text_ws_state_t *ws) {
   size_t close_start = 0, close_end = 0;
   svg_style_t text_style;
   double current_x = initial_x;
@@ -2978,6 +3128,8 @@ static double svg_measure_text_container_width(const uint8_t *data, size_t size,
 
   text_style = *base_style;
   svg_apply_style_attrs(data, tag_start, tag_end, &text_style);
+  if (!svg_style_is_displayed(&text_style))
+    return 0.0;
   if (text_style.has_font_size)
     font_size = text_style.font_size;
   svg_parse_attr_number_if_present(data, tag_start, tag_end, "y", &current_y);
@@ -3029,14 +3181,16 @@ static double svg_measure_text_container_width(const uint8_t *data, size_t size,
         if (svg_find_closing_tag(data, close_start, inner_end + 1, "tspan",
                                  &tspan_close_start, &tspan_close_end) != 0)
           break;
-        text_start = inner_end + 1;
-        current_x = span_x +
-                    svg_measure_text_container_width(data, close_start,
-                                                     inner_start, inner_end,
-                                                     "tspan", &span_style,
-                                                     span_x, span_font_size);
-        current_y = span_y;
-        font_size = span_font_size;
+        if (svg_style_is_displayed(&span_style)) {
+          text_start = inner_end + 1;
+          current_x =
+              span_x +
+              svg_measure_text_container_width(data, close_start, inner_start,
+                                               inner_end, "tspan", &span_style,
+                                               span_x, span_font_size, ws);
+          current_y = span_y;
+          font_size = span_font_size;
+        }
         pos = tspan_close_end + 1;
         continue;
       }
@@ -3052,7 +3206,7 @@ static double svg_measure_text_container_width(const uint8_t *data, size_t size,
       if (pos > text_start)
         current_x +=
             svg_measure_text_block_width(data + text_start, pos - text_start,
-                                         font_size);
+                                         font_size, &text_style, ws);
     }
   }
 
@@ -3064,9 +3218,10 @@ static double svg_measure_text_element_width(const uint8_t *data, size_t size,
                                              const svg_style_t *base_style,
                                              double initial_x,
                                              double initial_font_size) {
+  svg_text_ws_state_t ws = {0};
   return svg_measure_text_container_width(data, size, tag_start, tag_end, "text",
                                           base_style, initial_x,
-                                          initial_font_size);
+                                          initial_font_size, &ws);
 }
 
 static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
@@ -3079,6 +3234,7 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
   double current_x = 0.0, current_y = 0.0;
   double font_size = 16.0;
   size_t pos;
+  svg_text_ws_state_t ws = {0};
 
   if (!ctx || !data || !consumed_end || !base_style)
     return;
@@ -3088,6 +3244,10 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
 
   text_style = *base_style;
   svg_apply_style_attrs(data, tag_start, tag_end, &text_style);
+  if (!svg_style_is_displayed(&text_style)) {
+    *consumed_end = close_end;
+    return;
+  }
   if (text_style.has_font_size)
     font_size = text_style.font_size;
   svg_parse_attr_number_if_present(data, tag_start, tag_end, "x", &current_x);
@@ -3160,15 +3320,18 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
                                  &tspan_close_start, &tspan_close_end) != 0)
           break;
         text_start = inner_end + 1;
-        if (tspan_close_start > text_start) {
+        if (svg_style_is_displayed(&span_style) && tspan_close_start > text_start) {
+          double advance;
+          svg_text_ws_state_t preview = ws;
+          advance = svg_measure_text_container_width(data, close_start,
+                                                     inner_start, inner_end,
+                                                     "tspan", &span_style,
+                                                     span_x, span_font_size,
+                                                     &preview);
           svg_render_text_block(ctx, data + text_start,
                                 tspan_close_start - text_start, &span_style,
-                                transform, span_x, span_y, span_font_size);
-          current_x = span_x +
-                      svg_measure_text_container_width(data, close_start,
-                                                       inner_start, inner_end,
-                                                       "tspan", &span_style,
-                                                       span_x, span_font_size);
+                                transform, span_x, span_y, span_font_size, &ws);
+          current_x = span_x + advance;
           current_y = span_y;
           font_size = span_font_size;
         }
@@ -3185,12 +3348,15 @@ static void svg_render_text_element(svg_render_ctx_t *ctx, const uint8_t *data,
       while (pos < close_start && data[pos] != '<')
         pos++;
       if (pos > text_start) {
+        double advance;
+        svg_text_ws_state_t preview = ws;
+        advance = svg_measure_text_block_width(data + text_start,
+                                               pos - text_start, font_size,
+                                               &text_style, &preview);
         svg_render_text_block(ctx, data + text_start, pos - text_start,
                               &text_style, transform, current_x, current_y,
-                              font_size);
-        current_x +=
-            svg_measure_text_block_width(data + text_start, pos - text_start,
-                                         font_size);
+                              font_size, &ws);
+        current_x += advance;
       }
     }
   }
@@ -4205,6 +4371,17 @@ static int svg_parse_dimension_attr(const uint8_t *data, size_t start, size_t en
   return svg_parse_number(data, value_start + value_len, &pos, out);
 }
 
+static int svg_parse_length_attr(const uint8_t *data, size_t start, size_t end,
+                                 const char *name, double relative,
+                                 double *out) {
+  size_t value_start = 0, value_len = 0;
+
+  if (svg_find_attr(data, start, end, name, &value_start, &value_len) != 0)
+    return -ENOENT;
+  svg_parse_length_number(data, value_start, value_len, relative, out);
+  return 0;
+}
+
 static void svg_parse_preserve_aspect_ratio(const uint8_t *data, size_t start,
                                             size_t end, int *align_x,
                                             int *align_y, int *meet_mode,
@@ -4265,6 +4442,197 @@ static void svg_add_gradient(svg_render_ctx_t *ctx, const svg_gradient_t *gradie
   ctx->gradients[ctx->gradient_count++] = *gradient;
 }
 
+static void svg_init_gradient_defaults(svg_gradient_t *g) {
+  if (!g)
+    return;
+  g->units = SVG_GRADIENT_UNITS_OBJECT;
+  g->spread_method = SVG_GRADIENT_SPREAD_PAD;
+  g->transform = svg_transform_identity();
+  g->x1 = g->y1 = 0.0;
+  g->x2 = 1.0;
+  g->y2 = 0.0;
+  g->cx = 0.5;
+  g->cy = 0.5;
+  g->r = 0.5;
+  g->fx = 0.5;
+  g->fy = 0.5;
+  g->fr = 0.0;
+  g->color0 = g->color1 = 0x000000;
+  g->alpha0 = g->alpha1 = 255;
+  g->stop_count = 0;
+  g->id[0] = '\0';
+}
+
+static size_t svg_parse_defs_block(svg_render_ctx_t *ctx, const uint8_t *data,
+                                   size_t size, size_t tag_start,
+                                   size_t tag_end) {
+  size_t close_start = 0, close_end = tag_end;
+  svg_gradient_t active_gradient;
+  int have_active_gradient = 0;
+
+  if (!ctx || !data)
+    return tag_end;
+  if (svg_find_closing_tag(data, size, tag_end + 1, "defs", &close_start,
+                           &close_end) != 0)
+    return tag_end;
+
+  for (size_t i = tag_end + 1; i < close_start; i++) {
+    size_t child_start;
+    size_t child_end;
+    int closing;
+
+    if (data[i] != '<')
+      continue;
+    child_start = i;
+    i++;
+    if (i >= close_start)
+      break;
+    closing = data[i] == '/';
+    if (closing) {
+      while (i < close_start && data[i] != '>')
+        i++;
+      if (have_active_gradient &&
+          (media_bytes_starts_with(data, i, child_start + 2, "linearGradient") ||
+           media_bytes_starts_with(data, i, child_start + 2, "radialGradient"))) {
+        svg_add_gradient(ctx, &active_gradient);
+        have_active_gradient = 0;
+      }
+      continue;
+    }
+    if (data[i] == '!' || data[i] == '?')
+      continue;
+    while (i < close_start && data[i] != '>')
+      i++;
+    if (i >= close_start)
+      break;
+    child_end = i;
+
+    if (media_bytes_starts_with(data, child_end, child_start + 1,
+                                "linearGradient") ||
+        media_bytes_starts_with(data, child_end, child_start + 1,
+                                "radialGradient")) {
+      size_t vs = 0, vl = 0;
+      svg_gradient_t *base = NULL;
+      svg_gradient_t g;
+      int self_closing = svg_tag_is_self_closing(data, child_start, child_end);
+      int kind =
+          media_bytes_starts_with(data, child_end, child_start + 1,
+                                  "linearGradient")
+              ? SVG_GRADIENT_LINEAR
+              : SVG_GRADIENT_RADIAL;
+      if ((svg_find_attr(data, child_start, child_end, "href", &vs, &vl) == 0 ||
+           svg_find_attr(data, child_start, child_end, "xlink:href", &vs,
+                         &vl) == 0) &&
+          vl > 1 && data[vs] == '#') {
+        char ref_id[32];
+        svg_copy_ref(ref_id, sizeof(ref_id), data + vs + 1, vl - 1);
+        base = svg_find_gradient(ctx, ref_id);
+      }
+      if (base) {
+        g = *base;
+      } else {
+        svg_init_gradient_defaults(&g);
+      }
+      g.kind = kind;
+      if (svg_find_attr(data, child_start, child_end, "id", &vs, &vl) == 0)
+        svg_copy_ref(g.id, sizeof(g.id), data + vs, vl);
+      if (svg_find_attr(data, child_start, child_end, "gradientUnits", &vs,
+                        &vl) == 0 &&
+          svg_match_text(data + vs, vl, "userSpaceOnUse")) {
+        g.units = SVG_GRADIENT_UNITS_USERSPACE;
+      }
+      if (svg_find_attr(data, child_start, child_end, "spreadMethod", &vs,
+                        &vl) == 0) {
+        if (svg_match_text(data + vs, vl, "reflect")) {
+          g.spread_method = SVG_GRADIENT_SPREAD_REFLECT;
+        } else if (svg_match_text(data + vs, vl, "repeat")) {
+          g.spread_method = SVG_GRADIENT_SPREAD_REPEAT;
+        } else {
+          g.spread_method = SVG_GRADIENT_SPREAD_PAD;
+        }
+      }
+      if (svg_find_attr(data, child_start, child_end, "gradientTransform", &vs,
+                        &vl) == 0)
+        g.transform = svg_parse_transform_value(data + vs, vl);
+      if (g.kind == SVG_GRADIENT_LINEAR) {
+        if (svg_find_attr(data, child_start, child_end, "x1", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.x1);
+        if (svg_find_attr(data, child_start, child_end, "y1", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.y1);
+        if (svg_find_attr(data, child_start, child_end, "x2", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.x2);
+        if (svg_find_attr(data, child_start, child_end, "y2", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.y2);
+      } else {
+        if (svg_find_attr(data, child_start, child_end, "cx", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.cx);
+        if (svg_find_attr(data, child_start, child_end, "cy", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.cy);
+        if (svg_find_attr(data, child_start, child_end, "r", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.r);
+        if (svg_find_attr(data, child_start, child_end, "fx", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.fx);
+        else
+          g.fx = g.cx;
+        if (svg_find_attr(data, child_start, child_end, "fy", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.fy);
+        else
+          g.fy = g.cy;
+        if (svg_find_attr(data, child_start, child_end, "fr", &vs, &vl) == 0)
+          svg_parse_gradient_number(data, vs, vl, &g.fr);
+        else
+          g.fr = 0.0;
+        if (g.fr < 0.0)
+          g.fr = 0.0;
+        if (g.fr > g.r)
+          g.fr = g.r;
+      }
+      if (self_closing) {
+        svg_add_gradient(ctx, &g);
+        have_active_gradient = 0;
+      } else {
+        active_gradient = g;
+        have_active_gradient = 1;
+      }
+    } else if (have_active_gradient &&
+               media_bytes_starts_with(data, child_end, child_start + 1,
+                                       "stop")) {
+      size_t vs = 0, vl = 0, pos;
+      double offset = 0.0;
+      uint32_t color = 0x000000;
+      uint8_t alpha = 255;
+
+      if (svg_find_attr(data, child_start, child_end, "offset", &vs, &vl) ==
+          0) {
+        pos = vs;
+        svg_parse_number(data, vs + vl, &pos, &offset);
+        if (vs + vl > vs && data[vs + vl - 1] == '%')
+          offset /= 100.0;
+      }
+      if (svg_find_attr(data, child_start, child_end, "stop-color", &vs, &vl) ==
+          0)
+        svg_parse_color(data + vs, vl, &color, &alpha);
+      if (svg_find_attr(data, child_start, child_end, "style", &vs, &vl) == 0)
+        svg_parse_stop_style_declarations(data + vs, vl, &color, &alpha);
+      if (svg_find_attr(data, child_start, child_end, "stop-opacity", &vs,
+                        &vl) == 0) {
+        double opacity = 1.0;
+        pos = vs;
+        if (svg_parse_number(data, vs + vl, &pos, &opacity) == 0) {
+          if (opacity < 0.0)
+            opacity = 0.0;
+          if (opacity > 1.0)
+            opacity = 1.0;
+          alpha = (uint8_t)(opacity * 255.0);
+        }
+      }
+      svg_gradient_add_stop(&active_gradient, offset, color, alpha);
+    }
+  }
+
+  return close_end;
+}
+
 static int svg_decode_data_uri_image(const uint8_t *data, size_t len,
                                      media_image_t *image) {
   static const char *k_png = "data:image/png;base64,";
@@ -4299,7 +4667,7 @@ static int svg_decode_data_uri_image(const uint8_t *data, size_t len,
 static void svg_blit_image_region(svg_render_ctx_t *ctx, media_image_t *src,
                                   double x, double y, double w, double h,
                                   double src_x, double src_y, double src_w,
-                                  double src_h) {
+                                  double src_h, uint8_t opacity_mul) {
   int dst_w = (int)(w > 0.0 ? w : (double)src->width);
   int dst_h = (int)(h > 0.0 ? h : (double)src->height);
   if (!ctx || !src || !src->pixels || dst_w <= 0 || dst_h <= 0 || src_w <= 0.0 ||
@@ -4323,6 +4691,9 @@ static void svg_blit_image_region(svg_render_ctx_t *ctx, media_image_t *src,
       uint8_t alpha = (pixel >> 24) & 0xFF;
       if (alpha == 0)
         alpha = 255;
+      alpha = svg_multiply_alpha(alpha, opacity_mul);
+      if (alpha == 0)
+        continue;
       svg_blend_pixel(&ctx->image, (int)x + xx, (int)y + yy, pixel & 0xFFFFFF, alpha);
     }
   }
@@ -4333,7 +4704,540 @@ static void svg_blit_image(svg_render_ctx_t *ctx, media_image_t *src,
   if (!src)
     return;
   svg_blit_image_region(ctx, src, x, y, w, h, 0.0, 0.0, (double)src->width,
-                        (double)src->height);
+                        (double)src->height, 255);
+}
+
+static int svg_render_referenced_element_internal(
+    svg_render_ctx_t *ctx, const uint8_t *data, size_t size, size_t tag_start,
+    size_t tag_end, const svg_style_t *base_style,
+    svg_transform_t base_transform, double viewport_w, double viewport_h,
+    double viewport_diag, double use_width, double use_height, int depth) {
+  svg_style_t style;
+  svg_transform_t transform;
+
+  if (!ctx || !data || !base_style || depth > 8)
+    return 0;
+
+  style = *base_style;
+  transform =
+      svg_transform_multiply(base_transform,
+                             svg_parse_transform_attr(data, tag_start, tag_end));
+  svg_apply_style_attrs(data, tag_start, tag_end, &style);
+  if (!svg_style_is_displayed(&style))
+    return 1;
+
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "g") ||
+      media_bytes_starts_with(data, tag_end, tag_start + 1, "svg") ||
+      media_bytes_starts_with(data, tag_end, tag_start + 1, "symbol")) {
+    size_t close_start = 0, close_end = 0;
+    const char *tag_name;
+    int is_svg_like = 0;
+    double local_x = 0.0;
+    double local_y = 0.0;
+    double local_view_x = 0.0, local_view_y = 0.0, local_view_w = 0.0,
+           local_view_h = 0.0;
+    double local_width = use_width;
+    double local_height = use_height;
+    int align_x = 1, align_y = 1, meet_mode = 1, preserve_none = 0;
+
+    if (media_bytes_starts_with(data, tag_end, tag_start + 1, "svg")) {
+      tag_name = "svg";
+      is_svg_like = 1;
+    } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "symbol")) {
+      tag_name = "symbol";
+      is_svg_like = 1;
+    } else {
+      tag_name = "g";
+    }
+
+    if (is_svg_like) {
+      svg_parse_length_attr(data, tag_start, tag_end, "x", viewport_w, &local_x);
+      svg_parse_length_attr(data, tag_start, tag_end, "y", viewport_h, &local_y);
+      transform = svg_transform_multiply(transform,
+                                         svg_transform_translate(local_x, local_y));
+      if (svg_parse_viewbox(data, tag_start, tag_end, &local_view_x, &local_view_y,
+                            &local_view_w, &local_view_h) != 0) {
+        local_view_x = 0.0;
+        local_view_y = 0.0;
+      }
+      if (local_width <= 0.0)
+        svg_parse_length_attr(data, tag_start, tag_end, "width", viewport_w,
+                              &local_width);
+      if (local_height <= 0.0)
+        svg_parse_length_attr(data, tag_start, tag_end, "height", viewport_h,
+                              &local_height);
+      if (local_width <= 0.0)
+        local_width = local_view_w > 0.0 ? local_view_w : viewport_w;
+      if (local_height <= 0.0)
+        local_height = local_view_h > 0.0 ? local_view_h : viewport_h;
+      svg_parse_preserve_aspect_ratio(data, tag_start, tag_end, &align_x, &align_y,
+                                      &meet_mode, &preserve_none);
+      if (local_view_w > 0.0 && local_view_h > 0.0 && local_width > 0.0 &&
+          local_height > 0.0) {
+        double scale_x = local_width / local_view_w;
+        double scale_y = local_height / local_view_h;
+        double tx;
+        double ty;
+        svg_transform_t local_transform;
+
+        if (!preserve_none) {
+          double scale = meet_mode ? svg_min(scale_x, scale_y)
+                                   : svg_max(scale_x, scale_y);
+          double scaled_w = local_view_w * scale;
+          double scaled_h = local_view_h * scale;
+          double extra_x = local_width - scaled_w;
+          double extra_y = local_height - scaled_h;
+          scale_x = scale_y = scale;
+          tx = -local_view_x * scale_x;
+          ty = -local_view_y * scale_y;
+          if (align_x == 1)
+            tx += extra_x * 0.5;
+          else if (align_x == 2)
+            tx += extra_x;
+          if (align_y == 1)
+            ty += extra_y * 0.5;
+          else if (align_y == 2)
+            ty += extra_y;
+        } else {
+          tx = -local_view_x * scale_x;
+          ty = -local_view_y * scale_y;
+        }
+        local_transform.a = scale_x;
+        local_transform.b = 0.0;
+        local_transform.c = 0.0;
+        local_transform.d = scale_y;
+        local_transform.e = tx;
+        local_transform.f = ty;
+        transform = svg_transform_multiply(transform, local_transform);
+      }
+    }
+
+    if (svg_find_closing_tag(data, size, tag_end + 1, tag_name, &close_start,
+                             &close_end) != 0)
+      return 0;
+    for (size_t i = tag_end + 1; i < close_start; i++) {
+      size_t child_start;
+      size_t child_end;
+      size_t ref_start = 0, ref_end = 0;
+      int closing;
+      size_t vs = 0, vl = 0;
+      double use_x = 0.0, use_y = 0.0;
+      double child_use_w = -1.0, child_use_h = -1.0;
+      svg_transform_t use_transform;
+
+      if (data[i] != '<')
+        continue;
+      child_start = i;
+      i++;
+      if (i >= close_start)
+        break;
+      closing = data[i] == '/';
+      if (closing)
+        continue;
+      if (data[i] == '!' || data[i] == '?')
+        continue;
+      while (i < close_start && data[i] != '>')
+        i++;
+      if (i >= close_start)
+        break;
+      child_end = i;
+
+      if (media_bytes_starts_with(data, child_end, child_start + 1, "defs")) {
+        i = svg_parse_defs_block(ctx, data, close_start, child_start, child_end);
+        continue;
+      }
+      if (media_bytes_starts_with(data, child_end, child_start + 1, "use")) {
+        if (svg_find_attr(data, child_start, child_end, "x", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_w, &use_x);
+        if (svg_find_attr(data, child_start, child_end, "y", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_h, &use_y);
+        if (svg_find_attr(data, child_start, child_end, "width", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_w, &child_use_w);
+        if (svg_find_attr(data, child_start, child_end, "height", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_h, &child_use_h);
+        if ((svg_find_attr(data, child_start, child_end, "href", &vs, &vl) ==
+                 0 ||
+             svg_find_attr(data, child_start, child_end, "xlink:href", &vs,
+                           &vl) == 0) &&
+            vl > 1 && data[vs] == '#') {
+          char ref_id[32];
+          svg_copy_ref(ref_id, sizeof(ref_id), data + vs + 1, vl - 1);
+          if (svg_find_element_by_id(data, size, ref_id, &ref_start, &ref_end) ==
+              0) {
+            use_transform = svg_transform_multiply(
+                transform, svg_transform_translate(use_x, use_y));
+            svg_render_referenced_element_internal(
+                ctx, data, size, ref_start, ref_end, &style, use_transform,
+                viewport_w, viewport_h, viewport_diag, child_use_w, child_use_h,
+                depth + 1);
+          }
+        }
+        continue;
+      }
+
+      svg_render_referenced_element_internal(
+          ctx, data, size, child_start, child_end, &style, transform,
+          viewport_w, viewport_h, viewport_diag, -1.0, -1.0, depth + 1);
+    }
+    return 1;
+  }
+
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "use")) {
+    size_t vs = 0, vl = 0;
+    double use_x = 0.0, use_y = 0.0;
+    double child_use_w = -1.0, child_use_h = -1.0;
+    size_t ref_tag_start = 0, ref_tag_end = 0;
+    svg_transform_t use_transform;
+
+    if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &use_x);
+    if (svg_find_attr(data, tag_start, tag_end, "y", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &use_y);
+    if (svg_find_attr(data, tag_start, tag_end, "width", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &child_use_w);
+    if (svg_find_attr(data, tag_start, tag_end, "height", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &child_use_h);
+    if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
+         svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
+        vl > 1 && data[vs] == '#') {
+      char ref_id[32];
+      svg_copy_ref(ref_id, sizeof(ref_id), data + vs + 1, vl - 1);
+      if (svg_find_element_by_id(data, size, ref_id, &ref_tag_start,
+                                 &ref_tag_end) == 0) {
+        if (!svg_style_is_visible(&style))
+          return 1;
+        use_transform = svg_transform_multiply(
+            transform, svg_transform_translate(use_x, use_y));
+        return svg_render_referenced_element_internal(
+            ctx, data, size, ref_tag_start, ref_tag_end, &style, use_transform,
+            viewport_w, viewport_h, viewport_diag, child_use_w, child_use_h,
+            depth + 1);
+      }
+    }
+    return 0;
+  }
+
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "path")) {
+    size_t vs = 0, vl = 0;
+    svg_path_buffer_t buf = {0};
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "d", &vs, &vl) == 0 &&
+        svg_parse_path_data(data + vs, vl, &buf) == 0)
+      svg_render_path_buffer(ctx, &buf, &style, transform);
+    svg_path_buffer_free(&buf);
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "polyline") ||
+      media_bytes_starts_with(data, tag_end, tag_start + 1, "polygon")) {
+    size_t vs = 0, vl = 0;
+    svg_path_buffer_t buf = {0};
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "points", &vs, &vl) == 0) {
+      svg_parse_points_list(data + vs, vl, &buf,
+                            media_bytes_starts_with(data, tag_end, tag_start + 1,
+                                                    "polygon"));
+      svg_render_path_buffer(ctx, &buf, &style, transform);
+    }
+    svg_path_buffer_free(&buf);
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "line")) {
+    double x1 = 0.0, y1 = 0.0, x2 = 0.0, y2 = 0.0;
+    size_t vs = 0, vl = 0;
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "x1", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &x1);
+    if (svg_find_attr(data, tag_start, tag_end, "y1", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &y1);
+    if (svg_find_attr(data, tag_start, tag_end, "x2", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &x2);
+    if (svg_find_attr(data, tag_start, tag_end, "y2", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &y2);
+    {
+      svg_point_t a = svg_transform_point(transform, (svg_point_t){x1, y1});
+      svg_point_t b = svg_transform_point(transform, (svg_point_t){x2, y2});
+      if (style.stroke_dash_count > 0) {
+        int dash_index = 0;
+        double dash_remaining = 0.0;
+        int dash_draw = 1;
+        svg_dash_init(&style, &dash_index, &dash_remaining, &dash_draw);
+        svg_stroke_segment_dashed(ctx, a, b, &style, transform, svg_min(x1, x2),
+                                  svg_min(y1, y2), svg_absd(x2 - x1),
+                                  svg_absd(y2 - y1), &dash_index,
+                                  &dash_remaining, &dash_draw);
+      } else {
+        svg_stroke_segment(ctx, a, b, &style, transform, 1, 1,
+                           svg_min(x1, x2), svg_min(y1, y2), svg_absd(x2 - x1),
+                           svg_absd(y2 - y1));
+      }
+    }
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "rect")) {
+    double x = 0.0, y = 0.0, w = 0.0, h = 0.0, rx = 0.0, ry = 0.0;
+    size_t vs = 0, vl = 0;
+    svg_path_buffer_t buf = {0};
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &x);
+    if (svg_find_attr(data, tag_start, tag_end, "y", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &y);
+    if (svg_find_attr(data, tag_start, tag_end, "width", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &w);
+    if (svg_find_attr(data, tag_start, tag_end, "height", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &h);
+    if (svg_find_attr(data, tag_start, tag_end, "rx", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &rx);
+    if (svg_find_attr(data, tag_start, tag_end, "ry", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &ry);
+    if (rx > 0.0 && ry <= 0.0)
+      ry = rx;
+    if (ry > 0.0 && rx <= 0.0)
+      rx = ry;
+    rx = svg_clamp(rx, 0.0, w * 0.5);
+    ry = svg_clamp(ry, 0.0, h * 0.5);
+    if (rx > 0.0 && ry > 0.0) {
+      svg_append_rounded_rect(&buf, x, y, w, h, rx, ry);
+    } else {
+      svg_path_buffer_append(&buf, (svg_point_t){x, y}, 1, 0);
+      svg_path_buffer_append(&buf, (svg_point_t){x + w, y}, 0, 0);
+      svg_path_buffer_append(&buf, (svg_point_t){x + w, y + h}, 0, 0);
+      svg_path_buffer_append(&buf, (svg_point_t){x, y + h}, 0, 1);
+    }
+    svg_render_path_buffer(ctx, &buf, &style, transform);
+    svg_path_buffer_free(&buf);
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "circle")) {
+    double cx = 0.0, cy = 0.0, r = 0.0;
+    double local_r;
+    size_t vs = 0, vl = 0;
+    svg_point_t center, edge;
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &cx);
+    if (svg_find_attr(data, tag_start, tag_end, "cy", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &cy);
+    if (svg_find_attr(data, tag_start, tag_end, "r", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_diag, &r);
+    local_r = r;
+    center = svg_transform_point(transform, (svg_point_t){cx, cy});
+    edge = svg_transform_point(transform, (svg_point_t){cx + r, cy});
+    r = svg_absd(edge.x - center.x);
+    if (style.fill.kind != SVG_PAINT_NONE)
+      svg_draw_disc(ctx, center.x, center.y, r, &style.fill,
+                    svg_fill_alpha_mul(&style), transform, cx - local_r,
+                    cy - local_r, local_r * 2.0, local_r * 2.0);
+    if (style.stroke.kind != SVG_PAINT_NONE && style.stroke_width > 0.0) {
+      double outer = r + style.stroke_width * 0.5;
+      double inner = r - style.stroke_width * 0.5;
+      int min_x = (int)(center.x - outer - 1.0);
+      int max_x = (int)(center.x + outer + 1.0);
+      int min_y = (int)(center.y - outer - 1.0);
+      int max_y = (int)(center.y + outer + 1.0);
+      double o2 = outer * outer;
+      double i2 = inner > 0.0 ? inner * inner : 0.0;
+      for (int py = min_y; py <= max_y; py++) {
+        for (int px = min_x; px <= max_x; px++) {
+          double dx = ((double)px + 0.5) - center.x;
+          double dy = ((double)py + 0.5) - center.y;
+          double d2 = dx * dx + dy * dy;
+          if (d2 <= o2 && d2 >= i2) {
+            uint32_t color;
+            uint8_t alpha;
+            svg_sample_paint(ctx, &style.stroke, transform, (double)px + 0.5,
+                             (double)py + 0.5, cx - local_r, cy - local_r,
+                             local_r * 2.0, local_r * 2.0, &color, &alpha);
+            alpha = svg_multiply_alpha(alpha, svg_stroke_alpha_mul(&style));
+            svg_blend_pixel(&ctx->image, px, py, color, alpha);
+          }
+        }
+      }
+    }
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "ellipse")) {
+    double cx = 0.0, cy = 0.0, rx = 0.0, ry = 0.0;
+    size_t vs = 0, vl = 0;
+    svg_point_t center, edge_x, edge_y;
+    double radius_x, radius_y;
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &cx);
+    if (svg_find_attr(data, tag_start, tag_end, "cy", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &cy);
+    if (svg_find_attr(data, tag_start, tag_end, "rx", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &rx);
+    if (svg_find_attr(data, tag_start, tag_end, "ry", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &ry);
+    center = svg_transform_point(transform, (svg_point_t){cx, cy});
+    edge_x = svg_transform_point(transform, (svg_point_t){cx + rx, cy});
+    edge_y = svg_transform_point(transform, (svg_point_t){cx, cy + ry});
+    radius_x = svg_absd(edge_x.x - center.x);
+    radius_y = svg_absd(edge_y.y - center.y);
+    if (radius_x > 0.0 && radius_y > 0.0) {
+      int min_x = (int)(center.x - radius_x - style.stroke_width - 1.0);
+      int max_x = (int)(center.x + radius_x + style.stroke_width + 1.0);
+      int min_y = (int)(center.y - radius_y - style.stroke_width - 1.0);
+      int max_y = (int)(center.y + radius_y + style.stroke_width + 1.0);
+      double inner_rx = radius_x - style.stroke_width * 0.5;
+      double inner_ry = radius_y - style.stroke_width * 0.5;
+      double outer_rx = radius_x + style.stroke_width * 0.5;
+      double outer_ry = radius_y + style.stroke_width * 0.5;
+      for (int py = min_y; py <= max_y; py++) {
+        for (int px = min_x; px <= max_x; px++) {
+          double dx = (((double)px + 0.5) - center.x) / radius_x;
+          double dy = (((double)py + 0.5) - center.y) / radius_y;
+          double dist = dx * dx + dy * dy;
+          if (style.fill.kind != SVG_PAINT_NONE && dist <= 1.0) {
+            uint32_t color;
+            uint8_t alpha;
+            svg_sample_paint(ctx, &style.fill, transform, (double)px + 0.5,
+                             (double)py + 0.5, cx - rx, cy - ry, rx * 2.0,
+                             ry * 2.0, &color, &alpha);
+            alpha = svg_multiply_alpha(alpha, svg_fill_alpha_mul(&style));
+            svg_blend_pixel(&ctx->image, px, py, color, alpha);
+          }
+          if (style.stroke.kind != SVG_PAINT_NONE &&
+              style.stroke_width > 0.0) {
+            double inner_dist = 0.0;
+            double outer_dist;
+            uint32_t color;
+            uint8_t alpha;
+            if (outer_rx <= 0.0 || outer_ry <= 0.0)
+              continue;
+            outer_dist = ((((double)px + 0.5) - center.x) / outer_rx) *
+                         ((((double)px + 0.5) - center.x) / outer_rx) +
+                         ((((double)py + 0.5) - center.y) / outer_ry) *
+                         ((((double)py + 0.5) - center.y) / outer_ry);
+            if (inner_rx > 0.0 && inner_ry > 0.0) {
+              inner_dist = ((((double)px + 0.5) - center.x) / inner_rx) *
+                           ((((double)px + 0.5) - center.x) / inner_rx) +
+                           ((((double)py + 0.5) - center.y) / inner_ry) *
+                           ((((double)py + 0.5) - center.y) / inner_ry);
+            }
+            if (outer_dist <= 1.0 && (inner_rx <= 0.0 || inner_ry <= 0.0 ||
+                                      inner_dist >= 1.0)) {
+              svg_sample_paint(ctx, &style.stroke, transform, (double)px + 0.5,
+                               (double)py + 0.5, cx - rx, cy - ry, rx * 2.0,
+                               ry * 2.0, &color, &alpha);
+              alpha = svg_multiply_alpha(alpha, svg_stroke_alpha_mul(&style));
+              svg_blend_pixel(&ctx->image, px, py, color, alpha);
+            }
+          }
+        }
+      }
+    }
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "image")) {
+    size_t vs = 0, vl = 0;
+    double x = 0.0, y = 0.0, w = 0.0, h = 0.0;
+    double draw_x, draw_y, draw_w, draw_h;
+    double src_x = 0.0, src_y = 0.0;
+    double src_w, src_h;
+    int align_x = 1, align_y = 1, meet_mode = 1, preserve_none = 0;
+    media_image_t embedded = {0};
+    if (!svg_style_is_visible(&style))
+      return 1;
+    if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &x);
+    if (svg_find_attr(data, tag_start, tag_end, "y", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &y);
+    if (svg_find_attr(data, tag_start, tag_end, "width", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_w, &w);
+    if (svg_find_attr(data, tag_start, tag_end, "height", &vs, &vl) == 0)
+      svg_parse_length_number(data, vs, vl, viewport_h, &h);
+    if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
+         svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
+        svg_decode_data_uri_image(data + vs, vl, &embedded) == 0) {
+      svg_point_t p = svg_transform_point(transform, (svg_point_t){x, y});
+      draw_x = p.x;
+      draw_y = p.y;
+      draw_w = w > 0.0 ? w * transform.a : (double)embedded.width;
+      draw_h = h > 0.0 ? h * transform.d : (double)embedded.height;
+      src_w = (double)embedded.width;
+      src_h = (double)embedded.height;
+      svg_parse_preserve_aspect_ratio(data, tag_start, tag_end, &align_x,
+                                      &align_y, &meet_mode, &preserve_none);
+      if (!preserve_none && draw_w > 0.0 && draw_h > 0.0 && src_w > 0.0 &&
+          src_h > 0.0) {
+        double scale_x = draw_w / src_w;
+        double scale_y = draw_h / src_h;
+        if (meet_mode) {
+          double scale = svg_min(scale_x, scale_y);
+          double fit_w = src_w * scale;
+          double fit_h = src_h * scale;
+          double extra_x = draw_w - fit_w;
+          double extra_y = draw_h - fit_h;
+          draw_w = fit_w;
+          draw_h = fit_h;
+          if (align_x == 1)
+            draw_x += extra_x * 0.5;
+          else if (align_x == 2)
+            draw_x += extra_x;
+          if (align_y == 1)
+            draw_y += extra_y * 0.5;
+          else if (align_y == 2)
+            draw_y += extra_y;
+        } else {
+          double scale = svg_max(scale_x, scale_y);
+          double crop_w = draw_w / scale;
+          double crop_h = draw_h / scale;
+          double extra_x = src_w - crop_w;
+          double extra_y = src_h - crop_h;
+          src_w = crop_w;
+          src_h = crop_h;
+          if (align_x == 1)
+            src_x += extra_x * 0.5;
+          else if (align_x == 2)
+            src_x += extra_x;
+          if (align_y == 1)
+            src_y += extra_y * 0.5;
+          else if (align_y == 2)
+            src_y += extra_y;
+        }
+      }
+      if (draw_w < 0.0) {
+        draw_x += draw_w;
+        draw_w = -draw_w;
+      }
+      if (draw_h < 0.0) {
+        draw_y += draw_h;
+        draw_h = -draw_h;
+      }
+      svg_blit_image_region(ctx, &embedded, draw_x, draw_y, draw_w, draw_h,
+                            src_x, src_y, src_w, src_h, style.opacity);
+      media_free_image(&embedded);
+    }
+    return 1;
+  }
+  if (media_bytes_starts_with(data, tag_end, tag_start + 1, "text")) {
+    size_t consumed_end = tag_end;
+    svg_render_text_element(ctx, data, size, tag_start, tag_end, &consumed_end,
+                            &style, transform);
+    return 1;
+  }
+
+  return 0;
+}
+
+static int svg_render_referenced_element(svg_render_ctx_t *ctx,
+                                         const uint8_t *data, size_t size,
+                                         size_t tag_start, size_t tag_end,
+                                         const svg_style_t *base_style,
+                                         svg_transform_t base_transform,
+                                         double viewport_w, double viewport_h,
+                                         double viewport_diag) {
+  return svg_render_referenced_element_internal(
+      ctx, data, size, tag_start, tag_end, base_style, base_transform,
+      viewport_w, viewport_h, viewport_diag, -1.0, -1.0, 0);
 }
 
 static int media_decode_svg_vector(const uint8_t *data, size_t size,
@@ -4610,6 +5514,29 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
       continue;
     }
 
+    if (media_bytes_starts_with(data, tag_end, tag_start + 1, "svg") &&
+        tag_start != svg_start) {
+      size_t close_start = 0, close_end = 0;
+
+      svg_render_referenced_element_internal(
+          &ctx, data, size, tag_start, tag_end, &style_stack[sp],
+          transform_stack[sp], viewport_w,
+          viewport_h, viewport_diag, -1.0, -1.0, 0);
+      if (svg_find_closing_tag(data, size, tag_end + 1, "svg", &close_start,
+                               &close_end) == 0)
+        i = close_end;
+      continue;
+    }
+
+    if (media_bytes_starts_with(data, tag_end, tag_start + 1, "symbol")) {
+      size_t close_start = 0, close_end = 0;
+
+      if (svg_find_closing_tag(data, size, tag_end + 1, "symbol", &close_start,
+                               &close_end) == 0)
+        i = close_end;
+      continue;
+    }
+
     if (media_bytes_starts_with(data, tag_end, tag_start + 1, "g") ||
         media_bytes_starts_with(data, tag_end, tag_start + 1, "svg")) {
       if (sp + 1 < 16) {
@@ -4630,9 +5557,57 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
                                  svg_parse_transform_attr(data, tag_start, tag_end));
       svg_apply_style_attrs(data, tag_start, tag_end, &style);
 
+      if (media_bytes_starts_with(data, tag_end, tag_start + 1, "text")) {
+        size_t consumed_end = tag_end;
+        svg_render_text_element(&ctx, data, size, tag_start, tag_end,
+                                &consumed_end, &style, transform);
+        i = consumed_end;
+        continue;
+      }
+
+      if (!svg_style_is_displayed(&style))
+        continue;
+
+      if (media_bytes_starts_with(data, tag_end, tag_start + 1, "use")) {
+        size_t vs = 0, vl = 0;
+        double use_x = 0.0, use_y = 0.0;
+        double child_use_w = -1.0, child_use_h = -1.0;
+        size_t ref_tag_start = 0, ref_tag_end = 0;
+        svg_transform_t use_transform;
+
+        if (!svg_style_is_visible(&style))
+          continue;
+        if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_w, &use_x);
+        if (svg_find_attr(data, tag_start, tag_end, "y", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_h, &use_y);
+        if (svg_find_attr(data, tag_start, tag_end, "width", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_w, &child_use_w);
+        if (svg_find_attr(data, tag_start, tag_end, "height", &vs, &vl) == 0)
+          svg_parse_length_number(data, vs, vl, viewport_h, &child_use_h);
+        if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
+             svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
+            vl > 1 && data[vs] == '#') {
+          char ref_id[32];
+          svg_copy_ref(ref_id, sizeof(ref_id), data + vs + 1, vl - 1);
+          if (svg_find_element_by_id(data, size, ref_id, &ref_tag_start,
+                                     &ref_tag_end) == 0) {
+            use_transform = svg_transform_multiply(
+                transform, svg_transform_translate(use_x, use_y));
+            svg_render_referenced_element_internal(
+                &ctx, data, size, ref_tag_start, ref_tag_end, &style,
+                use_transform, viewport_w, viewport_h, viewport_diag,
+                child_use_w, child_use_h, 0);
+          }
+        }
+        continue;
+      }
+
       if (media_bytes_starts_with(data, tag_end, tag_start + 1, "path")) {
         size_t vs = 0, vl = 0;
         svg_path_buffer_t buf = {0};
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "d", &vs, &vl) == 0 &&
             svg_parse_path_data(data + vs, vl, &buf) == 0)
           svg_render_path_buffer(&ctx, &buf, &style, transform);
@@ -4641,6 +5616,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
                  media_bytes_starts_with(data, tag_end, tag_start + 1, "polygon")) {
         size_t vs = 0, vl = 0;
         svg_path_buffer_t buf = {0};
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "points", &vs, &vl) == 0) {
           svg_parse_points_list(data + vs, vl, &buf,
                                 media_bytes_starts_with(data, tag_end, tag_start + 1,
@@ -4651,6 +5628,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "line")) {
         double x1 = 0.0, y1 = 0.0, x2 = 0.0, y2 = 0.0;
         size_t vs = 0, vl = 0, pos;
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "x1", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_w, &x1);
         }
@@ -4685,6 +5664,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         double x = 0.0, y = 0.0, w = 0.0, h = 0.0, rx = 0.0, ry = 0.0;
         size_t vs = 0, vl = 0;
         svg_path_buffer_t buf = {0};
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_w, &x);
         }
@@ -4724,6 +5705,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         double local_r;
         size_t vs = 0, vl = 0;
         svg_point_t center, edge;
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_w, &cx);
         }
@@ -4773,6 +5756,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         size_t vs = 0, vl = 0;
         svg_point_t center, edge_x, edge_y;
         double radius_x, radius_y;
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_w, &cx);
         }
@@ -4852,6 +5837,8 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         double src_w, src_h;
         int align_x = 1, align_y = 1, meet_mode = 1, preserve_none = 0;
         media_image_t embedded = {0};
+        if (!svg_style_is_visible(&style))
+          continue;
         if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0) {
           svg_parse_length_number(data, vs, vl, viewport_w, &x);
         }
@@ -4923,14 +5910,9 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
             draw_h = -draw_h;
           }
           svg_blit_image_region(&ctx, &embedded, draw_x, draw_y, draw_w, draw_h,
-                                src_x, src_y, src_w, src_h);
+                                src_x, src_y, src_w, src_h, style.opacity);
           media_free_image(&embedded);
         }
-      } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "text")) {
-        size_t consumed_end = tag_end;
-        svg_render_text_element(&ctx, data, size, tag_start, tag_end,
-                                &consumed_end, &style, transform);
-        i = consumed_end;
       }
     }
   }
