@@ -33,6 +33,10 @@ extern const unsigned int bootstrap_default_svg_len;
 
 extern const unsigned char bootstrap_cursor_svg[];
 extern const unsigned int bootstrap_cursor_svg_len;
+extern const uint32_t bootstrap_cursor_rgba[];
+extern const unsigned int bootstrap_cursor_rgba_len;
+extern const unsigned int bootstrap_cursor_width;
+extern const unsigned int bootstrap_cursor_height;
 
 /* Real photos from the internet */
 extern const unsigned char bootstrap_nature_jpg[];

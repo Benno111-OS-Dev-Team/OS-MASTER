@@ -65,6 +65,9 @@ static void gui_fill_rect_alpha(int x, int y, int w, int h, uint32_t color);
 static void gui_draw_glass_panel(int x, int y, int w, int h, uint32_t tint,
                                  uint32_t glow, uint32_t border,
                                  int blur_stride);
+static uint32_t gui_make_opaque_color(uint32_t color);
+static void gui_fill_visual_effect_rect(int x, int y, int w, int h,
+                                        uint32_t color);
 static uint32_t gui_contrast_title_color(uint32_t rgb);
 static void draw_rounded_rect(int x, int y, int w, int h, int r,
                               uint32_t color);
@@ -171,12 +174,22 @@ int gui_set_resolution(uint32_t width, uint32_t height);
 int gui_save_resolution_preference(uint32_t width, uint32_t height);
 void gui_start_partial_redraw_clear_debug(void);
 int gui_partial_redraw_clear_debug_enabled(void);
+static const char *gui_blur_effects_button_label(void);
+static const char *gui_blur_effects_status_label(void);
+static const char *gui_blur_effects_detail_message(void);
+static void gui_cycle_blur_effects_mode(void);
 static void compositor_mark_screen_rect_dirty(void);
 static inline void fast_memcpy_line(uint32_t *dst, uint32_t *src, int width);
 static inline void fast_fill_line(uint32_t *dst, int width, uint32_t color);
 
 /* Blur/compositor state is defined later but used by early draw helpers. */
-static int g_blur_effects_requested;
+typedef enum {
+  GUI_BLUR_EFFECTS_OFF = 0,
+  GUI_BLUR_EFFECTS_AUTO = 1,
+  GUI_BLUR_EFFECTS_FORCE = 2
+} gui_blur_effects_mode_t;
+
+static gui_blur_effects_mode_t g_blur_effects_mode;
 static int g_blur_effects_enabled;
 static int g_partial_redraw_clear_debug_frames;
 static char g_gpu_backend_name[32];
@@ -3144,11 +3157,20 @@ static void gui_draw_glass_panel(int x, int y, int w, int h, uint32_t tint,
     if (blur_stride > 0)
       gui_apply_backdrop_blur(x, y, w, h, blur_stride);
   }
-  gui_fill_rect_alpha(x, y, w, h, tint);
-  gui_fill_rect_alpha(x, y, w, 1, glow);
-  gui_fill_rect_alpha(x, y, 1, h, glow);
-  gui_fill_rect_alpha(x, y + h - 1, w, 1, border);
-  gui_fill_rect_alpha(x + w - 1, y, 1, h, border);
+  if (g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF) {
+    gui_fill_rect_alpha(x, y, w, h, tint);
+    gui_fill_rect_alpha(x, y, w, 1, glow);
+    gui_fill_rect_alpha(x, y, 1, h, glow);
+    gui_fill_rect_alpha(x, y + h - 1, w, 1, border);
+    gui_fill_rect_alpha(x + w - 1, y, 1, h, border);
+    return;
+  }
+
+  gui_draw_rect(x, y, w, h, gui_make_opaque_color(tint));
+  gui_draw_rect(x, y, w, 1, gui_make_opaque_color(glow));
+  gui_draw_rect(x, y, 1, h, gui_make_opaque_color(glow));
+  gui_draw_rect(x, y + h - 1, w, 1, gui_make_opaque_color(border));
+  gui_draw_rect(x + w - 1, y, 1, h, gui_make_opaque_color(border));
 }
 
 typedef enum {
@@ -3160,6 +3182,20 @@ typedef enum {
 
 static uint32_t gui_argb(uint8_t alpha, uint32_t rgb) {
   return ((uint32_t)alpha << 24) | (rgb & 0xFFFFFF);
+}
+
+static uint32_t gui_make_opaque_color(uint32_t color) {
+  return 0xFF000000 | (color & 0x00FFFFFF);
+}
+
+static void gui_fill_visual_effect_rect(int x, int y, int w, int h,
+                                        uint32_t color) {
+  if (g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF) {
+    gui_fill_rect_alpha(x, y, w, h, color);
+    return;
+  }
+
+  gui_draw_rect(x, y, w, h, gui_make_opaque_color(color));
 }
 
 static void gui_draw_system_button(int x, int y, int w, int h,
@@ -4184,12 +4220,13 @@ static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
   skin.button_texture = SKIN_TEXTURE_GLASS;
   skin.button_texture_strength = 0.18f;
   skin.border_blur = g_blur_effects_enabled ? 10.0f : 0.0f;
-  skin.border_transparency = 0.82f;
+  skin.border_transparency =
+      g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF ? 0.82f : 1.0f;
   skin.border_reflection = 0.26f;
   skin.buttons_on_left = true;
   skin.show_icon = false;
   skin.show_title = win->has_titlebar;
-  skin.translucent_titlebar = true;
+  skin.translucent_titlebar = g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF;
 
   skin.button_order[0] = SKIN_BUTTON_CLOSE;
   skin.button_order[1] = SKIN_BUTTON_MINIMIZE;
@@ -4204,7 +4241,8 @@ static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
     skin.metrics.shadow_size = 8;
     skin.button_texture = SKIN_TEXTURE_NONE;
     skin.button_texture_strength = 0.0f;
-    skin.border_transparency = 0.92f;
+    skin.border_transparency =
+        g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF ? 0.92f : 1.0f;
     skin.border_reflection = 0.10f;
   } else if (win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
     skin.metrics.border_left = 1;
@@ -4226,16 +4264,29 @@ static WindowSkin gui_newwindows_skin_for_window(const struct window *win) {
     skin.translucent_titlebar = false;
   }
 
-  skin.colors.frame = gui_skin_color_from_u32(win->focused
-                                                  ? theme->window_glass_focused
-                                                  : theme->window_glass_inactive);
+  skin.colors.frame = gui_skin_color_from_u32(
+      g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF
+          ? (win->focused ? theme->window_glass_focused
+                          : theme->window_glass_inactive)
+          : gui_make_opaque_color(win->focused ? theme->window_glass_focused
+                                               : theme->window_glass_inactive));
   skin.colors.frame_inactive =
-      gui_skin_color_from_u32(theme->window_glass_inactive);
+      gui_skin_color_from_u32(g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF
+                                  ? theme->window_glass_inactive
+                                  : gui_make_opaque_color(
+                                        theme->window_glass_inactive));
   skin.colors.titlebar =
-      gui_skin_color_from_u32(win->focused ? theme->title_tint_focused
-                                           : theme->title_tint_inactive);
+      gui_skin_color_from_u32(g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF
+                                  ? (win->focused ? theme->title_tint_focused
+                                                  : theme->title_tint_inactive)
+                                  : gui_make_opaque_color(
+                                        win->focused ? theme->title_tint_focused
+                                                     : theme->title_tint_inactive));
   skin.colors.titlebar_inactive =
-      gui_skin_color_from_u32(theme->title_tint_inactive);
+      gui_skin_color_from_u32(g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF
+                                  ? theme->title_tint_inactive
+                                  : gui_make_opaque_color(
+                                        theme->title_tint_inactive));
   skin.colors.title_text = gui_skin_color_from_u32(theme->settings_text);
   skin.colors.title_text_inactive =
       gui_skin_color_from_u32(theme->settings_subtext);
@@ -4814,7 +4865,7 @@ static int gui_load_saved_resolution(uint32_t *width, uint32_t *height) {
 }
 
 int gui_save_resolution_preference(uint32_t width, uint32_t height) {
-  char manifest[96];
+  char manifest[128];
   int idx = 0;
 
   if (!gui_is_supported_resolution(width, height))
@@ -4829,6 +4880,17 @@ int gui_save_resolution_preference(uint32_t width, uint32_t height) {
   for (const char *p = "height="; *p && idx < (int)sizeof(manifest) - 1; p++)
     manifest[idx++] = *p;
   append_decimal(manifest, &idx, (int)height);
+  manifest[idx++] = '\n';
+  for (const char *p = "blur="; *p && idx < (int)sizeof(manifest) - 1; p++)
+    manifest[idx++] = *p;
+  {
+    const char *mode =
+        g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE
+            ? "force"
+            : (g_blur_effects_mode == GUI_BLUR_EFFECTS_OFF ? "off" : "auto");
+    for (const char *p = mode; *p && idx < (int)sizeof(manifest) - 1; p++)
+      manifest[idx++] = *p;
+  }
   manifest[idx++] = '\n';
   manifest[idx] = '\0';
 
@@ -13297,17 +13359,28 @@ static void draw_window_internal(struct window *win) {
                                 title_blur_stride);
       }
     }
-    /* Base translucent tint */
-    gui_fill_rect_alpha(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
-                        win->focused ? theme->title_tint_focused
-                                     : theme->title_tint_inactive);
-    /* Secondary glass veil to keep transparency visible over bright content */
-    gui_fill_rect_alpha(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
-                        win->focused ? theme->title_veil_focused
-                                     : theme->title_veil_inactive);
-    gui_fill_rect_alpha(title_x0, title_y0, title_w, 1, theme->title_line_top);
-    gui_fill_rect_alpha(title_x0, title_y0 + TITLEBAR_HEIGHT - 1, title_w, 1,
-                        theme->title_line_bottom);
+    if (g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF) {
+      /* Base translucent tint */
+      gui_fill_rect_alpha(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
+                          win->focused ? theme->title_tint_focused
+                                       : theme->title_tint_inactive);
+      /* Secondary glass veil to keep transparency visible over bright content */
+      gui_fill_rect_alpha(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
+                          win->focused ? theme->title_veil_focused
+                                       : theme->title_veil_inactive);
+      gui_fill_rect_alpha(title_x0, title_y0, title_w, 1, theme->title_line_top);
+      gui_fill_rect_alpha(title_x0, title_y0 + TITLEBAR_HEIGHT - 1, title_w, 1,
+                          theme->title_line_bottom);
+    } else {
+      gui_draw_rect(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
+                    gui_make_opaque_color(win->focused
+                                              ? theme->title_tint_focused
+                                              : theme->title_tint_inactive));
+      gui_draw_rect(title_x0, title_y0, title_w, 1,
+                    gui_make_opaque_color(theme->title_line_top));
+      gui_draw_rect(title_x0, title_y0 + TITLEBAR_HEIGHT - 1, title_w, 1,
+                    gui_make_opaque_color(theme->title_line_bottom));
+    }
 
     /* Traffic light buttons on LEFT side - Modern rounded */
     int btn_cx = x + BORDER_WIDTH + 16; /* First circle center X */
@@ -13380,15 +13453,18 @@ static void draw_window_internal(struct window *win) {
       win->chrome_kind == GUI_WINDOW_CHROME_FRAMEBUFFER) {
     gui_draw_rect(content_x, content_y, content_w, content_h, 0x000000);
   } else if (win->layout_kind == GUI_WINDOW_LAYOUT_SCROLL) {
-    gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0xA01A1F2D);
-    gui_fill_rect_alpha(content_x + content_w - 12, content_y + 8, 4,
-                        content_h - 16, 0x304B5563);
+    gui_fill_visual_effect_rect(content_x, content_y, content_w, content_h,
+                                0xA01A1F2D);
+    gui_fill_visual_effect_rect(content_x + content_w - 12, content_y + 8, 4,
+                                content_h - 16, 0x304B5563);
   } else if (win->layout_kind == GUI_WINDOW_LAYOUT_BUTTONS) {
-    gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0xB01A1A1E);
-    gui_fill_rect_alpha(content_x, content_y, content_w, 1, 0x30FFFFFF);
+    gui_fill_visual_effect_rect(content_x, content_y, content_w, content_h,
+                                0xB01A1A1E);
+    gui_fill_visual_effect_rect(content_x, content_y, content_w, 1, 0x30FFFFFF);
   } else {
-    gui_fill_rect_alpha(content_x, content_y, content_w, content_h, 0x98171A26);
-    gui_fill_rect_alpha(content_x, content_y, content_w, 1, 0x28FFFFFF);
+    gui_fill_visual_effect_rect(content_x, content_y, content_w, content_h,
+                                0x98171A26);
+    gui_fill_visual_effect_rect(content_x, content_y, content_w, 1, 0x28FFFFFF);
   }
 
   /* Draw window-specific content based on title */
@@ -13942,13 +14018,7 @@ static void draw_window_internal(struct window *win) {
     } else {
       gpu_status = "Software rendering active";
     }
-    if (gui_are_blur_effects_enabled()) {
-      blur_status = "Blur enabled";
-    } else if (gui_blur_effects_requested()) {
-      blur_status = "Blur unavailable";
-    } else {
-      blur_status = "Blur disabled";
-    }
+    blur_status = gui_blur_effects_status_label();
 
     gui_draw_rect(content_x, content_y, content_w, content_h, theme->about_bg);
     gui_draw_rect(hero_x, hero_y, hero_w, hero_h, theme->about_hero);
@@ -14089,13 +14159,7 @@ static void draw_window_internal(struct window *win) {
       if (app_is_installed(&app_catalog[i]))
         installed_apps++;
     }
-    if (gui_are_blur_effects_enabled()) {
-      blur_status = "Blur: On";
-    } else if (gui_blur_effects_requested()) {
-      blur_status = "Blur: Auto-disabled on this GPU";
-    } else {
-      blur_status = "Blur: Off";
-    }
+    blur_status = gui_blur_effects_status_label();
     if (gui_is_gpu_rendering_enabled()) {
       gpu_status = "GPU rendering active";
     } else if (str_cmp(g_gpu_backend_name, "bochs-vbe") == 0) {
@@ -14553,9 +14617,12 @@ static void draw_window_internal(struct window *win) {
       gui_draw_system_button(panel_x + 8, resolution_card_y + 66, 90, 24,
                              "Wallpapers", GUI_BUTTON_PRIMARY, 1, 0);
       gui_draw_system_button(panel_x + 106, resolution_card_y + 66, 90, 24,
-                             gui_blur_effects_requested() ? "Blur On" : "Blur Off",
-                             gui_blur_effects_requested() ? GUI_BUTTON_PRIMARY
-                                                          : GUI_BUTTON_NEUTRAL,
+                             gui_blur_effects_button_label(),
+                             g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE
+                                 ? GUI_BUTTON_SUCCESS
+                                 : (gui_blur_effects_requested()
+                                        ? GUI_BUTTON_PRIMARY
+                                        : GUI_BUTTON_NEUTRAL),
                              1, gui_blur_effects_requested());
       gui_draw_system_button(panel_x + 204, resolution_card_y + 66, 90, 24,
                              gui_is_gpu_rendering_enabled() ? "GPU On" : "GPU Off",
@@ -15581,13 +15648,7 @@ static void draw_window_internal(struct window *win) {
                                          : "Scaled to cover the desktop surface.")
                                   : "Gradient colors render directly on the framebuffer.";
 
-    if (gui_are_blur_effects_enabled()) {
-      blur_picker_status = "Blur: On";
-    } else if (gui_blur_effects_requested()) {
-      blur_picker_status = "Blur: Auto-disabled on this GPU";
-    } else {
-      blur_picker_status = "Blur: Off";
-    }
+    blur_picker_status = gui_blur_effects_status_label();
 
     gui_draw_rect(content_x, content_y, content_w, content_h, 0x5E616A);
     gui_draw_rect(content_x, content_y, content_w, header_h, 0x27272A);
@@ -16620,12 +16681,13 @@ static void draw_main_menu_panel(void) {
 
   gui_draw_glass_panel(panel_x, panel_y, panel_w, panel_h, theme->menu_tint,
                        theme->menu_glow, theme->menu_border, 2);
-  gui_fill_rect_alpha(panel_x + BORDER_WIDTH, panel_y + BORDER_WIDTH,
-                      panel_w - BORDER_WIDTH * 2, TITLEBAR_HEIGHT,
-                      theme->menu_title);
-  gui_fill_rect_alpha(panel_x + BORDER_WIDTH,
-                      panel_y + BORDER_WIDTH + TITLEBAR_HEIGHT - 1,
-                      panel_w - BORDER_WIDTH * 2, 1, theme->title_line_top);
+  gui_fill_visual_effect_rect(panel_x + BORDER_WIDTH, panel_y + BORDER_WIDTH,
+                              panel_w - BORDER_WIDTH * 2, TITLEBAR_HEIGHT,
+                              theme->menu_title);
+  gui_fill_visual_effect_rect(panel_x + BORDER_WIDTH,
+                              panel_y + BORDER_WIDTH + TITLEBAR_HEIGHT - 1,
+                              panel_w - BORDER_WIDTH * 2, 1,
+                              theme->title_line_top);
 
   gui_draw_string(panel_x + 21, panel_y + 8, "OS 8", 0xFFF7FBFF,
                   0x00000000);
@@ -18298,7 +18360,9 @@ static int g_frame_count = 0;
 #define GUI_BOOT_FULL_REDRAW_FRAMES 300
 #define GUI_PARTIAL_REDRAW_CLEAR_DEBUG_FRAMES 180
 static int g_gpu_rendering_enabled = 0;
-static int g_blur_effects_requested = 1;
+static gui_blur_effects_mode_t g_blur_effects_mode = GUI_BLUR_EFFECTS_AUTO;
+static gui_blur_effects_mode_t g_blur_effects_applied_mode =
+    GUI_BLUR_EFFECTS_AUTO;
 static int g_blur_effects_enabled = 0;
 static int g_partial_redraw_clear_debug_frames = 0;
 static uint32_t *g_saved_backbuffer = NULL;
@@ -18686,26 +18750,115 @@ static int gui_backend_prefers_coalesced_blits(void) {
          str_cmp(g_gpu_backend_name, "intel-gfx") == 0;
 }
 
-static void gui_refresh_blur_effects_policy(void) {
-  int next = g_blur_effects_requested && g_gpu_rendering_enabled &&
-             gui_backend_supports_blur_effects();
+static void gui_load_blur_effects_preference(void) {
+  uint8_t *manifest_data = NULL;
+  size_t manifest_size = 0;
+  char manifest[128];
+  char blur_mode[16];
 
-  if (next == g_blur_effects_enabled)
+  if (media_load_file(GUI_DISPLAY_CONFIG_PATH, &manifest_data, &manifest_size) < 0)
+    return;
+  if (!manifest_data || manifest_size == 0 || manifest_size >= sizeof(manifest)) {
+    media_free_file(manifest_data);
+    return;
+  }
+  for (size_t i = 0; i < manifest_size; i++)
+    manifest[i] = (char)manifest_data[i];
+  manifest[manifest_size] = '\0';
+  media_free_file(manifest_data);
+
+  if (manifest_get_value(manifest, "blur", blur_mode, sizeof(blur_mode)) != 0)
+    return;
+
+  if (str_cmp(blur_mode, "off") == 0) {
+    g_blur_effects_mode = GUI_BLUR_EFFECTS_OFF;
+  } else if (str_cmp(blur_mode, "force") == 0) {
+    g_blur_effects_mode = GUI_BLUR_EFFECTS_FORCE;
+  } else {
+    g_blur_effects_mode = GUI_BLUR_EFFECTS_AUTO;
+  }
+}
+
+static const char *gui_blur_effects_mode_name(void) {
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE)
+    return "force";
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_OFF)
+    return "off";
+  return "auto";
+}
+
+static const char *gui_blur_effects_button_label(void) {
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE)
+    return "Blur Force";
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_OFF)
+    return "Blur Off";
+  return "Blur Auto";
+}
+
+static const char *gui_blur_effects_status_label(void) {
+  if (g_blur_effects_enabled)
+    return g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE
+               ? "Blur: Forced on"
+               : "Blur: On";
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_OFF)
+    return "Blur: Off";
+  if (!g_gpu_rendering_enabled)
+    return "Blur: Waiting for GPU";
+  return g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE
+             ? "Blur: Force unavailable"
+             : "Blur: Auto-disabled on this GPU";
+}
+
+static const char *gui_blur_effects_detail_message(void) {
+  if (g_blur_effects_enabled)
+    return g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE
+               ? "Blur and transparency forced on."
+               : "Blur and transparency enabled.";
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_OFF)
+    return "Blur and transparency disabled.";
+  if (!g_gpu_rendering_enabled)
+    return "Transparency enabled. Blur will turn on when GPU rendering is available.";
+  return g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE
+             ? "Transparency enabled. Forced blur is unavailable here."
+             : "Transparency enabled. Blur auto-disabled on this GPU.";
+}
+
+static void gui_cycle_blur_effects_mode(void) {
+  if (g_blur_effects_mode == GUI_BLUR_EFFECTS_OFF)
+    g_blur_effects_mode = GUI_BLUR_EFFECTS_AUTO;
+  else if (g_blur_effects_mode == GUI_BLUR_EFFECTS_AUTO)
+    g_blur_effects_mode = GUI_BLUR_EFFECTS_FORCE;
+  else
+    g_blur_effects_mode = GUI_BLUR_EFFECTS_OFF;
+}
+
+static void gui_refresh_blur_effects_policy(void) {
+  int next = g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF &&
+             g_gpu_rendering_enabled &&
+             (gui_backend_supports_blur_effects() ||
+              g_blur_effects_mode == GUI_BLUR_EFFECTS_FORCE);
+  int mode_changed = g_blur_effects_applied_mode != g_blur_effects_mode;
+
+  if (next == g_blur_effects_enabled && !mode_changed)
     return;
 
   g_blur_effects_enabled = next;
-  printk(KERN_INFO "GUI: blur effects %s (%s, requested=%d)\n",
+  g_blur_effects_applied_mode = g_blur_effects_mode;
+  printk(KERN_INFO "GUI: blur effects %s (%s, mode=%s)\n",
          g_blur_effects_enabled ? "enabled" : "disabled", g_gpu_backend_name,
-         g_blur_effects_requested);
+         gui_blur_effects_mode_name());
   compositor_mark_full_redraw();
 }
 
 void gui_set_blur_effects_enabled(int enabled) {
-  g_blur_effects_requested = enabled ? 1 : 0;
+  g_blur_effects_mode =
+      enabled ? GUI_BLUR_EFFECTS_AUTO : GUI_BLUR_EFFECTS_OFF;
   gui_refresh_blur_effects_policy();
 }
 
-int gui_blur_effects_requested(void) { return g_blur_effects_requested; }
+int gui_blur_effects_requested(void) {
+  return g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF;
+}
 
 int gui_are_blur_effects_enabled(void) { return g_blur_effects_enabled; }
 
@@ -18856,6 +19009,7 @@ void gui_refresh_hardware_acceleration_policy(void) {
   }
 
   str_copy_safe(g_gpu_backend_name, backend, sizeof(g_gpu_backend_name));
+  gui_load_blur_effects_preference();
   gui_configure_gpu_rendering(enable);
   gui_refresh_blur_effects_policy();
 }
@@ -19278,32 +19432,6 @@ void gui_compose(void) {
 /* Mouse cursor rasterized from assets/cursor.svg and drawn to the backbuffer. */
 /* ===================================================================== */
 
-#define CURSOR_WIDTH 16
-#define CURSOR_HEIGHT 16
-
-/*
- * Pre-rasterized RGBA cursor derived from assets/cursor.svg at 16x16.
- * Pixels are stored as 0xAARRGGBB and alpha-blended when drawn.
- */
-static const uint32_t cursor_rgba[CURSOR_HEIGHT][CURSOR_WIDTH] = {
-    {0x86F1F1F1, 0x9FFAFAFA, 0x21FFFFFF, 0x00000000, 0x00000000, 0x03FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
-    {0xD1CECECE, 0xFF4A4A4A, 0xECA4A4A4, 0x7DFFFFFF, 0x0CFFFFFF, 0x00000000, 0x02000000, 0x02FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
-    {0xCACCCCCC, 0xFC131313, 0xFF000000, 0xFF525252, 0xDABDBDBD, 0x54FFFFFF, 0x00000000, 0x00000000, 0x04BFBFBF, 0x01FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
-    {0xCACDCDCD, 0xFF202020, 0xFC101010, 0xFB020202, 0xFF0E0E0E, 0xFF757575, 0xAEE4E4E4, 0x26FFFFFF, 0x00000000, 0x00000000, 0x03FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
-    {0xCDCCCCCC, 0xFF1D1D1D, 0xFD0D0D0D, 0xFF131313, 0xFD101010, 0xFC000000, 0xFF2A2A2A, 0xF39C9C9C, 0x78FFFFFF, 0x05FFFFFF, 0x00000000, 0x04BFBFBF, 0x01FFFFFF, 0x00000000, 0x00000000, 0x00000000},
-    {0xB7DDDDDD, 0xFF2C2C2C, 0xFC090909, 0xFF111111, 0xFF101010, 0xFF141414, 0xFC090909, 0xFF010101, 0xFF575757, 0xCCCDCDCD, 0x3FFFFFFF, 0x00000000, 0x00000000, 0x03FFFFFF, 0x00000000, 0x00000000},
-    {0xABE4E4E4, 0xFF313131, 0xFC080808, 0xFF111111, 0xFF101010, 0xFF101010, 0xFF111111, 0xFE131313, 0xFB000000, 0xFF181818, 0xFE868686, 0x92FFFFFF, 0x0FFFFFFF, 0x00000000, 0x03AAAAAA, 0x01FFFFFF},
-    {0xA2ECECEC, 0xFF393939, 0xFC060606, 0xFF111111, 0xFF101010, 0xFF101010, 0xFF101010, 0xFF101010, 0xFF131313, 0xFD0D0D0D, 0xFE000000, 0xFF484848, 0xD9C0C0C0, 0x4BFFFFFF, 0x00000000, 0x00000000},
-    {0x89FFFFFF, 0xFF474747, 0xFC030303, 0xFF121212, 0xFF111111, 0xFF111111, 0xFF101010, 0xFF101010, 0xFF101010, 0xFF121212, 0xFF0A0A0A, 0xFF000000, 0xFF070707, 0xFF7F7F7F, 0xA8EEEEEE, 0x1DFFFFFF},
-    {0x76FFFFFF, 0xFF565656, 0xFC020202, 0xFE161616, 0xFC080808, 0xFC0A0A0A, 0xFF131313, 0xFF101010, 0xFF121212, 0xFF090909, 0xFF494949, 0xEF959595, 0xE4AAAAAA, 0xD4A3A3A3, 0xCBE9E9E9, 0x42FFFFFF},
-    {0x5AFFFFFF, 0xFE696969, 0xFA000000, 0xFF000000, 0xFF333333, 0xFF282828, 0xFD040404, 0xFF141414, 0xFF131313, 0xFC000000, 0xFF7E7E7E, 0x66FFFFFF, 0x0AFFFFFF, 0x03FFFFFF, 0x00000000, 0x00000000},
-    {0x3DFFFFFF, 0xFF7D7D7D, 0xFF1B1B1B, 0xFF858585, 0xA8E9E9E9, 0xBBD2D2D2, 0xFF3E3E3E, 0xFB020202, 0xFF141414, 0xFD0E0E0E, 0xFF0E0E0E, 0xD6B5B5B5, 0x04FFFFFF, 0x02000000, 0x03AAAAAA, 0x01FFFFFF},
-    {0x14FFFFFF, 0xDAD1D1D1, 0xB4D5D5D5, 0x38FFFFFF, 0x00000000, 0x01FFFFFF, 0xA7E8E8E8, 0xFF414141, 0xFB010101, 0xFF181818, 0xFC020202, 0xFF555555, 0x7FFFFFFF, 0x00000000, 0x03FFFFFF, 0x00000000},
-    {0x00000000, 0x0AFFFFFF, 0x00000000, 0x00000000, 0x04BFBFBF, 0x02000000, 0x000A0A0A, 0xA8D9D9D9, 0xFF353535, 0xFB000000, 0xFC0F0F0F, 0xFA000000, 0xFD8B8B8B, 0x33FFFFFF, 0x00000000, 0x02FFFFFF},
-    {0x01FFFFFF, 0x00000000, 0x02000000, 0x02FFFFFF, 0x00000000, 0x02FFFFFF, 0x02000000, 0x02FFFFFF, 0xBAD3D3D3, 0xFF393939, 0xFF282828, 0xFF595959, 0xEEAEAEAE, 0x63FFFFFF, 0x00000000, 0x03FFFFFF},
-    {0x00000000, 0x01FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x02FFFFFF, 0x01000000, 0x0CFFFFFF, 0xBBE5E5E5, 0xB6DBDBDB, 0x65FFFFFF, 0x1BFFFFFF, 0x00000000, 0x01FFFFFF, 0x00000000},
-};
-
 static uint32_t gui_blend_cursor_pixel(uint32_t dst, uint32_t src) {
   uint32_t alpha = (src >> 24) & 0xFF;
   if (alpha == 0)
@@ -19326,7 +19454,8 @@ static uint32_t gui_blend_cursor_pixel(uint32_t dst, uint32_t src) {
 }
 
 static void gui_mark_cursor_dirty_at(int x, int y) {
-  gui_invalidate_rect(x - 1, y - 1, CURSOR_WIDTH + 2, CURSOR_HEIGHT + 2);
+  gui_invalidate_rect(x - 1, y - 1, (int)bootstrap_cursor_width + 2,
+                      (int)bootstrap_cursor_height + 2);
 }
 
 /* Draw cursor directly to the active render target. */
@@ -19347,14 +19476,15 @@ void gui_draw_cursor(void) {
 
   int pitch = primary_display.pitch / 4;
 
-  for (int row = 0; row < CURSOR_HEIGHT; row++) {
-    for (int col = 0; col < CURSOR_WIDTH; col++) {
-      uint32_t pixel = cursor_rgba[row][col];
+  for (uint32_t row = 0; row < bootstrap_cursor_height; row++) {
+    for (uint32_t col = 0; col < bootstrap_cursor_width; col++) {
+      uint32_t pixel =
+          bootstrap_cursor_rgba[row * bootstrap_cursor_width + col];
       if ((pixel >> 24) == 0)
         continue; /* Transparent */
 
-      int px = cx + col;
-      int py = cy + row;
+      int px = cx + (int)col;
+      int py = cy + (int)row;
       if (px >= 0 && px < (int)primary_display.width && py >= 0 &&
           py < (int)primary_display.height) {
         target[py * pitch + px] =
@@ -20854,10 +20984,20 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           }
           if (x >= panel_x + 106 && x < panel_x + 196 && y >= button_y &&
               y < button_y + 24) {
-            gui_set_blur_effects_enabled(!gui_blur_effects_requested());
-            str_copy_safe(settings_status,
-                          gui_blur_effects_requested() ? "Blur requested."
-                                                       : "Blur disabled.",
+            int save_idx = settings_resolution_saved_idx;
+            if (save_idx < 0 || save_idx >= SETTINGS_RESOLUTION_OPTION_COUNT) {
+              save_idx = settings_resolution_current_idx;
+              if (save_idx < 0 || save_idx >= SETTINGS_RESOLUTION_OPTION_COUNT)
+                save_idx = settings_resolution_pending_idx;
+            }
+            gui_cycle_blur_effects_mode();
+            gui_refresh_blur_effects_policy();
+            if (save_idx >= 0 && save_idx < SETTINGS_RESOLUTION_OPTION_COUNT) {
+              gui_save_resolution_preference(
+                  settings_resolution_options[save_idx].width,
+                  settings_resolution_options[save_idx].height);
+            }
+            str_copy_safe(settings_status, gui_blur_effects_detail_message(),
                           sizeof(settings_status));
             break;
           }
