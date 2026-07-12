@@ -1374,7 +1374,7 @@ typedef struct {
   svg_transform_t transform;
   double x1, y1, x2, y2;
   double cx, cy, r;
-  double fx, fy;
+  double fx, fy, fr;
   uint32_t color0, color1;
   uint8_t alpha0, alpha1;
   double stop_offsets[SVG_GRADIENT_MAX_STOPS];
@@ -2554,6 +2554,7 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
       double vx_x, vx_y, vy_x, vy_y;
       double wx, wy;
       double fw_x, fw_y;
+      double focal_radius = 0.0;
       double det;
       svg_gradient_radial_axes(g, bbox_x, bbox_y, bbox_w, bbox_h, &c_local,
                                &f_local, &rx_local, &ry_local);
@@ -2576,8 +2577,17 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
         double fu = (fw_x * vy_y - fw_y * vy_x) / det;
         double fv = (vx_x * fw_y - vx_y * fw_x) / det;
         double f_len2 = fu * fu + fv * fv;
-        double du;
-        double dv;
+        double a;
+        double b;
+        double c_term;
+        double disc;
+
+        if (g->r > 1e-9)
+          focal_radius = g->fr / g->r;
+        if (focal_radius < 0.0)
+          focal_radius = 0.0;
+        if (focal_radius > 0.999)
+          focal_radius = 0.999;
 
         if (f_len2 >= 1.0) {
           double scale = 0.999 / svg_sqrt_approx(f_len2);
@@ -2585,31 +2595,36 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
           fv *= scale;
         }
 
-        du = u - fu;
-        dv = v - fv;
-        if (svg_absd(du) < 1e-9 && svg_absd(dv) < 1e-9) {
+        a = (u - fu) * (u - fu) + (v - fv) * (v - fv) -
+            (1.0 - focal_radius) * (1.0 - focal_radius);
+        b = 2.0 * (fu * (u - fu) + fv * (v - fv) +
+                   focal_radius * (1.0 - focal_radius));
+        c_term = fu * fu + fv * fv - focal_radius * focal_radius;
+        if (svg_absd(u - fu) < 1e-9 && svg_absd(v - fv) < 1e-9 &&
+            focal_radius <= 1e-9) {
           t = 0.0;
         } else {
-          double a = du * du + dv * dv;
-          double b = 2.0 * (fu * du + fv * dv);
-          double c_term = fu * fu + fv * fv - 1.0;
-          double disc = b * b - 4.0 * a * c_term;
+          disc = b * b - 4.0 * a * c_term;
           if (a > 1e-12 && disc >= 0.0) {
             double sqrt_disc = svg_sqrt_approx(disc);
             double root0 = (-b - sqrt_disc) / (2.0 * a);
             double root1 = (-b + sqrt_disc) / (2.0 * a);
-            double mu = 0.0;
-            if (root0 > 1.0 && root1 > 1.0)
-              mu = root0 < root1 ? root0 : root1;
-            else if (root0 > 1.0)
-              mu = root0;
-            else if (root1 > 1.0)
-              mu = root1;
+            double chosen = 0.0;
+            if (root0 >= 0.0 && root1 >= 0.0)
+              chosen = root0 < root1 ? root0 : root1;
+            else if (root0 >= 0.0)
+              chosen = root0;
+            else if (root1 >= 0.0)
+              chosen = root1;
             else
-              mu = root0 > root1 ? root0 : root1;
-            if (mu > 1e-9)
-              t = 1.0 / mu;
+              chosen = root0 > root1 ? root0 : root1;
+            if (chosen >= 0.0)
+              t = chosen;
             else
+              t = svg_sqrt_approx(u * u + v * v);
+          } else if (svg_absd(a) <= 1e-12 && svg_absd(b) > 1e-12) {
+            t = -c_term / b;
+            if (t < 0.0)
               t = svg_sqrt_approx(u * u + v * v);
           } else {
             t = svg_sqrt_approx(u * u + v * v);
@@ -2617,8 +2632,23 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
         }
       } else {
         double rr = vx_x * vx_x + vx_y * vx_y;
-        if (rr > 0.0)
-          t = svg_sqrt_approx((wx * wx + wy * wy) / rr);
+        if (rr > 0.0) {
+          if (g->r > 1e-9)
+            focal_radius = g->fr / g->r;
+          if (focal_radius < 0.0)
+            focal_radius = 0.0;
+          if (focal_radius > 0.999)
+            focal_radius = 0.999;
+          if (focal_radius > 0.0) {
+            double radial = svg_sqrt_approx((wx * wx + wy * wy) / rr);
+            if (1.0 - focal_radius > 1e-9)
+              t = (radial - focal_radius) / (1.0 - focal_radius);
+            else
+              t = radial;
+          } else {
+            t = svg_sqrt_approx((wx * wx + wy * wy) / rr);
+          }
+        }
       }
     }
     t = svg_gradient_apply_spread(g, t);
@@ -4164,6 +4194,7 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
           g.r = 0.5;
           g.fx = 0.5;
           g.fy = 0.5;
+          g.fr = 0.0;
           g.color0 = g.color1 = 0x000000;
           g.alpha0 = g.alpha1 = 255;
           g.stop_count = 0;
@@ -4220,6 +4251,15 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
           } else {
             g.fy = g.cy;
           }
+          if (svg_find_attr(data, tag_start, tag_end, "fr", &vs, &vl) == 0) {
+            svg_parse_gradient_number(data, vs, vl, &g.fr);
+          } else {
+            g.fr = 0.0;
+          }
+          if (g.fr < 0.0)
+            g.fr = 0.0;
+          if (g.fr > g.r)
+            g.fr = g.r;
         }
         if (self_closing) {
           svg_add_gradient(&ctx, &g);
