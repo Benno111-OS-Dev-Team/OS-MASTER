@@ -4652,16 +4652,16 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         double x1 = 0.0, y1 = 0.0, x2 = 0.0, y2 = 0.0;
         size_t vs = 0, vl = 0, pos;
         if (svg_find_attr(data, tag_start, tag_end, "x1", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &x1);
+          svg_parse_length_number(data, vs, vl, viewport_w, &x1);
         }
         if (svg_find_attr(data, tag_start, tag_end, "y1", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &y1);
+          svg_parse_length_number(data, vs, vl, viewport_h, &y1);
         }
         if (svg_find_attr(data, tag_start, tag_end, "x2", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &x2);
+          svg_parse_length_number(data, vs, vl, viewport_w, &x2);
         }
         if (svg_find_attr(data, tag_start, tag_end, "y2", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &y2);
+          svg_parse_length_number(data, vs, vl, viewport_h, &y2);
         }
         {
           svg_point_t a = svg_transform_point(transform, (svg_point_t){x1, y1});
@@ -4683,25 +4683,25 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         }
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "rect")) {
         double x = 0.0, y = 0.0, w = 0.0, h = 0.0, rx = 0.0, ry = 0.0;
-        size_t vs = 0, vl = 0, pos;
+        size_t vs = 0, vl = 0;
         svg_path_buffer_t buf = {0};
         if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &x);
+          svg_parse_length_number(data, vs, vl, viewport_w, &x);
         }
         if (svg_find_attr(data, tag_start, tag_end, "y", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &y);
+          svg_parse_length_number(data, vs, vl, viewport_h, &y);
         }
         if (svg_find_attr(data, tag_start, tag_end, "width", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &w);
+          svg_parse_length_number(data, vs, vl, viewport_w, &w);
         }
         if (svg_find_attr(data, tag_start, tag_end, "height", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &h);
+          svg_parse_length_number(data, vs, vl, viewport_h, &h);
         }
         if (svg_find_attr(data, tag_start, tag_end, "rx", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &rx);
+          svg_parse_length_number(data, vs, vl, viewport_w, &rx);
         }
         if (svg_find_attr(data, tag_start, tag_end, "ry", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &ry);
+          svg_parse_length_number(data, vs, vl, viewport_h, &ry);
         }
         if (rx > 0.0 && ry <= 0.0)
           ry = rx;
@@ -4722,16 +4722,16 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "circle")) {
         double cx = 0.0, cy = 0.0, r = 0.0;
         double local_r;
-        size_t vs = 0, vl = 0, pos;
+        size_t vs = 0, vl = 0;
         svg_point_t center, edge;
         if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &cx);
+          svg_parse_length_number(data, vs, vl, viewport_w, &cx);
         }
         if (svg_find_attr(data, tag_start, tag_end, "cy", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &cy);
+          svg_parse_length_number(data, vs, vl, viewport_h, &cy);
         }
         if (svg_find_attr(data, tag_start, tag_end, "r", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &r);
+          svg_parse_length_number(data, vs, vl, viewport_diag, &r);
         }
         local_r = r;
         center = svg_transform_point(transform, (svg_point_t){cx, cy});
@@ -4770,20 +4770,20 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         }
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "ellipse")) {
         double cx = 0.0, cy = 0.0, rx = 0.0, ry = 0.0;
-        size_t vs = 0, vl = 0, pos;
+        size_t vs = 0, vl = 0;
         svg_point_t center, edge_x, edge_y;
         double radius_x, radius_y;
         if (svg_find_attr(data, tag_start, tag_end, "cx", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &cx);
+          svg_parse_length_number(data, vs, vl, viewport_w, &cx);
         }
         if (svg_find_attr(data, tag_start, tag_end, "cy", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &cy);
+          svg_parse_length_number(data, vs, vl, viewport_h, &cy);
         }
         if (svg_find_attr(data, tag_start, tag_end, "rx", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &rx);
+          svg_parse_length_number(data, vs, vl, viewport_w, &rx);
         }
         if (svg_find_attr(data, tag_start, tag_end, "ry", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &ry);
+          svg_parse_length_number(data, vs, vl, viewport_h, &ry);
         }
         center = svg_transform_point(transform, (svg_point_t){cx, cy});
         edge_x = svg_transform_point(transform, (svg_point_t){cx + rx, cy});
@@ -4851,19 +4851,18 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         double src_x = 0.0, src_y = 0.0;
         double src_w, src_h;
         int align_x = 1, align_y = 1, meet_mode = 1, preserve_none = 0;
-        size_t pos;
         media_image_t embedded = {0};
         if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &x);
+          svg_parse_length_number(data, vs, vl, viewport_w, &x);
         }
         if (svg_find_attr(data, tag_start, tag_end, "y", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &y);
+          svg_parse_length_number(data, vs, vl, viewport_h, &y);
         }
         if (svg_find_attr(data, tag_start, tag_end, "width", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &w);
+          svg_parse_length_number(data, vs, vl, viewport_w, &w);
         }
         if (svg_find_attr(data, tag_start, tag_end, "height", &vs, &vl) == 0) {
-          pos = vs; svg_parse_number(data, vs + vl, &pos, &h);
+          svg_parse_length_number(data, vs, vl, viewport_h, &h);
         }
         if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
              svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
