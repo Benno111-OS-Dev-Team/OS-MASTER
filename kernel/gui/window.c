@@ -702,6 +702,7 @@ static int installer_target_disk_index = -1;
 static uint32_t installer_install_journal_next_lba = 0;
 static uint32_t installer_install_journal_last_lba = 0;
 static char installer_target_root[96];
+static char bootscource[96];
 static char installer_efi_root[128];
 static char installer_update_root[128];
 static char installer_progress_stage[64] = "Ready";
@@ -6032,7 +6033,7 @@ static int write_text_file(const char *path, const char *content) {
 
 static int installer_get_persistent_root(char *buf, int max) {
   char disk_location[32];
-  char installed_root[96];
+  char mounted_root[96];
   static const char *roots[] = {"/Persist", "/persist", "/disk", "/mnt/disk"};
   struct file *dir;
 
@@ -6043,19 +6044,19 @@ static int installer_get_persistent_root(char *buf, int max) {
                                         sizeof(disk_location)) == 0 &&
       disk_location[0]) {
     int idx = 0;
-    str_copy_safe(installed_root, "/Installed", sizeof(installed_root));
-    while (installed_root[idx] && idx < (int)sizeof(installed_root) - 1)
+    str_copy_safe(mounted_root, "/mnt", sizeof(mounted_root));
+    while (mounted_root[idx] && idx < (int)sizeof(mounted_root) - 1)
       idx++;
-    if (idx < (int)sizeof(installed_root) - 1)
-      installed_root[idx++] = '/';
-    for (int i = 0; disk_location[i] && idx < (int)sizeof(installed_root) - 1;
+    if (idx < (int)sizeof(mounted_root) - 1)
+      mounted_root[idx++] = '/';
+    for (int i = 0; disk_location[i] && idx < (int)sizeof(mounted_root) - 1;
          i++)
-      installed_root[idx++] = disk_location[i];
-    installed_root[idx] = '\0';
-    dir = vfs_open(installed_root, O_RDONLY, 0);
+      mounted_root[idx++] = disk_location[i];
+    mounted_root[idx] = '\0';
+    dir = vfs_open(mounted_root, O_RDONLY, 0);
     if (dir) {
       vfs_close(dir);
-      str_copy_safe(buf, installed_root, max);
+      str_copy_safe(buf, mounted_root, max);
       return 0;
     }
   }
@@ -6203,9 +6204,26 @@ static int installer_journal_install_write(const char *path,
   return 0;
 }
 
+static int mounted_disk_root_path_for_location(const char *location, char *buf,
+                                               int max) {
+  int idx = 0;
+
+  if (!location || !location[0] || !buf || max <= 0)
+    return -1;
+
+  str_copy_safe(buf, "/mnt", max);
+  while (buf[idx] && idx < max - 1)
+    idx++;
+  if (idx < max - 1)
+    buf[idx++] = '/';
+  for (int i = 0; location[i] && idx < max - 1; i++)
+    buf[idx++] = location[i];
+  buf[idx] = '\0';
+  return 0;
+}
+
 static int boot_storage_root_path(char *buf, int max) {
   char disk_location[32];
-  int idx = 0;
 
   if (!buf || max <= 0)
     return -1;
@@ -6226,14 +6244,10 @@ static int boot_storage_root_path(char *buf, int max) {
     }
   }
 
-  str_copy_safe(buf, "/Installed", max);
-  while (buf[idx] && idx < max - 1)
-    idx++;
-  if (idx < max - 1)
-    buf[idx++] = '/';
-  for (int i = 0; disk_location[i] && idx < max - 1; i++)
-    buf[idx++] = disk_location[i];
-  buf[idx] = '\0';
+  if (mounted_disk_root_path_for_location(disk_location, buf, max) != 0)
+    return -1;
+
+  str_copy_safe(bootscource, buf, sizeof(bootscource));
   return 0;
 }
 
@@ -6262,13 +6276,10 @@ static int account_storage_root_path(char *buf, int max) {
   if (!account_disk_location[0] || !account_partition_label[0])
     return -1;
 
-  str_copy_safe(buf, "/Installed", max);
+  if (mounted_disk_root_path_for_location(account_disk_location, buf, max) != 0)
+    return -1;
   while (buf[idx] && idx < max - 1)
     idx++;
-  if (idx < max - 1)
-    buf[idx++] = '/';
-  for (int i = 0; account_disk_location[i] && idx < max - 1; i++)
-    buf[idx++] = account_disk_location[i];
   if (idx < max - 1)
     buf[idx++] = '/';
   for (int i = 0; account_partition_label[i] && idx < max - 1; i++)
@@ -6337,8 +6348,9 @@ static int path_is_runtime_mutable(const char *path) {
 
   if (!path || path[0] != '/')
     return 0;
-  if (path_starts_with(path, "/Installed") || path_starts_with(path, "/External") ||
-      path_starts_with(path, "/Media") || path_starts_with(path, "/boot") ||
+  if (path_starts_with(path, "/mnt") || path_starts_with(path, "/Installed") ||
+      path_starts_with(path, "/External") || path_starts_with(path, "/Media") ||
+      path_starts_with(path, "/boot") ||
       path_starts_with(path, "/EFI"))
     return 0;
 
@@ -9653,17 +9665,8 @@ static void installer_selected_disk_id(char *buf, int max) {
 static void installer_target_root_path(char *buf, int max) {
   char disk_id[32];
   installer_selected_disk_id(disk_id, sizeof(disk_id));
-  str_copy_safe(buf, "/Installed", max);
-  {
-    int idx = 0;
-    while (buf[idx] && idx < max - 1)
-      idx++;
-    if (idx < max - 1)
-      buf[idx++] = '/';
-    for (int i = 0; disk_id[i] && idx < max - 1; i++)
-      buf[idx++] = disk_id[i];
-    buf[idx] = '\0';
-  }
+  if (mounted_disk_root_path_for_location(disk_id, buf, max) != 0)
+    buf[0] = '\0';
 }
 
 static void installer_partition_root_path(char *buf, int max,
@@ -22086,6 +22089,19 @@ int gui_installer_boot_payload_root(char *buf, size_t size) {
   if (!path || !path[0])
     return -1;
   str_copy_safe(buf, path, (int)size);
+  return buf[0] ? 0 : -1;
+}
+
+int gui_bootscource_root(char *buf, size_t size) {
+  if (!buf || size == 0)
+    return -1;
+
+  if (!bootscource[0] &&
+      boot_storage_root_path(bootscource, (int)sizeof(bootscource)) != 0) {
+    return -1;
+  }
+
+  str_copy_safe(buf, bootscource, (int)size);
   return buf[0] ? 0 : -1;
 }
 

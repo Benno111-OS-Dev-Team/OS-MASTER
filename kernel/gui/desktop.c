@@ -897,7 +897,7 @@ static void desktop_open_removable_disk(const desktop_icon_t *icon) {
   }
 
   if (disk_kind == STORAGE_KIND_CDROM) {
-    desktop_append_disk_root_candidate(path, sizeof(path), "/Media/", location,
+    desktop_append_disk_root_candidate(path, sizeof(path), "/mnt/", location,
                                        "");
     if (desktop_try_open_dir(path) == 0)
       return;
@@ -905,7 +905,7 @@ static void desktop_open_removable_disk(const desktop_icon_t *icon) {
     /* Avoid remounting and recopying optical media on every click unless the
      * live media view is actually missing. */
     refresh_external_storage_views();
-    desktop_append_disk_root_candidate(path, sizeof(path), "/Media/", location,
+    desktop_append_disk_root_candidate(path, sizeof(path), "/mnt/", location,
                                        "");
     if (desktop_try_open_dir(path) == 0)
       return;
@@ -921,17 +921,17 @@ static void desktop_open_removable_disk(const desktop_icon_t *icon) {
   if (desktop_try_open_dir(path) == 0)
     return;
 
-  desktop_append_disk_root_candidate(path, sizeof(path), "/Installed/",
+  desktop_append_disk_root_candidate(path, sizeof(path), "/mnt/",
                                      location, "");
   if (desktop_try_open_dir(path) == 0)
     return;
 
-  desktop_append_disk_root_candidate(path, sizeof(path), "/Installed/",
+  desktop_append_disk_root_candidate(path, sizeof(path), "/mnt/",
                                      location, "/Data");
   if (desktop_try_open_dir(path) == 0)
     return;
 
-  desktop_append_disk_root_candidate(path, sizeof(path), "/Installed/",
+  desktop_append_disk_root_candidate(path, sizeof(path), "/mnt/",
                                      location, "/Update");
   if (desktop_try_open_dir(path) == 0)
     return;

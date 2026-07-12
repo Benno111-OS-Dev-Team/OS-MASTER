@@ -958,13 +958,13 @@ void refresh_external_storage_views(void) {
   extern int storage_get_disk_kind(int index);
   extern int storage_get_disk_location(int index, char *buf, int max);
   char location[32];
+  char mounted_root[128];
   char external_root[128];
-  char media_root[128];
   char source_root[128];
   int boot_disk = boot_hdd_disk_index();
 
+  seed_make_dir("", "/mnt");
   seed_make_dir("", "/External");
-  seed_make_dir("", "/Media");
 
   for (int i = 0; i < storage_get_disk_count(); i++) {
     int kind = storage_get_disk_kind(i);
@@ -975,31 +975,37 @@ void refresh_external_storage_views(void) {
     if (storage_get_disk_location(i, location, sizeof(location)) != 0)
       continue;
 
+    build_seed_path(mounted_root, sizeof(mounted_root), "/mnt", location);
+    seed_make_dir("", mounted_root);
+
     build_seed_path(external_root, sizeof(external_root), "/External", location);
     seed_make_dir("", external_root);
 
     if (kind == STORAGE_KIND_CDROM) {
-      build_seed_path(media_root, sizeof(media_root), "/Media", location);
-      seed_make_dir("", media_root);
-      if (vfs_mount(location, media_root, "iso9660", 0, NULL) == 0) {
+      if (vfs_mount(location, mounted_root, "iso9660", 0, NULL) == 0) {
         printk(KERN_INFO "STORAGE: mounted CD-ROM '%s' on '%s'\n", location,
-               media_root);
-        import_boot_media_assets_from(media_root);
+               mounted_root);
+        import_boot_media_assets_from(mounted_root);
+        copy_tree_to_prefix(mounted_root, external_root, 0, 0);
         continue;
       }
-      if (iso9660_copy_to_ramfs(location, media_root) == 0) {
-        import_boot_media_assets_from(media_root);
+      if (iso9660_copy_to_ramfs(location, mounted_root) == 0) {
+        import_boot_media_assets_from(mounted_root);
+        copy_tree_to_prefix(mounted_root, external_root, 0, 0);
         continue;
       }
       if (boot_is_installer_mode()) {
-        copy_tree_to_prefix("/setup", media_root, 0, 0);
+        copy_tree_to_prefix("/setup", mounted_root, 0, 0);
+        copy_tree_to_prefix(mounted_root, external_root, 0, 0);
         continue;
       }
     }
 
     build_seed_path(source_root, sizeof(source_root), "/Installed", location);
-    if (copy_tree_to_prefix(source_root, external_root, 0, 0) == 0)
+    if (copy_tree_to_prefix(source_root, mounted_root, 0, 0) == 0) {
+      copy_tree_to_prefix(mounted_root, external_root, 0, 0);
       continue;
+    }
 
     build_seed_path(source_root, sizeof(source_root), "/Installed", location);
     if ((int)sizeof(source_root) > 0) {
@@ -1013,12 +1019,14 @@ void refresh_external_storage_views(void) {
         source_root[len++] = 't';
         source_root[len++] = 'a';
         source_root[len] = '\0';
-        copy_tree_to_prefix(source_root, external_root, 0, 0);
+        if (copy_tree_to_prefix(source_root, mounted_root, 0, 0) == 0)
+          copy_tree_to_prefix(mounted_root, external_root, 0, 0);
       }
     }
   }
 
-  printk(KERN_INFO "STORAGE: external storage views refreshed under /External\n");
+  printk(KERN_INFO
+         "STORAGE: mounted disk views refreshed under /mnt with /External mirrors\n");
 }
 
 static void populate_installer_payload(void) {

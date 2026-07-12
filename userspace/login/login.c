@@ -86,7 +86,7 @@ static void build_partition_home(const char *disk_location,
     out[0] = '\0';
     return;
   }
-  snprintf(out, len, "/Installed/%s/%s", disk_location, partition_label);
+  snprintf(out, len, "/mnt/%s/%s", disk_location, partition_label);
 }
 
 static int manifest_get_value(const char *manifest, const char *key, char *out,

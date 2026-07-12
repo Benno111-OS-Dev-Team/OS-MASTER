@@ -110,6 +110,7 @@ int gui_installer_target_root(char *buf, size_t size);
 int gui_installer_target_physical_root(char *buf, size_t size);
 int gui_installer_system_image_root(char *buf, size_t size);
 int gui_installer_boot_payload_root(char *buf, size_t size);
+int gui_bootscource_root(char *buf, size_t size);
 int gui_installer_payload_is_archive(const char *path);
 int gui_installer_has_raw_disk_image(void);
 int gui_installer_apply_system_payload(void);
