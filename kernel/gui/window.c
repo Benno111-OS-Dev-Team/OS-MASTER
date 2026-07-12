@@ -921,6 +921,32 @@ static int wallpaper_build_thumbnail(media_image_t *dest,
   return 0;
 }
 
+static int wallpaper_load_asset_file(const char *path, uint8_t **data,
+                                     size_t *size) {
+  char boot_path[256];
+
+  if (!path || !data || !size)
+    return -EINVAL;
+
+  if (media_load_file(path, data, size) == 0)
+    return 0;
+
+  if (path[0] == '/' && path[1] == 'a' && path[2] == 's' && path[3] == 's' &&
+      path[4] == 'e' && path[5] == 't' && path[6] == 's' && path[7] == '/') {
+    str_copy_safe(boot_path, "/setup/boot", sizeof(boot_path));
+    installer_append_to_buf(boot_path, sizeof(boot_path), path);
+    if (media_load_file(boot_path, data, size) == 0)
+      return 0;
+
+    str_copy_safe(boot_path, "/boot", sizeof(boot_path));
+    installer_append_to_buf(boot_path, sizeof(boot_path), path);
+    if (media_load_file(boot_path, data, size) == 0)
+      return 0;
+  }
+
+  return -ENOENT;
+}
+
 static void free_thumbnails(void) {
   for (int i = 0; i < NUM_WALLPAPERS; i++) {
     if (thumbnail_cache[i].pixels) {
@@ -951,7 +977,7 @@ static void load_thumbnails(void) {
     if (wallpapers[i].type == 1 && wallpapers[i].path) {
       uint8_t *data = NULL;
       size_t size = 0;
-      if (media_load_file(wallpapers[i].path, &data, &size) == 0) {
+      if (wallpaper_load_asset_file(wallpapers[i].path, &data, &size) == 0) {
         media_image_t decoded = {0, 0, NULL};
         int decode_ok = decode_image_file_for_path(
             wallpapers[i].path, data, size, &decoded, NULL, 0, NULL);
@@ -998,7 +1024,7 @@ static void wallpaper_ensure_loaded(void) {
   uint8_t *data = NULL;
   size_t size = 0;
 
-  if (media_load_file(path, &data, &size) == 0) {
+  if (wallpaper_load_asset_file(path, &data, &size) == 0) {
     int decode_ok = decode_image_file_for_path(
         path, data, size, &wallpaper_image, wallpaper_buffer,
         sizeof(wallpaper_buffer), &wallpaper_image_heap_allocated);
@@ -15661,8 +15687,10 @@ static void draw_window_internal(struct window *win) {
     gui_draw_string(card_x + 14, card_y + 28, "Pick a new wallpaper for this account.",
                     0x6B7280, 0xF5F5F7);
     gui_draw_rect(sidebar_x, card_y + 12, 2, card_h - 24, 0xD4D4D8);
+    load_thumbnails();
 
     for (int i = 0; i < NUM_WALLPAPERS; i++) {
+      char label_buf[32];
       int col = i % columns;
       int row = i / columns;
       int tx = grid_x + col * (thumb_w + gap_x);
@@ -15671,7 +15699,6 @@ static void draw_window_internal(struct window *win) {
       /* Draw preview based on type */
       if (wallpapers[i].type == 1) {
         /* Use cached thumbnail */
-        load_thumbnails(); /* Load once */
         media_image_t *thumb_img = &thumbnail_cache[i];
 
         if (thumb_img->pixels && thumb_img->width > 0) {
@@ -15709,12 +15736,13 @@ static void draw_window_internal(struct window *win) {
       }
 
       /* Label */
-      gui_draw_string(tx, ty + thumb_h + 4, wallpapers[i].name,
+      fm_truncate_label_px(wallpapers[i].name, label_buf, sizeof(label_buf),
+                           thumb_w);
+      gui_draw_string(tx, ty + thumb_h + 4, label_buf,
                       i == current_wallpaper ? 0x1D4ED8 : 0x52525B, 0xF5F5F7);
     }
 
     gui_draw_rect(sidebar_x + 10, preview_y, preview_w, preview_h, 0x252535);
-    load_thumbnails();
     if (wallpapers[current_wallpaper].type == 1 &&
         thumbnail_cache[current_wallpaper].pixels) {
       media_image_t *thumb_img = &thumbnail_cache[current_wallpaper];
