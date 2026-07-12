@@ -1353,8 +1353,11 @@ typedef struct {
   uint32_t current_color;
   double font_size;
   double stroke_width;
+  double stroke_dasharray[8];
+  int stroke_dash_count;
+  double stroke_dashoffset;
   int fill_rule_nonzero;
-  int stroke_linecap_round;
+  int stroke_linecap;
   int stroke_linejoin;
   int text_anchor;
   int has_font_size;
@@ -1413,6 +1416,9 @@ typedef struct {
 #define SVG_STROKE_JOIN_MITER 0
 #define SVG_STROKE_JOIN_ROUND 1
 #define SVG_STROKE_JOIN_BEVEL 2
+#define SVG_STROKE_CAP_BUTT 0
+#define SVG_STROKE_CAP_ROUND 1
+#define SVG_STROKE_CAP_SQUARE 2
 
 #define SVG_TEXT_ANCHOR_START 0
 #define SVG_TEXT_ANCHOR_MIDDLE 1
@@ -1495,6 +1501,9 @@ static double svg_atan2_approx(double y, double x) {
   return 0.0;
 }
 
+static void svg_parse_dasharray_value(const uint8_t *data, size_t len,
+                                      svg_style_t *style);
+
 static int svg_match_text(const uint8_t *s, size_t len, const char *text) {
   size_t i = 0;
   while (text[i]) {
@@ -1569,6 +1578,22 @@ static void svg_parse_gradient_number(const uint8_t *data, size_t start, size_t 
   svg_parse_number(data, start + len, &pos, out);
   if (svg_value_has_percent(data, start, len))
     *out /= 100.0;
+}
+
+static double svg_viewport_normalized_diagonal(double width, double height) {
+  if (width <= 0.0 && height <= 0.0)
+    return 0.0;
+  return svg_sqrt_approx((width * width + height * height) * 0.5);
+}
+
+static void svg_parse_length_number(const uint8_t *data, size_t start, size_t len,
+                                    double percent_scale, double *out) {
+  size_t pos = start;
+  if (!out)
+    return;
+  svg_parse_number(data, start + len, &pos, out);
+  if (svg_value_has_percent(data, start, len))
+    *out = (*out * percent_scale) / 100.0;
 }
 
 static void svg_parse_stop_style_declarations(const uint8_t *data, size_t len,
@@ -1947,8 +1972,10 @@ static void svg_init_default_style(svg_style_t *style) {
   style->current_color = 0x000000;
   style->font_size = 16.0;
   style->stroke_width = 1.0;
+  style->stroke_dash_count = 0;
+  style->stroke_dashoffset = 0.0;
   style->fill_rule_nonzero = 1;
-  style->stroke_linecap_round = 0;
+  style->stroke_linecap = SVG_STROKE_CAP_BUTT;
   style->stroke_linejoin = SVG_STROKE_JOIN_MITER;
   style->text_anchor = SVG_TEXT_ANCHOR_START;
   style->has_font_size = 0;
@@ -2061,12 +2088,23 @@ static void svg_apply_style_property(const uint8_t *name, size_t name_len,
     width = style->stroke_width;
     if (svg_parse_number(value, ve, &pos, &width) == 0)
       style->stroke_width = width;
+  } else if (svg_attr_name_equals(name, ns, ne, "stroke-dasharray")) {
+    svg_parse_dasharray_value(value + vs, ve - vs, style);
+  } else if (svg_attr_name_equals(name, ns, ne, "stroke-dashoffset")) {
+    double offset = style->stroke_dashoffset;
+    pos = vs;
+    if (svg_parse_number(value, ve, &pos, &offset) == 0)
+      style->stroke_dashoffset = offset;
   } else if (svg_attr_name_equals(name, ns, ne, "fill-rule")) {
     style->fill_rule_nonzero =
         svg_match_text(value + vs, ve - vs, "nonzero") ? 1 : 0;
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-linecap")) {
-    style->stroke_linecap_round =
-        svg_match_text(value + vs, ve - vs, "round") ? 1 : 0;
+    if (svg_match_text(value + vs, ve - vs, "round"))
+      style->stroke_linecap = SVG_STROKE_CAP_ROUND;
+    else if (svg_match_text(value + vs, ve - vs, "square"))
+      style->stroke_linecap = SVG_STROKE_CAP_SQUARE;
+    else
+      style->stroke_linecap = SVG_STROKE_CAP_BUTT;
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-linejoin")) {
     if (svg_match_text(value + vs, ve - vs, "round"))
       style->stroke_linejoin = SVG_STROKE_JOIN_ROUND;
@@ -2100,6 +2138,41 @@ static void svg_apply_style_property(const uint8_t *name, size_t name_len,
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-opacity")) {
     svg_parse_opacity_value(value + vs, ve - vs, &style->stroke_opacity);
   }
+}
+
+static void svg_parse_dasharray_value(const uint8_t *data, size_t len,
+                                      svg_style_t *style) {
+  size_t pos = 0;
+  int count = 0;
+  int have_positive = 0;
+
+  if (!data || !style)
+    return;
+  if (svg_match_text(data, len, "none")) {
+    style->stroke_dash_count = 0;
+    style->stroke_dashoffset = 0.0;
+    return;
+  }
+
+  while (pos < len && count < (int)(sizeof(style->stroke_dasharray) /
+                                    sizeof(style->stroke_dasharray[0]))) {
+    double value = 0.0;
+    while (pos < len && svg_is_space(data[pos]))
+      pos++;
+    if (pos >= len)
+      break;
+    if (svg_parse_number(data, len, &pos, &value) != 0)
+      break;
+    if (value < 0.0)
+      value = 0.0;
+    if (value > 0.0)
+      have_positive = 1;
+    style->stroke_dasharray[count++] = value;
+  }
+
+  if (!have_positive)
+    count = 0;
+  style->stroke_dash_count = count;
 }
 
 static void svg_apply_style_declarations(const uint8_t *data, size_t len,
@@ -2155,13 +2228,26 @@ static void svg_apply_style_attrs(const uint8_t *data, size_t start, size_t end,
     if (svg_parse_number(data, end, &pos, &width) == 0)
       style->stroke_width = width;
   }
+  if (svg_find_attr(data, start, end, "stroke-dasharray", &value_start, &value_len) == 0)
+    svg_parse_dasharray_value(data + value_start, value_len, style);
+  if (svg_find_attr(data, start, end, "stroke-dashoffset", &value_start, &value_len) == 0) {
+    size_t pos = value_start;
+    double offset = style->stroke_dashoffset;
+    if (svg_parse_number(data, end, &pos, &offset) == 0)
+      style->stroke_dashoffset = offset;
+  }
   if (svg_find_attr(data, start, end, "fill-rule", &value_start, &value_len) == 0) {
     style->fill_rule_nonzero =
         svg_match_text(data + value_start, value_len, "nonzero") ? 1 : 0;
   }
-  if (svg_find_attr(data, start, end, "stroke-linecap", &value_start, &value_len) == 0)
-    style->stroke_linecap_round =
-        svg_match_text(data + value_start, value_len, "round") ? 1 : 0;
+  if (svg_find_attr(data, start, end, "stroke-linecap", &value_start, &value_len) == 0) {
+    if (svg_match_text(data + value_start, value_len, "round"))
+      style->stroke_linecap = SVG_STROKE_CAP_ROUND;
+    else if (svg_match_text(data + value_start, value_len, "square"))
+      style->stroke_linecap = SVG_STROKE_CAP_SQUARE;
+    else
+      style->stroke_linecap = SVG_STROKE_CAP_BUTT;
+  }
   if (svg_find_attr(data, start, end, "stroke-linejoin", &value_start, &value_len) == 0) {
     if (svg_match_text(data + value_start, value_len, "round"))
       style->stroke_linejoin = SVG_STROKE_JOIN_ROUND;
@@ -3649,24 +3735,197 @@ static int svg_compute_segment_quad(svg_point_t a, svg_point_t b, double radius,
   return 1;
 }
 
+static int svg_expand_segment_for_caps(svg_point_t *a, svg_point_t *b, double radius,
+                                       int linecap, int cap_start, int cap_end) {
+  double dx;
+  double dy;
+  double len;
+  double ux;
+  double uy;
+
+  if (!a || !b)
+    return 0;
+  dx = b->x - a->x;
+  dy = b->y - a->y;
+  len = svg_sqrt_approx(dx * dx + dy * dy);
+  if (len <= 1e-9)
+    return 0;
+  if (linecap != SVG_STROKE_CAP_SQUARE)
+    return 1;
+
+  ux = dx / len;
+  uy = dy / len;
+  if (cap_start) {
+    a->x -= ux * radius;
+    a->y -= uy * radius;
+  }
+  if (cap_end) {
+    b->x += ux * radius;
+    b->y += uy * radius;
+  }
+  return 1;
+}
+
+static int svg_dash_pattern_count(const svg_style_t *style) {
+  if (!style || style->stroke_dash_count <= 0)
+    return 0;
+  if ((style->stroke_dash_count & 1) != 0)
+    return style->stroke_dash_count * 2;
+  return style->stroke_dash_count;
+}
+
+static double svg_dash_pattern_value(const svg_style_t *style, int index) {
+  int base_count;
+
+  if (!style || style->stroke_dash_count <= 0)
+    return 0.0;
+  base_count = style->stroke_dash_count;
+  while (index < 0)
+    index += svg_dash_pattern_count(style);
+  return style->stroke_dasharray[index % base_count];
+}
+
+static double svg_dash_cycle_length(const svg_style_t *style) {
+  int count = svg_dash_pattern_count(style);
+  double total = 0.0;
+
+  for (int i = 0; i < count; i++)
+    total += svg_dash_pattern_value(style, i);
+  return total;
+}
+
+static void svg_dash_init(const svg_style_t *style, int *index,
+                          double *remaining, int *draw) {
+  int count = svg_dash_pattern_count(style);
+  double cycle = svg_dash_cycle_length(style);
+  double offset;
+
+  if (!index || !remaining || !draw) {
+    return;
+  }
+  *index = 0;
+  *remaining = 0.0;
+  *draw = 1;
+  if (!style || count <= 0 || cycle <= 1e-9)
+    return;
+
+  offset = style->stroke_dashoffset;
+  while (offset < 0.0)
+    offset += cycle;
+  while (offset >= cycle)
+    offset -= cycle;
+
+  for (int i = 0; i < count; i++) {
+    double part = svg_dash_pattern_value(style, i);
+    if (part <= 1e-9)
+      continue;
+    if (offset < part) {
+      *index = i;
+      *remaining = part - offset;
+      *draw = ((i & 1) == 0);
+      return;
+    }
+    offset -= part;
+  }
+
+  *index = 0;
+  *remaining = svg_dash_pattern_value(style, 0);
+  *draw = 1;
+}
+
+static void svg_dash_advance(const svg_style_t *style, int *index,
+                             double *remaining, int *draw) {
+  int count = svg_dash_pattern_count(style);
+
+  if (!style || !index || !remaining || !draw || count <= 0)
+    return;
+  do {
+    *index = (*index + 1) % count;
+    *remaining = svg_dash_pattern_value(style, *index);
+    *draw = ((*index & 1) == 0);
+  } while (*remaining <= 1e-9);
+}
+
+static void svg_stroke_segment_solid(svg_render_ctx_t *ctx, svg_point_t a,
+                                     svg_point_t b, const svg_style_t *style,
+                                     svg_transform_t transform,
+                                     int round_cap_start, int round_cap_end,
+                                     double bbox_x, double bbox_y,
+                                     double bbox_w, double bbox_h) {
+  svg_point_t quad[4];
+  double radius = style->stroke_width * 0.5;
+  uint8_t alpha_mul = svg_stroke_alpha_mul(style);
+  svg_point_t body_a = a;
+  svg_point_t body_b = b;
+  if (!svg_expand_segment_for_caps(&body_a, &body_b, radius, style->stroke_linecap,
+                                   round_cap_start, round_cap_end))
+    return;
+  if (!svg_compute_segment_quad(body_a, body_b, radius, quad))
+    return;
+  svg_fill_polygon(ctx, quad, 4, &style->stroke, alpha_mul, transform, bbox_x,
+                   bbox_y, bbox_w, bbox_h);
+  if (style->stroke_linecap == SVG_STROKE_CAP_ROUND && round_cap_start)
+    svg_draw_disc(ctx, a.x, a.y, radius, &style->stroke, alpha_mul, transform,
+                  bbox_x, bbox_y, bbox_w, bbox_h);
+  if (style->stroke_linecap == SVG_STROKE_CAP_ROUND && round_cap_end)
+    svg_draw_disc(ctx, b.x, b.y, radius, &style->stroke, alpha_mul, transform,
+                  bbox_x, bbox_y, bbox_w, bbox_h);
+}
+
 static void svg_stroke_segment(svg_render_ctx_t *ctx, svg_point_t a, svg_point_t b,
                                const svg_style_t *style, svg_transform_t transform,
                                int round_cap_start, int round_cap_end,
                                double bbox_x, double bbox_y, double bbox_w,
                                double bbox_h) {
-  svg_point_t quad[4];
-  double radius = style->stroke_width * 0.5;
-  uint8_t alpha_mul = svg_stroke_alpha_mul(style);
-  if (!svg_compute_segment_quad(a, b, radius, quad))
+  svg_stroke_segment_solid(ctx, a, b, style, transform, round_cap_start,
+                           round_cap_end, bbox_x, bbox_y, bbox_w, bbox_h);
+}
+
+static void svg_stroke_segment_dashed(svg_render_ctx_t *ctx, svg_point_t a,
+                                      svg_point_t b, const svg_style_t *style,
+                                      svg_transform_t transform,
+                                      double bbox_x, double bbox_y,
+                                      double bbox_w, double bbox_h,
+                                      int *dash_index,
+                                      double *dash_remaining, int *dash_draw) {
+  double dx;
+  double dy;
+  double len;
+  double ux;
+  double uy;
+  double pos = 0.0;
+
+  if (!ctx || !style || !dash_index || !dash_remaining || !dash_draw)
     return;
-  svg_fill_polygon(ctx, quad, 4, &style->stroke, alpha_mul, transform, bbox_x,
-                   bbox_y, bbox_w, bbox_h);
-  if (style->stroke_linecap_round && round_cap_start)
-    svg_draw_disc(ctx, a.x, a.y, radius, &style->stroke, alpha_mul, transform,
-                  bbox_x, bbox_y, bbox_w, bbox_h);
-  if (style->stroke_linecap_round && round_cap_end)
-    svg_draw_disc(ctx, b.x, b.y, radius, &style->stroke, alpha_mul, transform,
-                  bbox_x, bbox_y, bbox_w, bbox_h);
+  dx = b.x - a.x;
+  dy = b.y - a.y;
+  len = svg_sqrt_approx(dx * dx + dy * dy);
+  if (len <= 1e-9)
+    return;
+  ux = dx / len;
+  uy = dy / len;
+
+  while (pos < len - 1e-9) {
+    double step = *dash_remaining;
+    if (step <= 1e-9) {
+      svg_dash_advance(style, dash_index, dash_remaining, dash_draw);
+      step = *dash_remaining;
+      if (step <= 1e-9)
+        break;
+    }
+    if (step > len - pos)
+      step = len - pos;
+    if (*dash_draw && step > 1e-9) {
+      svg_point_t da = {a.x + ux * pos, a.y + uy * pos};
+      svg_point_t db = {a.x + ux * (pos + step), a.y + uy * (pos + step)};
+      svg_stroke_segment_solid(ctx, da, db, style, transform, 1, 1, bbox_x,
+                               bbox_y, bbox_w, bbox_h);
+    }
+    pos += step;
+    *dash_remaining -= step;
+    if (*dash_remaining <= 1e-9)
+      svg_dash_advance(style, dash_index, dash_remaining, dash_draw);
+  }
 }
 
 static void svg_stroke_join(svg_render_ctx_t *ctx, svg_point_t prev, svg_point_t curr,
@@ -3821,6 +4080,13 @@ static void svg_render_path_buffer(svg_render_ctx_t *ctx, const svg_path_buffer_
       int start = i;
       int end = i;
       int closed = 0;
+      int dashed = style->stroke_dash_count > 0;
+      int dash_index = 0;
+      double dash_remaining = 0.0;
+      int dash_draw = 1;
+
+      if (dashed)
+        svg_dash_init(style, &dash_index, &dash_remaining, &dash_draw);
       while (end + 1 < tx.count && !tx.moves[end + 1]) {
         if (tx.closes[end]) {
           closed = 1;
@@ -3834,27 +4100,45 @@ static void svg_render_path_buffer(svg_render_ctx_t *ctx, const svg_path_buffer_
         for (int seg = start; seg < end; seg++) {
           int round_start = (seg == start) && !closed;
           int round_end = (seg == end - 1) && !closed;
-          svg_stroke_segment(ctx, tx.points[seg], tx.points[seg + 1], style,
-                             transform, round_start, round_end, bbox_min_x,
-                             bbox_min_y, bbox_w, bbox_h);
+          if (dashed) {
+            svg_stroke_segment_dashed(ctx, tx.points[seg], tx.points[seg + 1],
+                                      style, transform, bbox_min_x, bbox_min_y,
+                                      bbox_w, bbox_h, &dash_index,
+                                      &dash_remaining, &dash_draw);
+          } else {
+            svg_stroke_segment(ctx, tx.points[seg], tx.points[seg + 1], style,
+                               transform, round_start, round_end, bbox_min_x,
+                               bbox_min_y, bbox_w, bbox_h);
+          }
         }
-        if (closed)
-          svg_stroke_segment(ctx, tx.points[end], tx.points[start], style,
-                             transform, 0, 0, bbox_min_x, bbox_min_y, bbox_w,
-                             bbox_h);
-        for (int v = start + 1; v < end; v++)
-          svg_stroke_join(ctx, tx.points[v - 1], tx.points[v], tx.points[v + 1],
-                          style, transform, bbox_min_x, bbox_min_y, bbox_w,
-                          bbox_h);
-        if (closed && end > start + 1) {
-          svg_stroke_join(ctx, tx.points[end - 1], tx.points[end], tx.points[start],
-                          style, transform, bbox_min_x, bbox_min_y, bbox_w,
-                          bbox_h);
-          svg_stroke_join(ctx, tx.points[end], tx.points[start], tx.points[start + 1],
-                          style, transform, bbox_min_x, bbox_min_y, bbox_w,
-                          bbox_h);
+        if (closed) {
+          if (dashed) {
+            svg_stroke_segment_dashed(ctx, tx.points[end], tx.points[start],
+                                      style, transform, bbox_min_x, bbox_min_y,
+                                      bbox_w, bbox_h, &dash_index,
+                                      &dash_remaining, &dash_draw);
+          } else {
+            svg_stroke_segment(ctx, tx.points[end], tx.points[start], style,
+                               transform, 0, 0, bbox_min_x, bbox_min_y, bbox_w,
+                               bbox_h);
+          }
         }
-      } else if (end == start && style->stroke_linecap_round) {
+        if (!dashed) {
+          for (int v = start + 1; v < end; v++)
+            svg_stroke_join(ctx, tx.points[v - 1], tx.points[v], tx.points[v + 1],
+                            style, transform, bbox_min_x, bbox_min_y, bbox_w,
+                            bbox_h);
+          if (closed && end > start + 1) {
+            svg_stroke_join(ctx, tx.points[end - 1], tx.points[end], tx.points[start],
+                            style, transform, bbox_min_x, bbox_min_y, bbox_w,
+                            bbox_h);
+            svg_stroke_join(ctx, tx.points[end], tx.points[start], tx.points[start + 1],
+                            style, transform, bbox_min_x, bbox_min_y, bbox_w,
+                            bbox_h);
+          }
+        }
+      } else if (end == start &&
+                 style->stroke_linecap == SVG_STROKE_CAP_ROUND) {
         svg_draw_disc(ctx, tx.points[start].x, tx.points[start].y,
                       style->stroke_width * 0.5, &style->stroke,
                       svg_stroke_alpha_mul(style), transform, bbox_min_x,
@@ -4012,16 +4296,29 @@ static int svg_decode_data_uri_image(const uint8_t *data, size_t len,
   return ret;
 }
 
-static void svg_blit_image(svg_render_ctx_t *ctx, media_image_t *src,
-                           double x, double y, double w, double h) {
+static void svg_blit_image_region(svg_render_ctx_t *ctx, media_image_t *src,
+                                  double x, double y, double w, double h,
+                                  double src_x, double src_y, double src_w,
+                                  double src_h) {
   int dst_w = (int)(w > 0.0 ? w : (double)src->width);
   int dst_h = (int)(h > 0.0 ? h : (double)src->height);
-  if (!ctx || !src || !src->pixels || dst_w <= 0 || dst_h <= 0)
+  if (!ctx || !src || !src->pixels || dst_w <= 0 || dst_h <= 0 || src_w <= 0.0 ||
+      src_h <= 0.0)
     return;
   for (int yy = 0; yy < dst_h; yy++) {
-    int sy = (yy * (int)src->height) / dst_h;
+    double sample_y = src_y + (((double)yy + 0.5) * src_h) / (double)dst_h;
+    int sy = (int)sample_y;
+    if (sy < 0)
+      sy = 0;
+    if (sy >= (int)src->height)
+      sy = (int)src->height - 1;
     for (int xx = 0; xx < dst_w; xx++) {
-      int sx = (xx * (int)src->width) / dst_w;
+      double sample_x = src_x + (((double)xx + 0.5) * src_w) / (double)dst_w;
+      int sx = (int)sample_x;
+      if (sx < 0)
+        sx = 0;
+      if (sx >= (int)src->width)
+        sx = (int)src->width - 1;
       uint32_t pixel = src->pixels[sy * src->width + sx];
       uint8_t alpha = (pixel >> 24) & 0xFF;
       if (alpha == 0)
@@ -4029,6 +4326,14 @@ static void svg_blit_image(svg_render_ctx_t *ctx, media_image_t *src,
       svg_blend_pixel(&ctx->image, (int)x + xx, (int)y + yy, pixel & 0xFFFFFF, alpha);
     }
   }
+}
+
+static void svg_blit_image(svg_render_ctx_t *ctx, media_image_t *src,
+                           double x, double y, double w, double h) {
+  if (!src)
+    return;
+  svg_blit_image_region(ctx, src, x, y, w, h, 0.0, 0.0, (double)src->width,
+                        (double)src->height);
 }
 
 static int media_decode_svg_vector(const uint8_t *data, size_t size,
@@ -4043,6 +4348,9 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
   size_t svg_start = 0, svg_end = 0;
   double view_x = 0.0, view_y = 0.0, view_w = 0.0, view_h = 0.0;
   double width = 0.0, height = 0.0;
+  double viewport_w;
+  double viewport_h;
+  double viewport_diag;
   int align_x = 1, align_y = 1, meet_mode = 1, preserve_none = 0;
   int ret;
 
@@ -4077,6 +4385,9 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
     height = view_h;
   if (width <= 0.0 || height <= 0.0)
     return -EINVAL;
+  viewport_w = view_w > 0.0 ? view_w : width;
+  viewport_h = view_h > 0.0 ? view_h : height;
+  viewport_diag = svg_viewport_normalized_diagonal(viewport_w, viewport_h);
   ret = svg_alloc_image(out, (uint32_t)(width + 0.5), (uint32_t)(height + 0.5));
   if (ret != 0)
     return ret;
@@ -4355,9 +4666,20 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         {
           svg_point_t a = svg_transform_point(transform, (svg_point_t){x1, y1});
           svg_point_t b = svg_transform_point(transform, (svg_point_t){x2, y2});
-          svg_stroke_segment(&ctx, a, b, &style, transform, 1, 1, svg_min(x1, x2),
-                             svg_min(y1, y2), svg_absd(x2 - x1),
-                             svg_absd(y2 - y1));
+          if (style.stroke_dash_count > 0) {
+            int dash_index = 0;
+            double dash_remaining = 0.0;
+            int dash_draw = 1;
+            svg_dash_init(&style, &dash_index, &dash_remaining, &dash_draw);
+            svg_stroke_segment_dashed(&ctx, a, b, &style, transform,
+                                      svg_min(x1, x2), svg_min(y1, y2),
+                                      svg_absd(x2 - x1), svg_absd(y2 - y1),
+                                      &dash_index, &dash_remaining, &dash_draw);
+          } else {
+            svg_stroke_segment(&ctx, a, b, &style, transform, 1, 1,
+                               svg_min(x1, x2), svg_min(y1, y2),
+                               svg_absd(x2 - x1), svg_absd(y2 - y1));
+          }
         }
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "rect")) {
         double x = 0.0, y = 0.0, w = 0.0, h = 0.0, rx = 0.0, ry = 0.0;
@@ -4525,6 +4847,10 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "image")) {
         size_t vs = 0, vl = 0;
         double x = 0.0, y = 0.0, w = 0.0, h = 0.0;
+        double draw_x, draw_y, draw_w, draw_h;
+        double src_x = 0.0, src_y = 0.0;
+        double src_w, src_h;
+        int align_x = 1, align_y = 1, meet_mode = 1, preserve_none = 0;
         size_t pos;
         media_image_t embedded = {0};
         if (svg_find_attr(data, tag_start, tag_end, "x", &vs, &vl) == 0) {
@@ -4543,7 +4869,62 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
              svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
             svg_decode_data_uri_image(data + vs, vl, &embedded) == 0) {
           svg_point_t p = svg_transform_point(transform, (svg_point_t){x, y});
-          svg_blit_image(&ctx, &embedded, p.x, p.y, w * transform.a, h * transform.d);
+          draw_x = p.x;
+          draw_y = p.y;
+          draw_w = w > 0.0 ? w * transform.a : (double)embedded.width;
+          draw_h = h > 0.0 ? h * transform.d : (double)embedded.height;
+          src_w = (double)embedded.width;
+          src_h = (double)embedded.height;
+          svg_parse_preserve_aspect_ratio(data, tag_start, tag_end, &align_x,
+                                          &align_y, &meet_mode, &preserve_none);
+          if (!preserve_none && draw_w > 0.0 && draw_h > 0.0 && src_w > 0.0 &&
+              src_h > 0.0) {
+            double scale_x = draw_w / src_w;
+            double scale_y = draw_h / src_h;
+            if (meet_mode) {
+              double scale = svg_min(scale_x, scale_y);
+              double fit_w = src_w * scale;
+              double fit_h = src_h * scale;
+              double extra_x = draw_w - fit_w;
+              double extra_y = draw_h - fit_h;
+              draw_w = fit_w;
+              draw_h = fit_h;
+              if (align_x == 1)
+                draw_x += extra_x * 0.5;
+              else if (align_x == 2)
+                draw_x += extra_x;
+              if (align_y == 1)
+                draw_y += extra_y * 0.5;
+              else if (align_y == 2)
+                draw_y += extra_y;
+            } else {
+              double scale = svg_max(scale_x, scale_y);
+              double crop_w = draw_w / scale;
+              double crop_h = draw_h / scale;
+              double extra_x = src_w - crop_w;
+              double extra_y = src_h - crop_h;
+              src_w = crop_w;
+              src_h = crop_h;
+              if (align_x == 1)
+                src_x += extra_x * 0.5;
+              else if (align_x == 2)
+                src_x += extra_x;
+              if (align_y == 1)
+                src_y += extra_y * 0.5;
+              else if (align_y == 2)
+                src_y += extra_y;
+            }
+          }
+          if (draw_w < 0.0) {
+            draw_x += draw_w;
+            draw_w = -draw_w;
+          }
+          if (draw_h < 0.0) {
+            draw_y += draw_h;
+            draw_h = -draw_h;
+          }
+          svg_blit_image_region(&ctx, &embedded, draw_x, draw_y, draw_w, draw_h,
+                                src_x, src_y, src_w, src_h);
           media_free_image(&embedded);
         }
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "text")) {
