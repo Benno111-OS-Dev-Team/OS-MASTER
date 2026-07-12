@@ -31,6 +31,9 @@ extern const unsigned int bootstrap_default_jpg_len;
 extern const unsigned char bootstrap_default_svg[];
 extern const unsigned int bootstrap_default_svg_len;
 
+extern const unsigned char bootstrap_cursor_svg[];
+extern const unsigned int bootstrap_cursor_svg_len;
+
 /* Real photos from the internet */
 extern const unsigned char bootstrap_nature_jpg[];
 extern const unsigned int bootstrap_nature_jpg_len;

@@ -33,4 +33,3 @@ Last updated: 2026-07-11
 2. Move minimize, maximize, and restore flows into shared helpers to reduce repeated window-state code.
 3. Evaluate a second skin profile for minimal chrome.
 4. Add a focused GUI smoke-test checklist for window interactions on `x86_64` desktop builds.
-//embed the cursor.svg file and render the cursor 

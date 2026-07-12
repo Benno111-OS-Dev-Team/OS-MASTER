@@ -726,6 +726,8 @@ static void populate_seed_tree_at(const char *prefix) {
                    bootstrap_default_jpg, bootstrap_default_jpg_len);
   seed_write_bytes(prefix, "assets/wallpapers/default.svg", 0644,
                    bootstrap_default_svg, bootstrap_default_svg_len);
+  seed_write_bytes(prefix, "assets/cursor.svg", 0644, bootstrap_cursor_svg,
+                   bootstrap_cursor_svg_len);
   seed_write_bytes(prefix, "Pictures/test.png", 0644, bootstrap_test_png,
                    bootstrap_test_png_len);
 #endif

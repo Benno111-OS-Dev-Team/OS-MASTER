@@ -95,6 +95,7 @@ fi
 require_file "$ROOT_DIR/kernel/apps/embedded_apps.c"
 require_file "$ROOT_DIR/kernel/media/seed_mp3.inc"
 require_file "$ROOT_DIR/assets/logo.png"
+require_file "$ROOT_DIR/assets/cursor.svg"
 require_file "$ROOT_DIR/assets/themes/dark.theme"
 require_file "$ROOT_DIR/assets/themes/light.theme"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/landscape.png"
@@ -149,6 +150,7 @@ cat > "$OUTPUT_ROOT/todo.txt" <<'EOF'
 EOF
 
 cp "$ROOT_DIR/assets/logo.png" "$OUTPUT_ROOT/assets/logo.png"
+cp "$ROOT_DIR/assets/cursor.svg" "$OUTPUT_ROOT/assets/cursor.svg"
 cp "$ROOT_DIR/assets/themes/dark.theme" "$OUTPUT_ROOT/assets/themes/dark.theme"
 cp "$ROOT_DIR/assets/themes/light.theme" "$OUTPUT_ROOT/assets/themes/light.theme"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/landscape.png" "$OUTPUT_ROOT/assets/wallpapers/landscape.png"
