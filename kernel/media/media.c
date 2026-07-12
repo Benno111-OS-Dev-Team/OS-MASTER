@@ -1372,6 +1372,7 @@ typedef struct {
   uint8_t opacity;
   uint8_t fill_opacity;
   uint8_t stroke_opacity;
+  uint8_t paint_order[3];
 } svg_style_t;
 
 typedef struct {
@@ -1382,6 +1383,7 @@ typedef struct {
 typedef struct {
   char selector[64];
   char declarations[256];
+  int specificity;
 } svg_css_rule_t;
 
 #define SVG_GRADIENT_MAX_STOPS 8
@@ -1452,6 +1454,10 @@ typedef struct {
 
 #define SVG_LENGTH_ADJUST_SPACING 0
 #define SVG_LENGTH_ADJUST_SPACING_AND_GLYPHS 1
+
+#define SVG_PAINT_ORDER_FILL 0
+#define SVG_PAINT_ORDER_STROKE 1
+#define SVG_PAINT_ORDER_MARKERS 2
 
 static double svg_absd(double v) { return v < 0.0 ? -v : v; }
 
@@ -1659,10 +1665,73 @@ static void svg_parse_length_number(const uint8_t *data, size_t start, size_t le
     *out = (*out * percent_scale) / 100.0;
 }
 
+static int svg_parse_color_with_current(const uint8_t *data, size_t len,
+                                        uint32_t current_color,
+                                        uint32_t *color, uint8_t *alpha) {
+  if (!data || !color || !alpha)
+    return -EINVAL;
+  if (len == 12 && svg_match_text(data, len, "currentColor")) {
+    *color = current_color;
+    *alpha = 255;
+    return 0;
+  }
+  return svg_parse_color(data, len, color, alpha);
+}
+
+static void svg_parse_stop_style_reapply_stop_color(const uint8_t *data,
+                                                    size_t len,
+                                                    uint32_t current_color,
+                                                    uint32_t *color,
+                                                    uint8_t *alpha) {
+  size_t pos = 0;
+
+  while (pos < len) {
+    size_t name_start = pos;
+    size_t name_end;
+    size_t value_start;
+    size_t value_end;
+    size_t trimmed_start;
+    size_t trimmed_end;
+
+    while (pos < len && data[pos] != ':' && data[pos] != ';')
+      pos++;
+    name_end = pos;
+    if (pos >= len || data[pos] != ':') {
+      while (pos < len && data[pos] != ';')
+        pos++;
+      if (pos < len)
+        pos++;
+      continue;
+    }
+    pos++;
+    value_start = pos;
+    while (pos < len && data[pos] != ';')
+      pos++;
+    value_end = pos;
+    if (svg_trimmed_range(data, name_start, name_end, &trimmed_start,
+                          &trimmed_end) == 0) {
+      size_t value_trim_start;
+      size_t value_trim_end;
+      if (svg_trimmed_range(data, value_start, value_end, &value_trim_start,
+                            &value_trim_end) == 0 &&
+          svg_attr_name_equals(data, trimmed_start, trimmed_end,
+                               "stop-color")) {
+        svg_parse_color_with_current(data + value_trim_start,
+                                     value_trim_end - value_trim_start,
+                                     current_color, color, alpha);
+      }
+    }
+    if (pos < len)
+      pos++;
+  }
+}
+
 static void svg_parse_stop_style_declarations(const uint8_t *data, size_t len,
+                                              uint32_t current_color,
                                               uint32_t *color,
                                               uint8_t *alpha) {
   size_t pos = 0;
+  int saw_color = 0;
   if (!data)
     return;
   while (pos < len) {
@@ -1693,10 +1762,21 @@ static void svg_parse_stop_style_declarations(const uint8_t *data, size_t len,
       size_t value_trim_end;
       if (svg_trimmed_range(data, value_start, value_end, &value_trim_start,
                             &value_trim_end) == 0) {
-        if (svg_attr_name_equals(data, trimmed_start, trimmed_end,
-                                 "stop-color")) {
-          svg_parse_color(data + value_trim_start,
-                          value_trim_end - value_trim_start, color, alpha);
+        if (svg_attr_name_equals(data, trimmed_start, trimmed_end, "color")) {
+          uint32_t parsed_color = current_color;
+          uint8_t parsed_alpha = 255;
+          if (svg_parse_color_with_current(data + value_trim_start,
+                                           value_trim_end - value_trim_start,
+                                           current_color, &parsed_color,
+                                           &parsed_alpha) == 0) {
+            current_color = parsed_color;
+            saw_color = 1;
+          }
+        } else if (svg_attr_name_equals(data, trimmed_start, trimmed_end,
+                                        "stop-color")) {
+          svg_parse_color_with_current(data + value_trim_start,
+                                       value_trim_end - value_trim_start,
+                                       current_color, color, alpha);
         } else if (svg_attr_name_equals(data, trimmed_start, trimmed_end,
                                         "stop-opacity")) {
           uint8_t parsed_alpha = *alpha;
@@ -1711,6 +1791,9 @@ static void svg_parse_stop_style_declarations(const uint8_t *data, size_t len,
     if (pos < len)
       pos++;
   }
+  if (saw_color)
+    svg_parse_stop_style_reapply_stop_color(data, len, current_color, color,
+                                            alpha);
 }
 
 static svg_transform_t svg_transform_multiply(svg_transform_t lhs,
@@ -1743,7 +1826,7 @@ static int svg_parse_number(const uint8_t *data, size_t size, size_t *pos,
   int exp_value = 0;
   int have_exp = 0;
 
-  while (*pos < size && svg_is_space(data[*pos]))
+  while (*pos < size && (svg_is_space(data[*pos]) || data[*pos] == ','))
     (*pos)++;
   if (*pos >= size)
     return -EINVAL;
@@ -1804,7 +1887,7 @@ static int svg_parse_number(const uint8_t *data, size_t size, size_t *pos,
   }
 
   *out = value * (double)sign;
-  while (*pos < size && svg_is_space(data[*pos]))
+  while (*pos < size && (svg_is_space(data[*pos]) || data[*pos] == ','))
     (*pos)++;
   return 0;
 }
@@ -2113,6 +2196,98 @@ static int svg_parse_dominant_baseline_value(const uint8_t *data, size_t len) {
   return SVG_DOMINANT_BASELINE_AUTO;
 }
 
+static void svg_init_paint_order(uint8_t order[3]) {
+  if (!order)
+    return;
+  order[0] = SVG_PAINT_ORDER_FILL;
+  order[1] = SVG_PAINT_ORDER_STROKE;
+  order[2] = SVG_PAINT_ORDER_MARKERS;
+}
+
+static void svg_parse_paint_order_value(const uint8_t *data, size_t len,
+                                        svg_style_t *style) {
+  uint8_t order[3];
+  uint8_t used[3] = {0, 0, 0};
+  int count = 0;
+  size_t pos = 0;
+
+  if (!style || !data)
+    return;
+  if (svg_match_text(data, len, "normal")) {
+    svg_init_paint_order(style->paint_order);
+    return;
+  }
+  svg_init_paint_order(order);
+  while (pos < len && count < 3) {
+    size_t start = pos;
+    size_t end;
+
+    while (pos < len && svg_is_space(data[pos]))
+      pos++;
+    start = pos;
+    while (pos < len && !svg_is_space(data[pos]))
+      pos++;
+    end = pos;
+    if (end <= start)
+      continue;
+    if (svg_match_text(data + start, end - start, "fill")) {
+      if (!used[SVG_PAINT_ORDER_FILL]) {
+        order[count++] = SVG_PAINT_ORDER_FILL;
+        used[SVG_PAINT_ORDER_FILL] = 1;
+      }
+    } else if (svg_match_text(data + start, end - start, "stroke")) {
+      if (!used[SVG_PAINT_ORDER_STROKE]) {
+        order[count++] = SVG_PAINT_ORDER_STROKE;
+        used[SVG_PAINT_ORDER_STROKE] = 1;
+      }
+    } else if (svg_match_text(data + start, end - start, "markers")) {
+      if (!used[SVG_PAINT_ORDER_MARKERS]) {
+        order[count++] = SVG_PAINT_ORDER_MARKERS;
+        used[SVG_PAINT_ORDER_MARKERS] = 1;
+      }
+    }
+  }
+  for (int i = 0; i < 3; i++) {
+    uint8_t item = (uint8_t)i;
+    if (!used[item])
+      order[count++] = item;
+  }
+  for (int i = 0; i < 3; i++)
+    style->paint_order[i] = order[i];
+}
+
+static void svg_parse_stroke_width_value(const uint8_t *data, size_t start,
+                                         size_t len, const svg_style_t *style,
+                                         double *out_width) {
+  double basis = 1.0;
+
+  if (!data || !out_width)
+    return;
+  if (style && style->font_size > 0.0)
+    basis = style->font_size;
+  else if (style && style->stroke_width > 0.0)
+    basis = style->stroke_width;
+  svg_parse_length_number(data, start, len, basis, out_width);
+}
+
+static double svg_style_length_basis(const svg_style_t *style) {
+  if (style && style->stroke_width > 0.0)
+    return style->stroke_width;
+  if (style && style->font_size > 0.0)
+    return style->font_size;
+  return 1.0;
+}
+
+static void svg_parse_dasharray_value(const uint8_t *data, size_t len,
+                                      svg_style_t *style);
+
+static void svg_parse_dashoffset_value(const uint8_t *data, size_t start,
+                                       size_t len, const svg_style_t *style,
+                                       double *out_offset) {
+  svg_parse_length_number(data, start, len, svg_style_length_basis(style),
+                          out_offset);
+}
+
 static void svg_init_default_style(svg_style_t *style) {
   style->fill.kind = SVG_PAINT_SOLID;
   style->fill.color = 0x000000;
@@ -2143,6 +2318,7 @@ static void svg_init_default_style(svg_style_t *style) {
   style->opacity = 255;
   style->fill_opacity = 255;
   style->stroke_opacity = 255;
+  svg_init_paint_order(style->paint_order);
 }
 
 static int svg_style_is_displayed(const svg_style_t *style) {
@@ -2374,18 +2550,16 @@ static int svg_css_header_starts_with(const uint8_t *data, size_t start, size_t 
   return svg_match_text_ci(data + ts, text_len, text);
 }
 
-static int svg_css_media_query_supported(const uint8_t *data, size_t start,
+static int svg_css_media_value_supported(const uint8_t *data, size_t start,
                                          size_t end) {
   size_t ts = start;
   size_t te = end;
   size_t pos;
   int saw_query = 0;
 
-  if (!svg_css_header_starts_with(data, start, end, "@media"))
+  if (svg_trimmed_range(data, start, end, &ts, &te) != 0)
     return 0;
-  if (svg_trimmed_range(data, start, end, &ts, &te) != 0 || te <= ts + 6)
-    return 0;
-  pos = ts + 6;
+  pos = ts;
   while (pos < te) {
     size_t token_start;
     size_t token_end;
@@ -2416,6 +2590,18 @@ static int svg_css_media_query_supported(const uint8_t *data, size_t start,
   return !saw_query;
 }
 
+static int svg_css_media_query_supported(const uint8_t *data, size_t start,
+                                         size_t end) {
+  size_t ts = start;
+  size_t te = end;
+
+  if (!svg_css_header_starts_with(data, start, end, "@media"))
+    return 0;
+  if (svg_trimmed_range(data, start, end, &ts, &te) != 0 || te <= ts + 6)
+    return 0;
+  return svg_css_media_value_supported(data, ts + 6, te);
+}
+
 static void svg_copy_trimmed_ascii_without_comments(char *dst, size_t dst_size,
                                                     const uint8_t *data,
                                                     size_t start,
@@ -2443,6 +2629,32 @@ static void svg_copy_trimmed_ascii_without_comments(char *dst, size_t dst_size,
   dst[wr] = '\0';
 }
 
+static int svg_css_compute_specificity(const char *selector) {
+  int specificity = 0;
+  size_t pos = 0;
+
+  if (!selector || selector[0] == '\0')
+    return 0;
+  if (selector[0] != '.' && selector[0] != '#') {
+    size_t tag_start = pos;
+    while (selector[pos] && selector[pos] != '.' && selector[pos] != '#')
+      pos++;
+    if (!(pos - tag_start == 1 && selector[tag_start] == '*'))
+      specificity += 1;
+  }
+  while (selector[pos]) {
+    char kind = selector[pos++];
+
+    while (selector[pos] && selector[pos] != '.' && selector[pos] != '#')
+      pos++;
+    if (kind == '#')
+      specificity += 100;
+    else if (kind == '.')
+      specificity += 10;
+  }
+  return specificity;
+}
+
 static void svg_css_reset_rules(void) { svg_css_rule_count = 0; }
 
 static void svg_css_add_rule(const uint8_t *selector, size_t selector_len,
@@ -2460,6 +2672,7 @@ static void svg_css_add_rule(const uint8_t *selector, size_t selector_len,
                                           decls_len);
   if (rule->selector[0] == '\0' || rule->declarations[0] == '\0')
     return;
+  rule->specificity = svg_css_compute_specificity(rule->selector);
   svg_css_rule_count++;
 }
 
@@ -2591,11 +2804,36 @@ static int svg_selector_matches_element(const char *selector, const uint8_t *dat
 
 static void svg_apply_css_rules_to_element(const uint8_t *data, size_t start,
                                            size_t end, svg_style_t *style) {
+  int matched[SVG_MAX_CSS_RULES];
+  int matched_count = 0;
+
   for (int i = 0; i < svg_css_rule_count; i++) {
     if (svg_selector_matches_element(svg_css_rules[i].selector, data, start, end))
-      svg_apply_style_declarations((const uint8_t *)svg_css_rules[i].declarations,
-                                   media_strlen(svg_css_rules[i].declarations),
-                                   style);
+      matched[matched_count++] = i;
+  }
+
+  for (int i = 0; i < matched_count; i++) {
+    int best = i;
+
+    for (int j = i + 1; j < matched_count; j++) {
+      int best_idx = matched[best];
+      int cand_idx = matched[j];
+
+      if (svg_css_rules[cand_idx].specificity <
+              svg_css_rules[best_idx].specificity ||
+          (svg_css_rules[cand_idx].specificity ==
+               svg_css_rules[best_idx].specificity &&
+           cand_idx < best_idx))
+        best = j;
+    }
+    if (best != i) {
+      int tmp = matched[i];
+      matched[i] = matched[best];
+      matched[best] = tmp;
+    }
+    svg_apply_style_declarations(
+        (const uint8_t *)svg_css_rules[matched[i]].declarations,
+        media_strlen(svg_css_rules[matched[i]].declarations), style);
   }
 }
 
@@ -2699,6 +2937,7 @@ static void svg_collect_style_rules(const uint8_t *data, size_t size) {
     size_t tag_end;
     size_t close_start = 0, close_end = 0;
     size_t type_start = 0, type_len = 0;
+    size_t media_start = 0, media_len = 0;
 
     if (data[pos] != '<') {
       pos++;
@@ -2722,6 +2961,12 @@ static void svg_collect_style_rules(const uint8_t *data, size_t size) {
     if (svg_find_attr(data, tag_start, tag_end, "type", &type_start, &type_len) == 0 &&
         type_len > 0 &&
         !svg_style_type_is_css(data, type_start, type_len)) {
+      pos++;
+      continue;
+    }
+    if (svg_find_attr(data, tag_start, tag_end, "media", &media_start, &media_len) == 0 &&
+        media_len > 0 &&
+        !svg_css_media_value_supported(data, media_start, media_start + media_len)) {
       pos++;
       continue;
     }
@@ -2760,16 +3005,16 @@ static void svg_apply_style_property(const uint8_t *name, size_t name_len,
     if (svg_parse_color(value + vs, ve - vs, &color, &alpha) == 0)
       style->current_color = color;
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-width")) {
-    pos = vs;
     width = style->stroke_width;
-    if (svg_parse_number(value, ve, &pos, &width) == 0)
+    svg_parse_stroke_width_value(value, vs, ve - vs, style, &width);
+    if (width >= 0.0)
       style->stroke_width = width;
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-dasharray")) {
     svg_parse_dasharray_value(value + vs, ve - vs, style);
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-dashoffset")) {
     double offset = style->stroke_dashoffset;
-    pos = vs;
-    if (svg_parse_number(value, ve, &pos, &offset) == 0)
+    svg_parse_dashoffset_value(value, vs, ve - vs, style, &offset);
+    if (offset >= 0.0 || ve > vs)
       style->stroke_dashoffset = offset;
   } else if (svg_attr_name_equals(name, ns, ne, "fill-rule") ||
              svg_attr_name_equals(name, ns, ne, "clip-rule")) {
@@ -2835,6 +3080,8 @@ static void svg_apply_style_property(const uint8_t *name, size_t name_len,
     svg_parse_opacity_value(value + vs, ve - vs, &style->fill_opacity);
   } else if (svg_attr_name_equals(name, ns, ne, "stroke-opacity")) {
     svg_parse_opacity_value(value + vs, ve - vs, &style->stroke_opacity);
+  } else if (svg_attr_name_equals(name, ns, ne, "paint-order")) {
+    svg_parse_paint_order_value(value + vs, ve - vs, style);
   }
 }
 
@@ -2855,12 +3102,17 @@ static void svg_parse_dasharray_value(const uint8_t *data, size_t len,
   while (pos < len && count < (int)(sizeof(style->stroke_dasharray) /
                                     sizeof(style->stroke_dasharray[0]))) {
     double value = 0.0;
-    while (pos < len && svg_is_space(data[pos]))
+    while (pos < len && (svg_is_space(data[pos]) || data[pos] == ','))
       pos++;
     if (pos >= len)
       break;
-    if (svg_parse_number(data, len, &pos, &value) != 0)
-      break;
+    {
+      size_t value_start = pos;
+      while (pos < len && !svg_is_space(data[pos]) && data[pos] != ',')
+        pos++;
+      svg_parse_length_number(data, value_start, pos - value_start,
+                              svg_style_length_basis(style), &value);
+    }
     if (value < 0.0)
       value = 0.0;
     if (value > 0.0)
@@ -2969,17 +3221,17 @@ static void svg_apply_style_attrs(const uint8_t *data, size_t start, size_t end,
     svg_parse_paint_with_current(data + value_start, value_len,
                                  style->current_color, &style->stroke);
   if (svg_find_attr(data, start, end, "stroke-width", &value_start, &value_len) == 0) {
-    size_t pos = value_start;
     double width = style->stroke_width;
-    if (svg_parse_number(data, end, &pos, &width) == 0)
+    svg_parse_stroke_width_value(data, value_start, value_len, style, &width);
+    if (width >= 0.0)
       style->stroke_width = width;
   }
   if (svg_find_attr(data, start, end, "stroke-dasharray", &value_start, &value_len) == 0)
     svg_parse_dasharray_value(data + value_start, value_len, style);
   if (svg_find_attr(data, start, end, "stroke-dashoffset", &value_start, &value_len) == 0) {
-    size_t pos = value_start;
     double offset = style->stroke_dashoffset;
-    if (svg_parse_number(data, end, &pos, &offset) == 0)
+    svg_parse_dashoffset_value(data, value_start, value_len, style, &offset);
+    if (offset >= 0.0 || value_len > 0)
       style->stroke_dashoffset = offset;
   }
   if (svg_find_attr(data, start, end, "fill-rule", &value_start, &value_len) == 0) {
@@ -3064,6 +3316,8 @@ static void svg_apply_style_attrs(const uint8_t *data, size_t start, size_t end,
     svg_parse_opacity_value(data + value_start, value_len, &style->fill_opacity);
   if (svg_find_attr(data, start, end, "stroke-opacity", &value_start, &value_len) == 0)
     svg_parse_opacity_value(data + value_start, value_len, &style->stroke_opacity);
+  if (svg_find_attr(data, start, end, "paint-order", &value_start, &value_len) == 0)
+    svg_parse_paint_order_value(data + value_start, value_len, style);
   if (svg_find_attr(data, start, end, "style", &value_start, &value_len) == 0)
     svg_apply_style_declarations(data + value_start, value_len, style);
 }
@@ -5552,6 +5806,7 @@ static size_t svg_parse_defs_block(svg_render_ctx_t *ctx, const uint8_t *data,
                                    size_t tag_end) {
   size_t close_start = 0, close_end = tag_end;
   svg_gradient_t active_gradient;
+  uint32_t active_gradient_current_color = 0x000000;
   int have_active_gradient = 0;
 
   if (!ctx || !data)
@@ -5598,12 +5853,16 @@ static size_t svg_parse_defs_block(svg_render_ctx_t *ctx, const uint8_t *data,
       size_t vs = 0, vl = 0;
       svg_gradient_t *base = NULL;
       svg_gradient_t g;
+      svg_style_t gradient_style;
       int self_closing = svg_tag_is_self_closing(data, child_start, child_end);
       int kind =
           media_bytes_starts_with(data, child_end, child_start + 1,
                                   "linearGradient")
               ? SVG_GRADIENT_LINEAR
               : SVG_GRADIENT_RADIAL;
+      svg_init_default_style(&gradient_style);
+      svg_apply_style_attrs(data, child_start, child_end, &gradient_style);
+      active_gradient_current_color = gradient_style.current_color;
       if ((svg_find_attr(data, child_start, child_end, "href", &vs, &vl) == 0 ||
            svg_find_attr(data, child_start, child_end, "xlink:href", &vs,
                          &vl) == 0) &&
@@ -5685,6 +5944,11 @@ static size_t svg_parse_defs_block(svg_render_ctx_t *ctx, const uint8_t *data,
       double offset = 0.0;
       uint32_t color = 0x000000;
       uint8_t alpha = 255;
+      svg_style_t stop_style;
+
+      svg_init_default_style(&stop_style);
+      stop_style.current_color = active_gradient_current_color;
+      svg_apply_style_attrs(data, child_start, child_end, &stop_style);
 
       if (svg_find_attr(data, child_start, child_end, "offset", &vs, &vl) ==
           0) {
@@ -5695,9 +5959,12 @@ static size_t svg_parse_defs_block(svg_render_ctx_t *ctx, const uint8_t *data,
       }
       if (svg_find_attr(data, child_start, child_end, "stop-color", &vs, &vl) ==
           0)
-        svg_parse_color(data + vs, vl, &color, &alpha);
+        svg_parse_color_with_current(data + vs, vl, stop_style.current_color,
+                                     &color, &alpha);
       if (svg_find_attr(data, child_start, child_end, "style", &vs, &vl) == 0)
-        svg_parse_stop_style_declarations(data + vs, vl, &color, &alpha);
+        svg_parse_stop_style_declarations(data + vs, vl,
+                                          stop_style.current_color, &color,
+                                          &alpha);
       if (svg_find_attr(data, child_start, child_end, "stop-opacity", &vs,
                         &vl) == 0) {
         double opacity = 1.0;
@@ -5748,6 +6015,82 @@ static int svg_decode_data_uri_image(const uint8_t *data, size_t len,
   return ret;
 }
 
+static int media_ascii_tolower(int ch) {
+  if (ch >= 'A' && ch <= 'Z')
+    return ch + ('a' - 'A');
+  return ch;
+}
+
+static int media_string_ends_with_ci(const char *text, const char *suffix) {
+  size_t text_len = 0;
+  size_t suffix_len = 0;
+
+  if (!text || !suffix)
+    return 0;
+  while (text[text_len])
+    text_len++;
+  while (suffix[suffix_len])
+    suffix_len++;
+  if (suffix_len > text_len)
+    return 0;
+  for (size_t i = 0; i < suffix_len; i++) {
+    if (media_ascii_tolower((unsigned char)text[text_len - suffix_len + i]) !=
+        media_ascii_tolower((unsigned char)suffix[i]))
+      return 0;
+  }
+  return 1;
+}
+
+static int media_decode_image_for_path(const char *path, const uint8_t *data,
+                                       size_t size, media_image_t *image) {
+  if (!data || !size || !image)
+    return -EINVAL;
+  if (size >= 4 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
+      data[3] == 'G')
+    return media_decode_png(data, size, image);
+  if (size >= 2 && data[0] == 0xFF && data[1] == 0xD8)
+    return media_decode_jpeg(data, size, image);
+  if (path && media_string_ends_with_ci(path, ".svg"))
+    return media_decode_svg(data, size, image);
+  if (path && media_string_ends_with_ci(path, ".png"))
+    return media_decode_png(data, size, image);
+  if (path && (media_string_ends_with_ci(path, ".jpg") ||
+               media_string_ends_with_ci(path, ".jpeg")))
+    return media_decode_jpeg(data, size, image);
+
+  if (media_decode_svg(data, size, image) == 0)
+    return 0;
+  if (media_decode_png(data, size, image) == 0)
+    return 0;
+  return media_decode_jpeg(data, size, image);
+}
+
+static int svg_decode_href_image(const uint8_t *data, size_t len,
+                                 media_image_t *image) {
+  char path[256];
+  uint8_t *file_data = NULL;
+  size_t file_size = 0;
+  int ret;
+
+  if (!data || !len || !image)
+    return -EINVAL;
+  ret = svg_decode_data_uri_image(data, len, image);
+  if (ret == 0)
+    return 0;
+  if (len >= sizeof(path))
+    return -ENAMETOOLONG;
+  for (size_t i = 0; i < len; i++)
+    path[i] = (char)data[i];
+  path[len] = '\0';
+  ret = media_load_file(path, &file_data, &file_size);
+  if (ret != 0)
+    return ret;
+  ret = media_decode_image_for_path(path, file_data, file_size, image);
+  if (file_data)
+    kfree(file_data);
+  return ret;
+}
+
 static void svg_blit_image_region(svg_render_ctx_t *ctx, media_image_t *src,
                                   double x, double y, double w, double h,
                                   double src_x, double src_y, double src_w,
@@ -5779,6 +6122,98 @@ static void svg_blit_image_region(svg_render_ctx_t *ctx, media_image_t *src,
       if (alpha == 0)
         continue;
       svg_blend_pixel(&ctx->image, (int)x + xx, (int)y + yy, pixel & 0xFFFFFF, alpha);
+    }
+  }
+}
+
+static int svg_transform_invert(svg_transform_t t, svg_transform_t *out) {
+  double det;
+
+  if (!out)
+    return -EINVAL;
+  det = t.a * t.d - t.b * t.c;
+  if (svg_absd(det) <= 1e-12)
+    return -EINVAL;
+  out->a = t.d / det;
+  out->b = -t.b / det;
+  out->c = -t.c / det;
+  out->d = t.a / det;
+  out->e = (t.c * t.f - t.d * t.e) / det;
+  out->f = (t.b * t.e - t.a * t.f) / det;
+  return 0;
+}
+
+static void svg_blit_image_region_affine(svg_render_ctx_t *ctx,
+                                         media_image_t *src,
+                                         svg_transform_t transform, double x,
+                                         double y, double w, double h,
+                                         double src_x, double src_y,
+                                         double src_w, double src_h,
+                                         uint8_t opacity_mul) {
+  svg_transform_t inverse;
+  svg_point_t corners[4];
+  double min_x;
+  double min_y;
+  double max_x;
+  double max_y;
+
+  if (!ctx || !src || !src->pixels || w <= 0.0 || h <= 0.0 || src_w <= 0.0 ||
+      src_h <= 0.0)
+    return;
+  if (svg_transform_invert(transform, &inverse) != 0)
+    return;
+
+  corners[0] = svg_transform_point(transform, (svg_point_t){x, y});
+  corners[1] = svg_transform_point(transform, (svg_point_t){x + w, y});
+  corners[2] = svg_transform_point(transform, (svg_point_t){x, y + h});
+  corners[3] = svg_transform_point(transform, (svg_point_t){x + w, y + h});
+  min_x = max_x = corners[0].x;
+  min_y = max_y = corners[0].y;
+  for (int i = 1; i < 4; i++) {
+    min_x = svg_min(min_x, corners[i].x);
+    min_y = svg_min(min_y, corners[i].y);
+    max_x = svg_max(max_x, corners[i].x);
+    max_y = svg_max(max_y, corners[i].y);
+  }
+
+  for (int py = (int)(min_y - 1.0); py <= (int)(max_y + 1.0); py++) {
+    for (int px = (int)(min_x - 1.0); px <= (int)(max_x + 1.0); px++) {
+      svg_point_t local =
+          svg_transform_point(inverse, (svg_point_t){(double)px + 0.5,
+                                                     (double)py + 0.5});
+      double u;
+      double v;
+      double sample_x;
+      double sample_y;
+      int sx;
+      int sy;
+      uint32_t pixel;
+      uint8_t alpha;
+
+      if (local.x < x || local.y < y || local.x > x + w || local.y > y + h)
+        continue;
+      u = (local.x - x) / w;
+      v = (local.y - y) / h;
+      sample_x = src_x + u * src_w;
+      sample_y = src_y + v * src_h;
+      sx = (int)sample_x;
+      sy = (int)sample_y;
+      if (sx < 0)
+        sx = 0;
+      if (sx >= (int)src->width)
+        sx = (int)src->width - 1;
+      if (sy < 0)
+        sy = 0;
+      if (sy >= (int)src->height)
+        sy = (int)src->height - 1;
+      pixel = src->pixels[sy * src->width + sx];
+      alpha = (pixel >> 24) & 0xFF;
+      if (alpha == 0)
+        alpha = 255;
+      alpha = svg_multiply_alpha(alpha, opacity_mul);
+      if (alpha == 0)
+        continue;
+      svg_blend_pixel(&ctx->image, px, py, pixel & 0xFFFFFF, alpha);
     }
   }
 }
@@ -6330,12 +6765,11 @@ static int svg_render_referenced_element_internal(
       svg_parse_length_number(data, vs, vl, viewport_h, &h);
     if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
          svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
-        svg_decode_data_uri_image(data + vs, vl, &embedded) == 0) {
-      svg_point_t p = svg_transform_point(transform, (svg_point_t){x, y});
-      draw_x = p.x;
-      draw_y = p.y;
-      draw_w = w > 0.0 ? w * transform.a : (double)embedded.width;
-      draw_h = h > 0.0 ? h * transform.d : (double)embedded.height;
+        svg_decode_href_image(data + vs, vl, &embedded) == 0) {
+      draw_x = x;
+      draw_y = y;
+      draw_w = w > 0.0 ? w : (double)embedded.width;
+      draw_h = h > 0.0 ? h : (double)embedded.height;
       src_w = (double)embedded.width;
       src_h = (double)embedded.height;
       svg_parse_preserve_aspect_ratio(data, tag_start, tag_end, &align_x,
@@ -6386,8 +6820,9 @@ static int svg_render_referenced_element_internal(
         draw_y += draw_h;
         draw_h = -draw_h;
       }
-      svg_blit_image_region(ctx, &embedded, draw_x, draw_y, draw_w, draw_h,
-                            src_x, src_y, src_w, src_h, style.opacity);
+      svg_blit_image_region_affine(ctx, &embedded, transform, draw_x, draw_y,
+                                   draw_w, draw_h, src_x, src_y, src_w, src_h,
+                                   style.opacity);
       media_free_image(&embedded);
     }
     return 1;
@@ -6422,6 +6857,7 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
   int sp = 0;
   int in_defs = 0;
   svg_gradient_t active_gradient;
+  uint32_t active_gradient_current_color = 0x000000;
   int have_active_gradient = 0;
   size_t svg_start = 0, svg_end = 0;
   double view_x = 0.0, view_y = 0.0, view_w = 0.0, view_h = 0.0;
@@ -6571,10 +7007,14 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         size_t vs = 0, vl = 0;
         svg_gradient_t *base = NULL;
         svg_gradient_t g;
+        svg_style_t gradient_style;
         int self_closing = svg_tag_is_self_closing(data, tag_start, tag_end);
         int kind = media_bytes_starts_with(data, tag_end, tag_start + 1, "linearGradient")
                        ? SVG_GRADIENT_LINEAR
                        : SVG_GRADIENT_RADIAL;
+        svg_init_default_style(&gradient_style);
+        svg_apply_style_attrs(data, tag_start, tag_end, &gradient_style);
+        active_gradient_current_color = gradient_style.current_color;
         if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
              svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
             vl > 1 && data[vs] == '#') {
@@ -6676,6 +7116,11 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         double offset = 0.0;
         uint32_t color = 0x000000;
         uint8_t alpha = 255;
+        svg_style_t stop_style;
+
+        svg_init_default_style(&stop_style);
+        stop_style.current_color = active_gradient_current_color;
+        svg_apply_style_attrs(data, tag_start, tag_end, &stop_style);
         if (svg_find_attr(data, tag_start, tag_end, "offset", &vs, &vl) == 0) {
           pos = vs;
           svg_parse_number(data, vs + vl, &pos, &offset);
@@ -6683,9 +7128,12 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
             offset /= 100.0;
         }
         if (svg_find_attr(data, tag_start, tag_end, "stop-color", &vs, &vl) == 0)
-          svg_parse_color(data + vs, vl, &color, &alpha);
+          svg_parse_color_with_current(data + vs, vl, stop_style.current_color,
+                                       &color, &alpha);
         if (svg_find_attr(data, tag_start, tag_end, "style", &vs, &vl) == 0) {
-          svg_parse_stop_style_declarations(data + vs, vl, &color, &alpha);
+          svg_parse_stop_style_declarations(data + vs, vl,
+                                            stop_style.current_color, &color,
+                                            &alpha);
         }
         if (svg_find_attr(data, tag_start, tag_end, "stop-opacity", &vs, &vl) == 0) {
           double opacity = 1.0;
@@ -6969,12 +7417,11 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         }
         if ((svg_find_attr(data, tag_start, tag_end, "href", &vs, &vl) == 0 ||
              svg_find_attr(data, tag_start, tag_end, "xlink:href", &vs, &vl) == 0) &&
-            svg_decode_data_uri_image(data + vs, vl, &embedded) == 0) {
-          svg_point_t p = svg_transform_point(transform, (svg_point_t){x, y});
-          draw_x = p.x;
-          draw_y = p.y;
-          draw_w = w > 0.0 ? w * transform.a : (double)embedded.width;
-          draw_h = h > 0.0 ? h * transform.d : (double)embedded.height;
+            svg_decode_href_image(data + vs, vl, &embedded) == 0) {
+          draw_x = x;
+          draw_y = y;
+          draw_w = w > 0.0 ? w : (double)embedded.width;
+          draw_h = h > 0.0 ? h : (double)embedded.height;
           src_w = (double)embedded.width;
           src_h = (double)embedded.height;
           svg_parse_preserve_aspect_ratio(data, tag_start, tag_end, &align_x,
@@ -7025,8 +7472,9 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
             draw_y += draw_h;
             draw_h = -draw_h;
           }
-          svg_blit_image_region(&ctx, &embedded, draw_x, draw_y, draw_w, draw_h,
-                                src_x, src_y, src_w, src_h, style.opacity);
+          svg_blit_image_region_affine(&ctx, &embedded, transform, draw_x,
+                                       draw_y, draw_w, draw_h, src_x, src_y,
+                                       src_w, src_h, style.opacity);
           media_free_image(&embedded);
         }
       }

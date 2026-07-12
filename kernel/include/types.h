@@ -23,13 +23,13 @@ typedef unsigned long long  uint64_t;
 /* Size types */
 /* ===================================================================== */
 
-typedef unsigned long       size_t;
-typedef long                ssize_t;
-typedef long                ptrdiff_t;
+typedef __SIZE_TYPE__       size_t;
+typedef __PTRDIFF_TYPE__    ssize_t;
+typedef __PTRDIFF_TYPE__    ptrdiff_t;
 
 /* Pointer-sized integer */
-typedef unsigned long       uintptr_t;
-typedef long                intptr_t;
+typedef __UINTPTR_TYPE__    uintptr_t;
+typedef __INTPTR_TYPE__     intptr_t;
 
 /* ===================================================================== */
 /* Boolean type */
