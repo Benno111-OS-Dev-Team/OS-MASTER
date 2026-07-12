@@ -35,6 +35,7 @@ extern void gui_open_image_viewer(const char *path);
 extern void gui_open_notepad(const char *path);
 extern void gui_set_window_userdata(struct window *win, void *data);
 extern int gui_draw_system_app_icon(const char *app_id, int x, int y, int size);
+extern int gui_draw_folder_icon(const char *path, int x, int y, int size);
 extern int gui_launch_app_by_id(const char *app_id);
 extern int gui_dock_reserved_height(void);
 void desktop_mark_dirty(int x, int y, int w, int h);
@@ -1132,24 +1133,6 @@ void desktop_clear_dirty(void) {
 /* Desktop Icon Drawing */
 /* ===================================================================== */
 
-static void draw_folder_icon(int x, int y, int size, uint32_t color) {
-  int w = size;
-  int h = size * 3 / 4;
-  int tab_w = w / 3;
-  int tab_h = h / 6;
-  int y_start = y + (size - h) / 2;
-
-  /* Folder tab */
-  gui_draw_rect(x, y_start, tab_w, tab_h, color);
-
-  /* Folder body */
-  gui_draw_rect(x, y_start + tab_h - 2, w, h - tab_h + 2, color);
-
-  /* Darker front */
-  gui_draw_rect(x + 2, y_start + tab_h + h / 4, w - 4, h / 2,
-                (color & 0xFEFEFE) >> 1);
-}
-
 static void draw_file_icon(int x, int y, int size, uint32_t color) {
   int w = size * 3 / 4;
   int h = size;
@@ -1214,6 +1197,8 @@ static void draw_sidebar_item_icon(const sidebar_item_t *item, int x, int y) {
     gui_draw_system_app_icon(item->target, x, y, DESKTOP_SIDEBAR_ICON_SIZE);
     return;
   }
+  if (gui_draw_folder_icon(item->target, x, y, DESKTOP_SIDEBAR_ICON_SIZE) == 0)
+    return;
   draw_sidebar_folder_glyph(x + 2, y + 1);
 }
 
@@ -1283,7 +1268,9 @@ static void draw_desktop_icon(desktop_icon_t *icon) {
   /* Draw icon based on type */
   switch (icon->type) {
   case ICON_TYPE_FOLDER:
-    draw_folder_icon(x, y, DESKTOP_ICON_SIZE, 0x4FC3F7);
+    if (gui_draw_folder_icon(icon->path, x, y, DESKTOP_ICON_SIZE) != 0)
+      draw_sidebar_folder_glyph(x + DESKTOP_ICON_SIZE / 4,
+                                y + DESKTOP_ICON_SIZE / 3);
     break;
   case ICON_TYPE_IMAGE:
     draw_image_icon(x, y, DESKTOP_ICON_SIZE);

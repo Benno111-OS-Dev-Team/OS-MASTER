@@ -13590,7 +13590,8 @@ static void draw_window_internal(struct window *win) {
       uint32_t row_bg = (st && str_cmp(st->path, places[i]) == 0) ? theme->accent
                                                                   : theme->file_path;
       gui_draw_rect(sidebar_x + 8, row_y, sidebar_w - 32, 24, row_bg);
-      gui_draw_string(sidebar_x + 16, row_y + 6, labels[i], 0xFFFFFF, row_bg);
+      gui_draw_folder_icon(places[i], sidebar_x + 12, row_y + 2, 20);
+      gui_draw_string(sidebar_x + 36, row_y + 6, labels[i], 0xFFFFFF, row_bg);
     }
 
     gui_draw_rect(list_x, content_y + toolbar_h + 8, list_w, content_h - toolbar_h - 16,
@@ -13651,7 +13652,13 @@ static void draw_window_internal(struct window *win) {
         fm_format_size(items[i].size_bytes, items[i].type, size_buf,
                        sizeof(size_buf));
         gui_draw_rect(list_x + 8, row_y, list_w - 16, row_h - 4, row_bg);
-        draw_icon(list_x + 14, row_y + 6, 24, icon, icon_color, row_bg);
+        if (items[i].type == 4) {
+          char full_path[512];
+          fm_join_path(st->path, items[i].name, full_path, sizeof(full_path));
+          gui_draw_folder_icon(full_path, list_x + 14, row_y + 6, 24);
+        } else {
+          draw_icon(list_x + 14, row_y + 6, 24, icon, icon_color, row_bg);
+        }
         gui_draw_string(name_text_x, row_y + 14, short_name, theme->file_text,
                         row_bg);
         gui_draw_string(size_col_x, row_y + 14, size_buf,
@@ -15391,8 +15398,14 @@ static void draw_window_internal(struct window *win) {
         uint32_t row_bg =
             str_cmp(notepad_dialog_selected, items[i].name) == 0 ? 0x094771 : 0x1E1E1E;
         gui_draw_rect(list_x + 2, row_y, list_w - 4, row_h - 2, row_bg);
-        gui_draw_string(list_x + 8, row_y + 6, items[i].type == 4 ? "[DIR]" : "[FILE]",
-                        items[i].type == 4 ? 0x4FC1FF : 0xB5CEA8, row_bg);
+        if (items[i].type == 4) {
+          char full_path[512];
+          fm_join_path(notepad_dialog_dir, items[i].name, full_path,
+                       sizeof(full_path));
+          gui_draw_folder_icon(full_path, list_x + 10, row_y + 4, 18);
+        } else {
+          gui_draw_string(list_x + 8, row_y + 6, "[FILE]", 0xB5CEA8, row_bg);
+        }
         gui_draw_string(list_x + 56, row_y + 6, items[i].name, 0xD4D4D4, row_bg);
       }
 
@@ -17054,6 +17067,127 @@ static void draw_icon_appstore(int x, int y, int size) {
                 y + size / 2 + size / 10, 0xFFFFFF);
 }
 
+static uint32_t gui_lerp_rgb(uint32_t top, uint32_t bottom, int step,
+                             int steps) {
+  uint32_t top_r = (top >> 16) & 0xFF;
+  uint32_t top_g = (top >> 8) & 0xFF;
+  uint32_t top_b = top & 0xFF;
+  uint32_t bottom_r = (bottom >> 16) & 0xFF;
+  uint32_t bottom_g = (bottom >> 8) & 0xFF;
+  uint32_t bottom_b = bottom & 0xFF;
+
+  if (steps <= 1)
+    return top;
+
+  return (((top_r + ((int)(bottom_r - top_r) * step) / (steps - 1)) & 0xFF)
+          << 16) |
+         (((top_g + ((int)(bottom_g - top_g) * step) / (steps - 1)) & 0xFF)
+          << 8) |
+         ((top_b + ((int)(bottom_b - top_b) * step) / (steps - 1)) & 0xFF);
+}
+
+static void gui_draw_vertical_gradient(int x, int y, int w, int h,
+                                       uint32_t top, uint32_t bottom) {
+  for (int row = 0; row < h; row++)
+    gui_draw_rect(x, y + row, w, 1, gui_lerp_rgb(top, bottom, row, h));
+}
+
+static int gui_path_uses_system_folder_icon(const char *path) {
+  if (!path || !path[0])
+    return 0;
+  return path_starts_with(path, GUI_SYSTEM_DIR) ||
+         path_starts_with(path, GUI_SYSTEM_APPS_DIR) ||
+         path_starts_with(path, GUI_APPS_DIR) ||
+         str_cmp(path, GUI_SYSTEM_APPS_FOLDER) == 0;
+}
+
+int gui_draw_folder_icon(const char *path, int x, int y, int size) {
+  int w;
+  int body_h;
+  int body_x;
+  int body_y;
+  int tab_x;
+  int tab_y;
+  int tab_w;
+  int tab_h;
+  int front_h;
+  int front_y;
+  int accent_pad;
+  int system_variant;
+
+  if (size <= 0)
+    return -1;
+
+  system_variant = gui_path_uses_system_folder_icon(path);
+  w = size;
+  body_h = (size * 34) / 48;
+  if (body_h < size / 2)
+    body_h = size / 2;
+
+  body_x = x + size / 12;
+  body_y = y + size / 4;
+  tab_x = body_x;
+  tab_y = y + size / 10;
+  tab_w = size / 3;
+  tab_h = size / 6;
+  front_h = body_h / 3;
+  front_y = body_y + body_h - front_h;
+  accent_pad = size / 12;
+
+  if (tab_w > 2 && tab_h > 2) {
+    gui_draw_vertical_gradient(tab_x + 1, tab_y + 1, tab_w - 2, tab_h - 1,
+                               0xBDC73D, 0x929929);
+    gui_draw_rect_outline(tab_x, tab_y, tab_w, tab_h, 0x000000, 1);
+  }
+
+  if (w - size / 6 > 2 && body_h > 2) {
+    gui_draw_vertical_gradient(body_x + 1, body_y + 1, w - size / 6 - 2,
+                               body_h - 2, 0xD0D67F, 0xBBC263);
+    gui_draw_rect_outline(body_x, body_y, w - size / 6, body_h, 0x000000, 1);
+  }
+
+  if (w - size / 6 > 2 && front_h > 1) {
+    gui_draw_vertical_gradient(body_x + 1, front_y, w - size / 6 - 2,
+                               front_h - 1, 0xD0D67F, 0xA4AA53);
+    gui_draw_rect(body_x + 1, front_y, w - size / 6 - 2, 1, 0x000000);
+  }
+
+  if (system_variant) {
+    int grid_x = body_x + accent_pad + 1;
+    int grid_y = body_y + accent_pad + 1;
+    int grid_w = (w - size / 6) - accent_pad * 2 - 2;
+    int grid_h = body_h - front_h - accent_pad - 2;
+    int half_w = grid_w / 2;
+    int half_h = grid_h / 2;
+
+    if (grid_w > 8 && grid_h > 8) {
+      gui_draw_rect(grid_x, grid_y, half_w - 1, half_h - 1, 0xFFF500);
+      gui_draw_rect(grid_x + half_w + 1, grid_y, grid_w - half_w - 1,
+                    half_h - 1, 0xFF2C00);
+      gui_draw_rect(grid_x, grid_y + half_h + 1, half_w - 1,
+                    grid_h - half_h - 1, 0x00FF37);
+      gui_draw_rect(grid_x + half_w + 1, grid_y + half_h + 1,
+                    grid_w - half_w - 1, grid_h - half_h - 1, 0x003CFF);
+      gui_draw_rect(grid_x + half_w - 1, grid_y, 2, grid_h, 0x000000);
+      gui_draw_rect(grid_x, grid_y + half_h - 1, grid_w, 2, 0x000000);
+    }
+  } else {
+    int pocket_x = body_x + size / 7;
+    int pocket_y = body_y + body_h / 3;
+    int pocket_w = w - size / 6 - (size / 4);
+    int pocket_h = body_h / 4;
+
+    if (pocket_w > 4 && pocket_h > 3) {
+      gui_draw_vertical_gradient(pocket_x, pocket_y, pocket_w, pocket_h,
+                                 0xE3E89C, 0xB7BF5C);
+      gui_draw_rect_outline(pocket_x, pocket_y, pocket_w, pocket_h, 0x000000,
+                            1);
+    }
+  }
+
+  return 0;
+}
+
 static void draw_system_app_icon_kind(gui_app_kind_t kind, int x, int y,
                                       int size) {
   switch (kind) {
@@ -17061,7 +17195,7 @@ static void draw_system_app_icon_kind(gui_app_kind_t kind, int x, int y,
     draw_icon_terminal(x, y, size);
     break;
   case GUI_APP_FILES:
-    draw_icon_files(x, y, size);
+    gui_draw_folder_icon(NULL, x, y, size);
     break;
   case GUI_APP_CALCULATOR:
     draw_icon_calc(x, y, size);

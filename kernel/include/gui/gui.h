@@ -100,6 +100,7 @@ void gui_draw_cursor(void);
 void gui_open_image_viewer(const char *path);
 int gui_launch_app_by_id(const char *app_id);
 int gui_draw_system_app_icon(const char *app_id, int x, int y, int size);
+int gui_draw_folder_icon(const char *path, int x, int y, int size);
 int gui_installer_mode(void);
 int gui_installer_disk_label(int slot, char *buf, size_t size);
 int gui_installer_select_disk(int slot);
