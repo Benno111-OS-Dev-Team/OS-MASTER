@@ -19432,6 +19432,35 @@ void gui_compose(void) {
 /* Mouse cursor rasterized from assets/cursor.svg and drawn to the backbuffer. */
 /* ===================================================================== */
 
+#ifdef CONFIG_EMBED_SEED_ASSETS
+#define GUI_CURSOR_WIDTH ((int)bootstrap_cursor_width)
+#define GUI_CURSOR_HEIGHT ((int)bootstrap_cursor_height)
+#define GUI_CURSOR_PIXEL(row, col) \
+  (bootstrap_cursor_rgba[(row) * bootstrap_cursor_width + (col)])
+#else
+#define GUI_CURSOR_WIDTH 16
+#define GUI_CURSOR_HEIGHT 16
+static const uint32_t gui_cursor_rgba[GUI_CURSOR_HEIGHT][GUI_CURSOR_WIDTH] = {
+    {0x86F1F1F1, 0x9FFAFAFA, 0x21FFFFFF, 0x00000000, 0x00000000, 0x03FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
+    {0xD1CECECE, 0xFF4A4A4A, 0xECA4A4A4, 0x7DFFFFFF, 0x0CFFFFFF, 0x00000000, 0x02000000, 0x02FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
+    {0xCACCCCCC, 0xFC131313, 0xFF000000, 0xFF525252, 0xDABDBDBD, 0x54FFFFFF, 0x00000000, 0x00000000, 0x04BFBFBF, 0x01FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
+    {0xCACDCDCD, 0xFF202020, 0xFC101010, 0xFB020202, 0xFF0E0E0E, 0xFF757575, 0xAEE4E4E4, 0x26FFFFFF, 0x00000000, 0x00000000, 0x03FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
+    {0xCDCCCCCC, 0xFF1D1D1D, 0xFD0D0D0D, 0xFF131313, 0xFD101010, 0xFC000000, 0xFF2A2A2A, 0xF39C9C9C, 0x78FFFFFF, 0x05FFFFFF, 0x00000000, 0x04BFBFBF, 0x01FFFFFF, 0x00000000, 0x00000000, 0x00000000},
+    {0xB7DDDDDD, 0xFF2C2C2C, 0xFC090909, 0xFF111111, 0xFF101010, 0xFF141414, 0xFC090909, 0xFF010101, 0xFF575757, 0xCCCDCDCD, 0x3FFFFFFF, 0x00000000, 0x00000000, 0x03FFFFFF, 0x00000000, 0x00000000},
+    {0xABE4E4E4, 0xFF313131, 0xFC080808, 0xFF111111, 0xFF101010, 0xFF101010, 0xFF111111, 0xFE131313, 0xFB000000, 0xFF181818, 0xFE868686, 0x92FFFFFF, 0x0FFFFFFF, 0x00000000, 0x03AAAAAA, 0x01FFFFFF},
+    {0xA2ECECEC, 0xFF393939, 0xFC060606, 0xFF111111, 0xFF101010, 0xFF101010, 0xFF101010, 0xFF101010, 0xFF131313, 0xFD0D0D0D, 0xFE000000, 0xFF484848, 0xD9C0C0C0, 0x4BFFFFFF, 0x00000000, 0x00000000},
+    {0x89FFFFFF, 0xFF474747, 0xFC030303, 0xFF121212, 0xFF111111, 0xFF111111, 0xFF101010, 0xFF101010, 0xFF101010, 0xFF121212, 0xFF0A0A0A, 0xFF000000, 0xFF070707, 0xFF7F7F7F, 0xA8EEEEEE, 0x1DFFFFFF},
+    {0x76FFFFFF, 0xFF565656, 0xFC020202, 0xFE161616, 0xFC080808, 0xFC0A0A0A, 0xFF131313, 0xFF101010, 0xFF121212, 0xFF090909, 0xFF494949, 0xEF959595, 0xE4AAAAAA, 0xD4A3A3A3, 0xCBE9E9E9, 0x42FFFFFF},
+    {0x5AFFFFFF, 0xFE696969, 0xFA000000, 0xFF000000, 0xFF333333, 0xFF282828, 0xFD040404, 0xFF141414, 0xFF131313, 0xFC000000, 0xFF7E7E7E, 0x66FFFFFF, 0x0AFFFFFF, 0x03FFFFFF, 0x00000000, 0x00000000},
+    {0x3DFFFFFF, 0xFF7D7D7D, 0xFF1B1B1B, 0xFF858585, 0xA8E9E9E9, 0xBBD2D2D2, 0xFF3E3E3E, 0xFB020202, 0xFF141414, 0xFD0E0E0E, 0xFF0E0E0E, 0xD6B5B5B5, 0x04FFFFFF, 0x02000000, 0x03AAAAAA, 0x01FFFFFF},
+    {0x14FFFFFF, 0xDAD1D1D1, 0xB4D5D5D5, 0x38FFFFFF, 0x00000000, 0x01FFFFFF, 0xA7E8E8E8, 0xFF414141, 0xFB010101, 0xFF181818, 0xFC020202, 0xFF555555, 0x7FFFFFFF, 0x00000000, 0x03FFFFFF, 0x00000000},
+    {0x00000000, 0x0AFFFFFF, 0x00000000, 0x00000000, 0x04BFBFBF, 0x02000000, 0x000A0A0A, 0xA8D9D9D9, 0xFF353535, 0xFB000000, 0xFC0F0F0F, 0xFA000000, 0xFD8B8B8B, 0x33FFFFFF, 0x00000000, 0x02FFFFFF},
+    {0x01FFFFFF, 0x00000000, 0x02000000, 0x02FFFFFF, 0x00000000, 0x02FFFFFF, 0x02000000, 0x02FFFFFF, 0xBAD3D3D3, 0xFF393939, 0xFF282828, 0xFF595959, 0xEEAEAEAE, 0x63FFFFFF, 0x00000000, 0x03FFFFFF},
+    {0x00000000, 0x01FFFFFF, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x02FFFFFF, 0x01000000, 0x0CFFFFFF, 0xBBE5E5E5, 0xB6DBDBDB, 0x65FFFFFF, 0x1BFFFFFF, 0x00000000, 0x01FFFFFF, 0x00000000},
+};
+#define GUI_CURSOR_PIXEL(row, col) (gui_cursor_rgba[(row)][(col)])
+#endif
+
 static uint32_t gui_blend_cursor_pixel(uint32_t dst, uint32_t src) {
   uint32_t alpha = (src >> 24) & 0xFF;
   if (alpha == 0)
@@ -19454,8 +19483,8 @@ static uint32_t gui_blend_cursor_pixel(uint32_t dst, uint32_t src) {
 }
 
 static void gui_mark_cursor_dirty_at(int x, int y) {
-  gui_invalidate_rect(x - 1, y - 1, (int)bootstrap_cursor_width + 2,
-                      (int)bootstrap_cursor_height + 2);
+  gui_invalidate_rect(x - 1, y - 1, GUI_CURSOR_WIDTH + 2,
+                      GUI_CURSOR_HEIGHT + 2);
 }
 
 /* Draw cursor directly to the active render target. */
@@ -19476,15 +19505,14 @@ void gui_draw_cursor(void) {
 
   int pitch = primary_display.pitch / 4;
 
-  for (uint32_t row = 0; row < bootstrap_cursor_height; row++) {
-    for (uint32_t col = 0; col < bootstrap_cursor_width; col++) {
-      uint32_t pixel =
-          bootstrap_cursor_rgba[row * bootstrap_cursor_width + col];
+  for (int row = 0; row < GUI_CURSOR_HEIGHT; row++) {
+    for (int col = 0; col < GUI_CURSOR_WIDTH; col++) {
+      uint32_t pixel = GUI_CURSOR_PIXEL(row, col);
       if ((pixel >> 24) == 0)
         continue; /* Transparent */
 
-      int px = cx + (int)col;
-      int py = cy + (int)row;
+      int px = cx + col;
+      int py = cy + row;
       if (px >= 0 && px < (int)primary_display.width && py >= 0 &&
           py < (int)primary_display.height) {
         target[py * pitch + px] =
