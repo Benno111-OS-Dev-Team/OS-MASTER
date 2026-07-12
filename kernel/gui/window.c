@@ -16783,29 +16783,6 @@ static int main_menu_activate(int item_index) {
     main_menu_program_scroll = 0;
     main_menu_mark_dirty();
     return 1;
-  case MAIN_MENU_ITEM_TERMINAL:
-    gui_launch_app_by_id("terminal");
-    break;
-  case MAIN_MENU_ITEM_FILES:
-    gui_launch_app_by_id("files");
-    break;
-  case MAIN_MENU_ITEM_NOTES:
-    gui_launch_app_by_id("notes");
-    break;
-  case MAIN_MENU_ITEM_SETTINGS:
-    gui_launch_app_by_id("settings");
-    break;
-  case MAIN_MENU_ITEM_BROWSER:
-    gui_launch_app_by_id("browser");
-    break;
-  case MAIN_MENU_ITEM_APPSTORE:
-    gui_launch_app_by_id("appstore");
-    break;
-  case MAIN_MENU_ITEM_POWER:
-    main_menu_mark_dirty();
-    main_menu_power_open = main_menu_power_open ? 0 : 1;
-    main_menu_mark_dirty();
-    return 1;
   case MAIN_MENU_ITEM_PROGRAM_SCROLL_UP:
     if (main_menu_program_scroll > 0) {
       main_menu_mark_dirty();
@@ -16819,6 +16796,11 @@ static int main_menu_activate(int item_index) {
       main_menu_program_scroll++;
       main_menu_mark_dirty();
     }
+    return 1;
+  case MAIN_MENU_ITEM_POWER:
+    main_menu_mark_dirty();
+    main_menu_power_open = main_menu_power_open ? 0 : 1;
+    main_menu_mark_dirty();
     return 1;
   case MAIN_MENU_ITEM_POWER_LOGOUT:
     main_menu_mark_dirty();
@@ -16843,6 +16825,24 @@ static int main_menu_activate(int item_index) {
     arch_reboot();
     break;
   }
+  case MAIN_MENU_ITEM_TERMINAL:
+    gui_launch_app_by_id("terminal");
+    break;
+  case MAIN_MENU_ITEM_FILES:
+    gui_launch_app_by_id("files");
+    break;
+  case MAIN_MENU_ITEM_NOTES:
+    gui_launch_app_by_id("notes");
+    break;
+  case MAIN_MENU_ITEM_SETTINGS:
+    gui_launch_app_by_id("settings");
+    break;
+  case MAIN_MENU_ITEM_BROWSER:
+    gui_launch_app_by_id("browser");
+    break;
+  case MAIN_MENU_ITEM_APPSTORE:
+    gui_launch_app_by_id("appstore");
+    break;
   default:
     if (item_index >= MAIN_MENU_ITEM_PROGRAM_BASE) {
       const dock_app_def_t *app =
