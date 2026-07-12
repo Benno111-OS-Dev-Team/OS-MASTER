@@ -16481,18 +16481,22 @@ static int main_menu_item_at(int x, int y) {
   if (!main_menu_contains_point(x, y))
     return MAIN_MENU_ITEM_NONE;
 
-  for (int i = 0; i < MAIN_MENU_ITEM_COUNT; i++) {
-    int item_x, item_y, item_w, item_h;
-    if (!main_menu_item_bounds(i, &item_x, &item_y, &item_w, &item_h))
-      continue;
-    if (x >= item_x && x < item_x + item_w && y >= item_y &&
-        y < item_y + item_h)
-      return i;
-  }
-
   if (main_menu_all_programs_open) {
+    const int visible_items[] = {MAIN_MENU_ITEM_ABOUT, MAIN_MENU_ITEM_ALL_PROGRAMS,
+                                 MAIN_MENU_ITEM_POWER};
     int btn_x, btn_y, btn_w, btn_h;
     int visible_rows = main_menu_program_visible_rows();
+
+    for (int i = 0; i < (int)(sizeof(visible_items) / sizeof(visible_items[0]));
+         i++) {
+      int item_x, item_y, item_w, item_h;
+      int item_index = visible_items[i];
+      if (!main_menu_item_bounds(item_index, &item_x, &item_y, &item_w, &item_h))
+        continue;
+      if (x >= item_x && x < item_x + item_w && y >= item_y &&
+          y < item_y + item_h)
+        return item_index;
+    }
 
     if (main_menu_program_scroll_button_bounds(-1, &btn_x, &btn_y, &btn_w, &btn_h) &&
         x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + btn_h)
@@ -16512,6 +16516,15 @@ static int main_menu_item_at(int x, int y) {
         continue;
       if (x >= row_x && x < row_x + row_w && y >= row_y && y < row_y + row_h)
         return MAIN_MENU_ITEM_PROGRAM_BASE + main_menu_program_scroll + slot;
+    }
+  } else {
+    for (int i = 0; i < MAIN_MENU_ITEM_COUNT; i++) {
+      int item_x, item_y, item_w, item_h;
+      if (!main_menu_item_bounds(i, &item_x, &item_y, &item_w, &item_h))
+        continue;
+      if (x >= item_x && x < item_x + item_w && y >= item_y &&
+          y < item_y + item_h)
+        return i;
     }
   }
 
