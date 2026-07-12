@@ -4489,6 +4489,7 @@ static void svg_render_text_container_range(
       !font_size || !ws)
     return;
 
+  (void)tag_start;
   pos = tag_end + 1;
   while (pos < close_start) {
     if (data[pos] == '<') {
@@ -5811,6 +5812,7 @@ static size_t svg_parse_defs_block(svg_render_ctx_t *ctx, const uint8_t *data,
 
   if (!ctx || !data)
     return tag_end;
+  (void)tag_start;
   if (svg_find_closing_tag(data, size, tag_end + 1, "defs", &close_start,
                            &close_end) != 0)
     return tag_end;
@@ -7277,7 +7279,7 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         svg_path_buffer_free(&buf);
       } else if (media_bytes_starts_with(data, tag_end, tag_start + 1, "line")) {
         double x1 = 0.0, y1 = 0.0, x2 = 0.0, y2 = 0.0;
-        size_t vs = 0, vl = 0, pos;
+        size_t vs = 0, vl = 0;
         if (!svg_style_is_visible(&style))
           continue;
         if (svg_find_attr(data, tag_start, tag_end, "x1", &vs, &vl) == 0) {
