@@ -1373,6 +1373,7 @@ typedef struct {
   svg_transform_t transform;
   double x1, y1, x2, y2;
   double cx, cy, r;
+  double fx, fy;
   uint32_t color0, color1;
   uint8_t alpha0, alpha1;
   double stop_offsets[SVG_GRADIENT_MAX_STOPS];
@@ -2418,25 +2419,30 @@ static void svg_gradient_linear_points(const svg_gradient_t *g, double bbox_x,
 static void svg_gradient_radial_axes(const svg_gradient_t *g, double bbox_x,
                                      double bbox_y, double bbox_w,
                                      double bbox_h, svg_point_t *center,
+                                     svg_point_t *focus,
                                      svg_point_t *rx_point,
                                      svg_point_t *ry_point) {
   svg_point_t raw_center;
+  svg_point_t raw_focus;
   svg_point_t raw_rx;
   svg_point_t raw_ry;
-  if (!g || !center || !rx_point || !ry_point)
+  if (!g || !center || !focus || !rx_point || !ry_point)
     return;
   if (g->units == SVG_GRADIENT_UNITS_USERSPACE) {
     raw_center = (svg_point_t){g->cx, g->cy};
+    raw_focus = (svg_point_t){g->fx, g->fy};
     raw_rx = (svg_point_t){g->cx + g->r, g->cy};
     raw_ry = (svg_point_t){g->cx, g->cy + g->r};
   } else {
     raw_center = (svg_point_t){bbox_x + g->cx * bbox_w, bbox_y + g->cy * bbox_h};
+    raw_focus = (svg_point_t){bbox_x + g->fx * bbox_w, bbox_y + g->fy * bbox_h};
     raw_rx =
         (svg_point_t){bbox_x + (g->cx + g->r) * bbox_w, bbox_y + g->cy * bbox_h};
     raw_ry =
         (svg_point_t){bbox_x + g->cx * bbox_w, bbox_y + (g->cy + g->r) * bbox_h};
   }
   *center = svg_transform_point(g->transform, raw_center);
+  *focus = svg_transform_point(g->transform, raw_focus);
   *rx_point = svg_transform_point(g->transform, raw_rx);
   *ry_point = svg_transform_point(g->transform, raw_ry);
 }
@@ -2512,17 +2518,21 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
         t = ((x - p1.x) * dx + (y - p1.y) * dy) / denom;
     } else {
       svg_point_t c_local;
+      svg_point_t f_local;
       svg_point_t rx_local;
       svg_point_t ry_local;
       svg_point_t c;
+      svg_point_t f;
       svg_point_t rx_world;
       svg_point_t ry_world;
       double vx_x, vx_y, vy_x, vy_y;
       double wx, wy;
+      double fw_x, fw_y;
       double det;
       svg_gradient_radial_axes(g, bbox_x, bbox_y, bbox_w, bbox_h, &c_local,
-                               &rx_local, &ry_local);
+                               &f_local, &rx_local, &ry_local);
       c = svg_transform_point(transform, c_local);
+      f = svg_transform_point(transform, f_local);
       rx_world = svg_transform_point(transform, rx_local);
       ry_world = svg_transform_point(transform, ry_local);
       vx_x = rx_world.x - c.x;
@@ -2531,11 +2541,54 @@ static void svg_sample_paint(svg_render_ctx_t *ctx, const svg_paint_t *paint,
       vy_y = ry_world.y - c.y;
       wx = x - c.x;
       wy = y - c.y;
+      fw_x = f.x - c.x;
+      fw_y = f.y - c.y;
       det = vx_x * vy_y - vx_y * vy_x;
       if (svg_absd(det) > 1e-9) {
         double u = (wx * vy_y - wy * vy_x) / det;
         double v = (vx_x * wy - vx_y * wx) / det;
-        t = svg_sqrt_approx(u * u + v * v);
+        double fu = (fw_x * vy_y - fw_y * vy_x) / det;
+        double fv = (vx_x * fw_y - vx_y * fw_x) / det;
+        double f_len2 = fu * fu + fv * fv;
+        double du;
+        double dv;
+
+        if (f_len2 >= 1.0) {
+          double scale = 0.999 / svg_sqrt_approx(f_len2);
+          fu *= scale;
+          fv *= scale;
+        }
+
+        du = u - fu;
+        dv = v - fv;
+        if (svg_absd(du) < 1e-9 && svg_absd(dv) < 1e-9) {
+          t = 0.0;
+        } else {
+          double a = du * du + dv * dv;
+          double b = 2.0 * (fu * du + fv * dv);
+          double c_term = fu * fu + fv * fv - 1.0;
+          double disc = b * b - 4.0 * a * c_term;
+          if (a > 1e-12 && disc >= 0.0) {
+            double sqrt_disc = svg_sqrt_approx(disc);
+            double root0 = (-b - sqrt_disc) / (2.0 * a);
+            double root1 = (-b + sqrt_disc) / (2.0 * a);
+            double mu = 0.0;
+            if (root0 > 1.0 && root1 > 1.0)
+              mu = root0 < root1 ? root0 : root1;
+            else if (root0 > 1.0)
+              mu = root0;
+            else if (root1 > 1.0)
+              mu = root1;
+            else
+              mu = root0 > root1 ? root0 : root1;
+            if (mu > 1e-9)
+              t = 1.0 / mu;
+            else
+              t = svg_sqrt_approx(u * u + v * v);
+          } else {
+            t = svg_sqrt_approx(u * u + v * v);
+          }
+        }
       } else {
         double rr = vx_x * vx_x + vx_y * vx_y;
         if (rr > 0.0)
@@ -4067,9 +4120,14 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
         } else {
           g.units = SVG_GRADIENT_UNITS_OBJECT;
           g.transform = svg_transform_identity();
-          g.x1 = g.y1 = g.cx = g.cy = 0.0;
-          g.x2 = g.r = 1.0;
+          g.x1 = g.y1 = 0.0;
+          g.x2 = 1.0;
           g.y2 = 0.0;
+          g.cx = 0.5;
+          g.cy = 0.5;
+          g.r = 0.5;
+          g.fx = 0.5;
+          g.fy = 0.5;
           g.color0 = g.color1 = 0x000000;
           g.alpha0 = g.alpha1 = 255;
           g.stop_count = 0;
@@ -4106,6 +4164,16 @@ static int media_decode_svg_vector(const uint8_t *data, size_t size,
           }
           if (svg_find_attr(data, tag_start, tag_end, "r", &vs, &vl) == 0) {
             svg_parse_gradient_number(data, vs, vl, &g.r);
+          }
+          if (svg_find_attr(data, tag_start, tag_end, "fx", &vs, &vl) == 0) {
+            svg_parse_gradient_number(data, vs, vl, &g.fx);
+          } else {
+            g.fx = g.cx;
+          }
+          if (svg_find_attr(data, tag_start, tag_end, "fy", &vs, &vl) == 0) {
+            svg_parse_gradient_number(data, vs, vl, &g.fy);
+          } else {
+            g.fy = g.cy;
           }
         }
         if (self_closing) {
