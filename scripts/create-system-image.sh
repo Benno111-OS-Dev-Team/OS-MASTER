@@ -96,8 +96,6 @@ require_file "$ROOT_DIR/kernel/apps/embedded_apps.c"
 require_file "$ROOT_DIR/kernel/media/seed_mp3.inc"
 require_file "$ROOT_DIR/assets/logo.png"
 require_file "$ROOT_DIR/assets/cursor.svg"
-require_file "$ROOT_DIR/assets/themes/dark.theme"
-require_file "$ROOT_DIR/assets/themes/light.theme"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/landscape.png"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/nature.jpg"
 require_file "$ROOT_DIR/kernel/media/bootstrap_images/city.jpg"
@@ -151,8 +149,6 @@ EOF
 
 cp "$ROOT_DIR/assets/logo.png" "$OUTPUT_ROOT/assets/logo.png"
 cp "$ROOT_DIR/assets/cursor.svg" "$OUTPUT_ROOT/assets/cursor.svg"
-cp "$ROOT_DIR/assets/themes/dark.theme" "$OUTPUT_ROOT/assets/themes/dark.theme"
-cp "$ROOT_DIR/assets/themes/light.theme" "$OUTPUT_ROOT/assets/themes/light.theme"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/landscape.png" "$OUTPUT_ROOT/assets/wallpapers/landscape.png"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/nature.jpg" "$OUTPUT_ROOT/assets/wallpapers/nature.jpg"
 cp "$ROOT_DIR/kernel/media/bootstrap_images/city.jpg" "$OUTPUT_ROOT/assets/wallpapers/city.jpg"
@@ -173,6 +169,58 @@ extract_c_array "$ROOT_DIR/kernel/apps/embedded_apps.c" "login_bin" "$OUTPUT_ROO
 extract_c_array "$ROOT_DIR/kernel/apps/embedded_apps.c" "shell_bin" "$OUTPUT_ROOT/bin/sh" "$PYTHON_CMD"
 extract_c_array "$ROOT_DIR/kernel/media/seed_mp3.inc" "_tmp_os_seed_mp3" "$OUTPUT_ROOT/sample.mp3" "$PYTHON_CMD"
 chmod 755 "$OUTPUT_ROOT/sbin/init" "$OUTPUT_ROOT/bin/login" "$OUTPUT_ROOT/bin/sh"
+
+write_theme_fallbacks() {
+    local theme_dir="$1"
+
+    if [ ! -f "$theme_dir/dark.theme" ]; then
+        cat > "$theme_dir/dark.theme" <<'EOF'
+# OS8 theme preset
+name=Dark Theme
+mode=dark
+app_bg=1A1A2E
+app_fg=E4E4E7
+accent=6366F1
+accent_soft=EC4899
+surface=27272A
+surface_alt=1F2937
+card=252535
+border=52525B
+settings_bg=141824
+settings_panel=1F2937
+settings_text=F2F2F2
+settings_subtext=F8F8F8
+EOF
+    fi
+
+    if [ ! -f "$theme_dir/light.theme" ]; then
+        cat > "$theme_dir/light.theme" <<'EOF'
+# OS8 theme preset
+name=Light Theme
+mode=light
+app_bg=F4F7FB
+app_fg=172033
+accent=2563EB
+accent_soft=DB2777
+surface=E9EEF5
+surface_alt=F6F9FC
+card=FFFFFF
+border=C9D4E5
+settings_bg=ECF3FA
+settings_panel=D7E2EF
+settings_text=1B2430
+settings_subtext=627084
+EOF
+    fi
+}
+
+if [ -f "$ROOT_DIR/assets/themes/dark.theme" ]; then
+    cp "$ROOT_DIR/assets/themes/dark.theme" "$OUTPUT_ROOT/assets/themes/dark.theme"
+fi
+if [ -f "$ROOT_DIR/assets/themes/light.theme" ]; then
+    cp "$ROOT_DIR/assets/themes/light.theme" "$OUTPUT_ROOT/assets/themes/light.theme"
+fi
+write_theme_fallbacks "$OUTPUT_ROOT/assets/themes"
 
 env BOOT_PROFILE=installed-system LIMINE_CFG_SOURCE="$BOOT_LIMINE_CFG" \
     bash "$BOOT_FILES_SCRIPT" "$BUILD_DIR" "$OUTPUT_ROOT"

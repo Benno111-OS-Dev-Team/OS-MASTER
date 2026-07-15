@@ -13411,9 +13411,8 @@ static void draw_window_internal(struct window *win) {
     SkinHit pressed_hit =
         chrome_pressed_window == win ? chrome_pressed_hit : SKIN_HIT_NONE;
 
-    if (g_blur_effects_enabled && skin.border_blur > 0.0f) {
-      int blur_stride =
-          gui_adjust_blur_stride_for_area(w, h, (int)skin.border_blur / 4 + 1);
+    if (g_blur_effects_enabled) {
+      int blur_stride = gui_adjust_blur_stride_for_area(w, h, 3);
       if (blur_stride > 0)
         gui_apply_backdrop_blur(x, y, w, h, blur_stride);
     }

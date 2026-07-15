@@ -254,7 +254,7 @@ help:
 	@echo "  image    - Create bootable image/ISO"
 	@echo "  system-image - Build the staged x86_64 install image and zip"
 	@echo "  install-boot-files - Stage boot files into INSTALL_ROOT"
-	@echo "  installer-image - Create x86_64 DOS installer image and carrier ISO"
+	@echo "  installer-image - Create x86_64 graphical installer image and carrier ISO"
 	@echo "  dos-installer - Build the DOS textmode installer utility"
 	@echo "  dos-env-image - Create a full FreeDOS boot disk with OS8 setup"
 	@echo "  sdk      - Export application headers into build/sdk/include"
@@ -422,7 +422,11 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S | $(BUILD_PREPARED_STAMP)
 $(BUILD_DIR)/newwindows/%.o: $(NEWWINDOWS_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
 	@echo "[CC] $<"
+ifeq ($(ARCH),arm64)
+	@$(CC) $(CFLAGS_COMMON) $(DEPFLAGS) $(CROSS_TARGET) -mcpu=cortex-a72 -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(GENERATED_DIR) -I$(NEWWINDOWS_DIR)/include -I$(ROOT_DIR) -I$(ROOT_DIR)/shared-api -fno-builtin -nostdlib -nostdinc -DARCH_ARM64 -DWINDOW_SKIN_USE_KERNEL_TYPES -c $< -o $@
+else
 	@$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
+endif
 
 $(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)
@@ -506,19 +510,14 @@ endif
 
 installer-image: kernel
 ifeq ($(ARCH),x86_64)
-	@echo "[IMAGE] Creating x86_64 DOS installer artifacts..."
-	@$(MAKE) -f Makefile.multiarch ARCH=$(ARCH) system-image
-	@IMAGE_NAME=os8-x86_64-system.img bash ./scripts/create-uefi-image.sh $(BUILD_DIR) $(IMAGE_DIR)
-	@cp "$(IMAGE_DIR)/os8-x86_64-system.img" "$(IMAGE_DIR)/os-x86_64-system.img"
-	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
-	@bash ./scripts/create-dos-env-image.sh $(BUILD_DIR) $(IMAGE_DIR)
-	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os8-x86_64-installer.img"
-	@cp "$(IMAGE_DIR)/os8-x86_64-dos-env.img" "$(IMAGE_DIR)/os-x86_64-installer.img"
-	@ISO_NAME=os8-x86_64-installer.iso LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer-text.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@echo "[IMAGE] Creating x86_64 graphical installer artifacts..."
+	@IMAGE_NAME=os8-x86_64-installer.img BOOT_PROFILE=installer LIMINE_CFG_SOURCE="$(X86_64_BOOT_ASSET_DIR)/limine-installer.conf" bash ./scripts/create-uefi-image.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@cp "$(IMAGE_DIR)/os8-x86_64-installer.img" "$(IMAGE_DIR)/os-x86_64-installer.img"
+	@ISO_NAME=os8-x86_64-installer.iso BOOT_PROFILE=installer INCLUDE_INSTALLER=1 LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installer.conf" INSTALL_LIMINE_CFG="$(X86_64_BOOT_ASSET_DIR)/limine-installed.conf" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-installer.iso" "$(IMAGE_DIR)/os-x86_64-installer.iso"
-	@echo "[IMAGE] Primary DOS installer image: $(IMAGE_DIR)/os8-x86_64-installer.img"
+	@echo "[IMAGE] Graphical installer image: $(IMAGE_DIR)/os8-x86_64-installer.img"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.img"
-	@echo "[IMAGE] DOS installer carrier ISO: $(IMAGE_DIR)/os8-x86_64-installer.iso"
+	@echo "[IMAGE] Graphical installer carrier ISO: $(IMAGE_DIR)/os8-x86_64-installer.iso"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.iso"
 else ifeq ($(ARCH),arm64)
 	@echo "[IMAGE] Creating ARM64 installer ISO..."
