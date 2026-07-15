@@ -135,12 +135,12 @@ jobs:
       - name: Create or update draft release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: os-ci-draft $ {{ github.run_number }}
+          tag_name: os8-build-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           name: OS8 CI Build ${{ github.run_number }}
           body_path: release_notes.md
-          draft: False ##Auto-draft is not working, so we set it to false and update the release with the files
-          prerelease: False ## Set to true if you want to mark this release as a prerelease
+          draft: false
+          prerelease: false
           files: |
             release/*
         env:

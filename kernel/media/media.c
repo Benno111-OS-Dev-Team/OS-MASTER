@@ -249,6 +249,11 @@ static void media_zip_write_u32(uint8_t *buf, size_t *offset, uint32_t value) {
   buf[(*offset)++] = (uint8_t)((value >> 24) & 0xFFu);
 }
 
+static void media_zip_write_u64(uint8_t *buf, size_t *offset, uint64_t value) {
+  for (int i = 0; i < 8; i++)
+    buf[(*offset)++] = (uint8_t)((value >> (i * 8)) & 0xFFu);
+}
+
 static int media_zip_name_copy(char *dst, size_t dst_size, const char *src) {
   size_t idx = 0;
 
@@ -1065,6 +1070,344 @@ int media_zip_extract_file_to_root(const char *archive_path,
   extract.failed_files = 0;
   if (media_zip_file_foreach(archive_path, media_zip_stream_extract_cb,
                              &extract) != 0)
+    return -EIO;
+  if (copied_files)
+    *copied_files = extract.copied_files;
+  if (failed_files)
+    *failed_files = extract.failed_files;
+  return (extract.copied_files > 0 && extract.failed_files == 0) ? 0 : -1;
+}
+
+/* --------------------------------------------------------------------- */
+/* OS8 boot-file image                                                    */
+/* --------------------------------------------------------------------- */
+
+static const uint8_t media_boot_image_magic[12] = {
+    'O', 'S', '8', 'B', 'O', 'O', 'T', 'I', 'M', 'G', '\r', '\n'};
+#define MEDIA_BOOT_IMAGE_VERSION 1u
+#define MEDIA_BOOT_IMAGE_HEADER_SIZE 20u
+#define MEDIA_BOOT_IMAGE_ENTRY_HEADER_SIZE 12u
+
+typedef int (*media_boot_image_entry_cb_t)(void *ctx, struct file *image,
+                                           const char *name, uint64_t size);
+
+static uint64_t media_boot_image_read_u64(const uint8_t *buf, size_t offset) {
+  uint64_t value = 0;
+
+  for (int i = 0; i < 8; i++)
+    value |= ((uint64_t)buf[offset + i]) << (i * 8);
+  return value;
+}
+
+static int media_boot_image_magic_matches(const uint8_t *buf) {
+  if (!buf)
+    return 0;
+  for (size_t i = 0; i < sizeof(media_boot_image_magic); i++) {
+    if (buf[i] != media_boot_image_magic[i])
+      return 0;
+  }
+  return 1;
+}
+
+static int media_boot_image_name_matches(const char *name, const char *path) {
+  size_t idx = 0;
+  size_t target_len = 0;
+  size_t name_len = 0;
+
+  if (!name || !path)
+    return 0;
+  while (path[idx] == '/')
+    idx++;
+  if (!path[idx])
+    return 0;
+  while (path[idx + target_len])
+    target_len++;
+  while (name[name_len])
+    name_len++;
+  if (name_len != target_len)
+    return 0;
+  for (size_t i = 0; i < name_len; i++) {
+    if (name[i] != path[idx + i])
+      return 0;
+  }
+  return 1;
+}
+
+int media_boot_image_pack_tree(const char *src_root, uint8_t **out_data,
+                               size_t *out_size) {
+  media_zip_builder_t builder;
+  size_t total_size = MEDIA_BOOT_IMAGE_HEADER_SIZE;
+  uint8_t *image = NULL;
+  size_t offset = 0;
+
+  if (!src_root || !src_root[0] || !out_data || !out_size)
+    return -EINVAL;
+
+  builder.entries = NULL;
+  builder.count = 0;
+  builder.capacity = 0;
+
+  if (media_zip_pack_tree_dir(&builder, src_root, "") != 0) {
+    media_zip_builder_free(&builder);
+    return -EIO;
+  }
+  if (builder.count > 0xFFFFFFFFu) {
+    media_zip_builder_free(&builder);
+    return -EIO;
+  }
+
+  for (size_t i = 0; i < builder.count; i++) {
+    size_t name_len = 0;
+    media_zip_entry_t *entry = &builder.entries[i];
+
+    while (entry->name[name_len])
+      name_len++;
+    if (name_len == 0 || name_len > 0xFFFFu) {
+      media_zip_builder_free(&builder);
+      return -ENAMETOOLONG;
+    }
+    total_size += MEDIA_BOOT_IMAGE_ENTRY_HEADER_SIZE + name_len + entry->size;
+  }
+
+  image = (uint8_t *)kmalloc(total_size, GFP_KERNEL);
+  if (!image) {
+    media_zip_builder_free(&builder);
+    return -ENOMEM;
+  }
+
+  for (size_t i = 0; i < sizeof(media_boot_image_magic); i++)
+    image[offset++] = media_boot_image_magic[i];
+  media_zip_write_u32(image, &offset, MEDIA_BOOT_IMAGE_VERSION);
+  media_zip_write_u32(image, &offset, (uint32_t)builder.count);
+
+  for (size_t i = 0; i < builder.count; i++) {
+    media_zip_entry_t *entry = &builder.entries[i];
+    size_t name_len = 0;
+
+    while (entry->name[name_len])
+      name_len++;
+    media_zip_write_u16(image, &offset, (uint16_t)name_len);
+    media_zip_write_u16(image, &offset, 0);
+    media_zip_write_u64(image, &offset, (uint64_t)entry->size);
+    for (size_t j = 0; j < name_len; j++)
+      image[offset++] = (uint8_t)entry->name[j];
+    for (size_t j = 0; j < entry->size; j++)
+      image[offset++] = entry->data[j];
+  }
+
+  media_zip_builder_free(&builder);
+  *out_data = image;
+  *out_size = offset;
+  return 0;
+}
+
+static int media_boot_image_stream_skip(struct file *file, uint64_t size) {
+  if (!file)
+    return -EINVAL;
+  if (size == 0)
+    return 0;
+  return vfs_lseek(file, (loff_t)size, SEEK_CUR) < 0 ? -EIO : 0;
+}
+
+static int media_boot_image_file_foreach(const char *image_path,
+                                         media_boot_image_entry_cb_t cb,
+                                         void *ctx) {
+  struct file *image;
+  uint8_t header[MEDIA_BOOT_IMAGE_HEADER_SIZE];
+  uint32_t version;
+  uint32_t count;
+  int ret = 0;
+
+  if (!image_path || !image_path[0] || !cb)
+    return -EINVAL;
+
+  image = vfs_open(image_path, O_RDONLY, 0);
+  if (!image)
+    return -ENOENT;
+
+  if (media_zip_read_exact(image, header, sizeof(header)) != 0 ||
+      !media_boot_image_magic_matches(header)) {
+    vfs_close(image);
+    return -EIO;
+  }
+
+  version = media_zip_read_u32(header, 12);
+  count = media_zip_read_u32(header, 16);
+  if (version != MEDIA_BOOT_IMAGE_VERSION) {
+    vfs_close(image);
+    return -EIO;
+  }
+
+  for (uint32_t entry_index = 0; entry_index < count; entry_index++) {
+    uint8_t entry_header[MEDIA_BOOT_IMAGE_ENTRY_HEADER_SIZE];
+    uint16_t name_len;
+    uint64_t data_size;
+    char name[256];
+
+    if (media_zip_read_exact(image, entry_header, sizeof(entry_header)) != 0) {
+      ret = -EIO;
+      break;
+    }
+    name_len = media_zip_read_u16(entry_header, 0);
+    data_size = media_boot_image_read_u64(entry_header, 4);
+    if (name_len == 0 || name_len >= sizeof(name)) {
+      ret = -ENAMETOOLONG;
+      break;
+    }
+    if (media_zip_read_exact(image, (uint8_t *)name, name_len) != 0) {
+      ret = -EIO;
+      break;
+    }
+    name[name_len] = '\0';
+
+    ret = cb(ctx, image, name, data_size);
+    if (ret != 0)
+      break;
+  }
+
+  vfs_close(image);
+  return ret;
+}
+
+static int media_boot_image_count_cb(void *ctx, struct file *image,
+                                     const char *name, uint64_t size) {
+  int *count = (int *)ctx;
+  size_t name_len = 0;
+
+  if (!count || !name)
+    return -EINVAL;
+  while (name[name_len])
+    name_len++;
+  if (!(name_len == 14 && name[0] == 'I' && name[1] == 'M' &&
+        name[2] == 'A' && name[3] == 'G' && name[4] == 'E' &&
+        name[5] == '_' && name[6] == 'I' && name[7] == 'N' &&
+        name[8] == 'F' && name[9] == 'O' && name[10] == '.' &&
+        name[11] == 't' && name[12] == 'x' && name[13] == 't')) {
+    (*count)++;
+  }
+  return media_boot_image_stream_skip(image, size);
+}
+
+int media_boot_image_count_file_entries(const char *image_path) {
+  int count = 0;
+
+  if (media_boot_image_file_foreach(image_path, media_boot_image_count_cb,
+                                    &count) != 0)
+    return -1;
+  return count;
+}
+
+typedef struct {
+  const char *path;
+  int found;
+} media_boot_image_find_ctx_t;
+
+static int media_boot_image_find_cb(void *ctx, struct file *image,
+                                    const char *name, uint64_t size) {
+  media_boot_image_find_ctx_t *find = (media_boot_image_find_ctx_t *)ctx;
+
+  if (!find || !find->path)
+    return -EINVAL;
+  if (media_boot_image_name_matches(name, find->path))
+    find->found = 1;
+  return media_boot_image_stream_skip(image, size);
+}
+
+int media_boot_image_file_has_entry(const char *image_path, const char *path) {
+  media_boot_image_find_ctx_t find;
+
+  if (!image_path || !image_path[0] || !path || !path[0])
+    return 0;
+  find.path = path;
+  find.found = 0;
+  if (media_boot_image_file_foreach(image_path, media_boot_image_find_cb,
+                                    &find) != 0)
+    return 0;
+  return find.found;
+}
+
+typedef struct {
+  const char *root;
+  int copied_files;
+  int failed_files;
+} media_boot_image_extract_ctx_t;
+
+static int media_boot_image_stream_write_file(struct file *image,
+                                              const char *path,
+                                              uint64_t size) {
+  struct file *out;
+  uint8_t buf[512];
+  uint64_t remaining = size;
+
+  if (!image || !path)
+    return -EINVAL;
+
+  media_ensure_parent_dirs(path);
+  vfs_unlink(path);
+  out = vfs_open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  if (!out) {
+    if (media_boot_image_stream_skip(image, size) != 0)
+      return -EIO;
+    return -ENOENT;
+  }
+
+  while (remaining > 0) {
+    size_t chunk = remaining > sizeof(buf) ? sizeof(buf) : (size_t)remaining;
+    ssize_t written;
+
+    if (media_zip_read_exact(image, buf, chunk) != 0) {
+      vfs_close(out);
+      return -EIO;
+    }
+    written = vfs_write(out, (const char *)buf, chunk);
+    if (written < 0 || (size_t)written != chunk) {
+      vfs_close(out);
+      if (remaining > chunk)
+        media_boot_image_stream_skip(image, remaining - (uint64_t)chunk);
+      return -ENOSPC;
+    }
+    remaining -= (uint64_t)chunk;
+  }
+
+  vfs_close(out);
+  return 0;
+}
+
+static int media_boot_image_extract_cb(void *ctx, struct file *image,
+                                       const char *name, uint64_t size) {
+  media_boot_image_extract_ctx_t *extract =
+      (media_boot_image_extract_ctx_t *)ctx;
+  char full_path[256];
+  int ret;
+
+  if (!extract || !extract->root || !extract->root[0] || !name || !name[0])
+    return media_boot_image_stream_skip(image, size);
+  if (media_zip_path_join(full_path, sizeof(full_path), extract->root, name) !=
+      0)
+    return media_boot_image_stream_skip(image, size);
+
+  ret = media_boot_image_stream_write_file(image, full_path, size);
+  if (ret == 0)
+    extract->copied_files++;
+  else
+    extract->failed_files++;
+  return ret == -EIO ? -EIO : 0;
+}
+
+int media_boot_image_extract_file_to_root(const char *image_path,
+                                          const char *dst_root,
+                                          int *copied_files,
+                                          int *failed_files) {
+  media_boot_image_extract_ctx_t extract;
+
+  if (!image_path || !image_path[0] || !dst_root || !dst_root[0])
+    return -EINVAL;
+
+  extract.root = dst_root;
+  extract.copied_files = 0;
+  extract.failed_files = 0;
+  if (media_boot_image_file_foreach(image_path, media_boot_image_extract_cb,
+                                    &extract) != 0)
     return -EIO;
   if (copied_files)
     *copied_files = extract.copied_files;

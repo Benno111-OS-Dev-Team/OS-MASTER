@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${1:-build/x86_64}"
 INSTALL_ROOT="${2:-${BUILD_DIR}/system-image}"
-BOOT_IMAGE_ARCHIVE="${BOOT_IMAGE_ARCHIVE:-${BUILD_DIR}/boot-files.zip}"
+BOOT_IMAGE_PATH="${BOOT_IMAGE_PATH:-${BUILD_DIR}/boot-files.img}"
 LIMINE_CFG_SOURCE="${LIMINE_CFG_SOURCE:-${ROOT_DIR}/os-x86_64/limine.conf}"
 BOOT_PROFILE="${BOOT_PROFILE:-installed-system}"
 KERNEL_PATH="${BUILD_DIR}/kernel/os-x86_64.elf"
@@ -46,25 +46,34 @@ resolve_python() {
     command -v python3 2>/dev/null || command -v python 2>/dev/null || true
 }
 
-write_zip_archive() {
+write_boot_image() {
     local root_dir="$1"
-    local archive_path="$2"
+    local image_path="$2"
 
-    "$PYTHON_CMD" - "$root_dir" "$archive_path" <<'PY'
+    "$PYTHON_CMD" - "$root_dir" "$image_path" <<'PY'
 import pathlib
+import struct
 import sys
-import zipfile
 
+MAGIC = b"OS8BOOTIMG\r\n"
+VERSION = 1
 root = pathlib.Path(sys.argv[1]).resolve()
-archive = pathlib.Path(sys.argv[2]).resolve()
-archive.parent.mkdir(parents=True, exist_ok=True)
-if archive.exists():
-    archive.unlink()
-with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as zf:
-    for path in sorted(root.rglob("*")):
-        if path.is_dir():
-            continue
-        zf.write(path, path.relative_to(root).as_posix())
+image = pathlib.Path(sys.argv[2]).resolve()
+image.parent.mkdir(parents=True, exist_ok=True)
+if image.exists():
+    image.unlink()
+files = [path for path in sorted(root.rglob("*")) if path.is_file()]
+with image.open("wb") as out:
+    out.write(MAGIC)
+    out.write(struct.pack("<II", VERSION, len(files)))
+    for path in files:
+        rel = path.relative_to(root).as_posix().encode("utf-8")
+        if not rel or len(rel) > 0xFFFF:
+            raise SystemExit(f"boot image path is too long: {path}")
+        data = path.read_bytes()
+        out.write(struct.pack("<HHQ", len(rel), 0, len(data)))
+        out.write(rel)
+        out.write(data)
 PY
 }
 
@@ -140,8 +149,8 @@ write_boot_metadata() {
 OS8 Graphical Installer
 
 This media boots directly into the OS8 graphical installer.
-The installer uses /install/system-image.zip and the staged boot files
-on this image to copy a complete system to the selected disk.
+The installer uses /install/system-image.zip and /install/boot-files.img
+to copy a complete graphical system to the selected disk.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF
@@ -219,10 +228,10 @@ main() {
     ensure_layout
     copy_boot_payload
     write_boot_metadata
-    write_zip_archive "$INSTALL_ROOT" "$BOOT_IMAGE_ARCHIVE"
+    write_boot_image "$INSTALL_ROOT" "$BOOT_IMAGE_PATH"
 
     log "Boot files staged into $INSTALL_ROOT"
-    log "Boot file archive: $BOOT_IMAGE_ARCHIVE"
+    log "Boot files image: $BOOT_IMAGE_PATH"
 }
 
 main "$@"

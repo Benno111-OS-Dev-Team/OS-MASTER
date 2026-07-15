@@ -253,7 +253,7 @@ help:
 	@echo "  kernel   - Build kernel only"
 	@echo "  image    - Create bootable image/ISO"
 	@echo "  system-image - Build the staged x86_64 install image and zip"
-	@echo "  install-boot-files - Stage boot files into INSTALL_ROOT"
+	@echo "  install-boot-files - Stage boot files and build boot-files.img"
 	@echo "  installer-image - Create x86_64 graphical installer image and carrier ISO"
 	@echo "  dos-installer - Build the DOS textmode installer utility"
 	@echo "  dos-env-image - Create a full FreeDOS boot disk with OS8 setup"

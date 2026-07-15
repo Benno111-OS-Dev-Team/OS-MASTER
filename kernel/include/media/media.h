@@ -32,6 +32,14 @@ int media_zip_extract_to_root(const uint8_t *data, size_t size,
 int media_zip_extract_file_to_root(const char *archive_path,
                                    const char *dst_root, int *copied_files,
                                    int *failed_files);
+int media_boot_image_pack_tree(const char *src_root, uint8_t **out_data,
+                               size_t *out_size);
+int media_boot_image_count_file_entries(const char *image_path);
+int media_boot_image_file_has_entry(const char *image_path, const char *path);
+int media_boot_image_extract_file_to_root(const char *image_path,
+                                          const char *dst_root,
+                                          int *copied_files,
+                                          int *failed_files);
 
 int media_decode_jpeg(const uint8_t *data, size_t size, media_image_t *out);
 int media_decode_jpeg_buffer(const uint8_t *data, size_t size,
