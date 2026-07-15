@@ -9,10 +9,14 @@ on:
 jobs:
 
   Build:
-    name: Draft Release
+    name: Numbered multi-arch release
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_BRANCH: ${{ github.ref_name }}
+      BUILD_STRING: ${{ github.run_number }} OS8 CI BUILD
 
     steps:
       - name: Checkout code
@@ -33,6 +37,7 @@ jobs:
             qemu-system-aarch64 \
             qemu-efi-aarch64 \
             qemu-utils \
+            xz-utils \
             xorriso \
             make \
             lld \
@@ -40,40 +45,85 @@ jobs:
             nasm
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
-      - name: Build x86_64 ISO
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-          BUILD_BRANCH: ${{ github.ref_name }}
+      - name: Build x86_64 release and installer media
         run: |
           set -euxo pipefail
           export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
           make -f Makefile.multiarch ARCH=x86_64 image
+          make -f Makefile.multiarch ARCH=x86_64 installer-image
+
+      - name: Build ARM64 release and installer media
+        run: |
+          set -euxo pipefail
+          export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
+          make -f Makefile.multiarch ARCH=arm64 image
+          make -f Makefile.multiarch ARCH=arm64 installer-image
 
       - name: Verify release files
         run: |
           set -euxo pipefail
           ls -lh image/os8-x86_64.iso*
+          ls -lh image/os8-x86_64-installer.iso*
+          ls -lh image/os8-x86_64-installer.img
+          ls -lh image/os8-arm64.iso*
+          ls -lh image/os8-arm64-installer.iso*
           file image/os8-x86_64.iso
+          file image/os8-x86_64-installer.iso
+          file image/os8-x86_64-installer.img
+          file image/os8-arm64.iso
+          file image/os8-arm64-installer.iso
           if [ -f image/os8-x86_64.iso.xz ]; then
             file image/os8-x86_64.iso.xz
           fi
 
+      - name: Stage numbered release artifacts
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          build="build-${BUILD_NUMBER}"
+          cp image/os8-x86_64.iso "release/os8-${build}-x86_64.iso"
+          cp image/os8-x86_64.iso.xz "release/os8-${build}-x86_64.iso.xz"
+          cp image/os8-x86_64-installer.iso "release/os8-${build}-x86_64-installer.iso"
+          cp image/os8-x86_64-installer.iso.xz "release/os8-${build}-x86_64-installer.iso.xz"
+          cp image/os8-x86_64-installer.img "release/os8-${build}-x86_64-installer.img"
+          if [ -f image/os8-x86_64-installer.iso.7z ]; then
+            cp image/os8-x86_64-installer.iso.7z "release/os8-${build}-x86_64-installer.iso.7z"
+          fi
+          cp image/os8-arm64.iso "release/os8-${build}-arm64.iso"
+          cp image/os8-arm64.iso.xz "release/os8-${build}-arm64.iso.xz"
+          cp image/os8-arm64-installer.iso "release/os8-${build}-arm64-installer.iso"
+          cp image/os8-arm64-installer.iso.xz "release/os8-${build}-arm64-installer.iso.xz"
+          ls -lh release
+
       - name: Generate release notes
         run: |
           cat > release_notes.md << EOF
-          # os CI Draft
+          # OS8 CI Build ${{ github.run_number }}
 
-          Automatic draft release generated from CI.
+          Automatic release generated from CI.
+
+          ## Build Number
+
+          - \`${{ github.run_number }}\`
 
           ## Build Status
 
-          - ARM64 ISO: skipped for now
           - x86_64 ISO: success
+          - x86_64 installer: success
+          - ARM64 ISO: success
+          - ARM64 installer: success
 
           ## Bootable Media
 
-          - \`os8-x86_64.iso\`
-          - \`os8-x86_64.iso.xz\`
+          - \`os8-build-${{ github.run_number }}-x86_64.iso\`
+          - \`os8-build-${{ github.run_number }}-x86_64.iso.xz\`
+          - \`os8-build-${{ github.run_number }}-x86_64-installer.iso\`
+          - \`os8-build-${{ github.run_number }}-x86_64-installer.iso.xz\`
+          - \`os8-build-${{ github.run_number }}-x86_64-installer.img\`
+          - \`os8-build-${{ github.run_number }}-arm64.iso\`
+          - \`os8-build-${{ github.run_number }}-arm64.iso.xz\`
+          - \`os8-build-${{ github.run_number }}-arm64-installer.iso\`
+          - \`os8-build-${{ github.run_number }}-arm64-installer.iso.xz\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
@@ -87,12 +137,11 @@ jobs:
         with:
           tag_name: os-ci-draft
           target_commitish: ${{ github.sha }}
-          name: os CI Draft
+          name: OS8 CI Build ${{ github.run_number }}
           body_path: release_notes.md
           draft: False ##Auto-draft is not working, so we set it to false and update the release with the files
           prerelease: False ## Set to true if you want to mark this release as a prerelease
           files: |
-            image/os8-x86_64.iso
-            image/os8-x86_64.iso.xz
+            release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

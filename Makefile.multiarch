@@ -469,7 +469,11 @@ endif
 image: kernel
 	@echo "[IMAGE] Creating $(ARCH) boot image..."
 ifeq ($(ARCH),arm64)
-	@echo "[IMAGE] Skipping ARM64 ISO creation for now"
+	@bash ./scripts/create-arm64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@cp "$(IMAGE_DIR)/os8-arm64.iso" "$(IMAGE_DIR)/os-arm64.iso"
+	@if [ -f "$(IMAGE_DIR)/os8-arm64.iso.xz" ]; then cp "$(IMAGE_DIR)/os8-arm64.iso.xz" "$(IMAGE_DIR)/os-arm64.iso.xz"; fi
+	@echo "[IMAGE] Created: $(IMAGE_DIR)/os8-arm64.iso"
+	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-arm64.iso"
 else ifeq ($(ARCH),x86_64)
 	@bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@echo "[IMAGE] Created: $(ISO_IMAGE)"
@@ -500,9 +504,10 @@ else
 	@exit 1
 endif
 
-installer-image: kernel system-image
+installer-image: kernel
 ifeq ($(ARCH),x86_64)
 	@echo "[IMAGE] Creating x86_64 DOS installer artifacts..."
+	@$(MAKE) -f Makefile.multiarch ARCH=$(ARCH) system-image
 	@IMAGE_NAME=os8-x86_64-system.img bash ./scripts/create-uefi-image.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-x86_64-system.img" "$(IMAGE_DIR)/os-x86_64-system.img"
 	@bash ./scripts/build-dos-installer.sh $(BUILD_DIR) $(IMAGE_DIR)
@@ -515,8 +520,15 @@ ifeq ($(ARCH),x86_64)
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.img"
 	@echo "[IMAGE] DOS installer carrier ISO: $(IMAGE_DIR)/os8-x86_64-installer.iso"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-x86_64-installer.iso"
+else ifeq ($(ARCH),arm64)
+	@echo "[IMAGE] Creating ARM64 installer ISO..."
+	@ISO_NAME=os8-arm64-installer.iso ISO_LABEL=OS_ARM64_INSTALL bash ./scripts/create-arm64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@cp "$(IMAGE_DIR)/os8-arm64-installer.iso" "$(IMAGE_DIR)/os-arm64-installer.iso"
+	@if [ -f "$(IMAGE_DIR)/os8-arm64-installer.iso.xz" ]; then cp "$(IMAGE_DIR)/os8-arm64-installer.iso.xz" "$(IMAGE_DIR)/os-arm64-installer.iso.xz"; fi
+	@echo "[IMAGE] ARM64 installer ISO: $(IMAGE_DIR)/os8-arm64-installer.iso"
+	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-arm64-installer.iso"
 else
-	@echo "[IMAGE] installer-image is currently supported only for ARCH=x86_64"
+	@echo "[IMAGE] installer-image is currently supported only for ARCH=x86_64 or ARCH=arm64"
 	@exit 1
 endif
 
