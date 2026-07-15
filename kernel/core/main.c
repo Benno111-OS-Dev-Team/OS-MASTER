@@ -953,7 +953,6 @@ static int boot_hdd_disk_index(void) {
 }
 
 void refresh_external_storage_views(void) {
-  extern int boot_is_installer_mode(void);
   extern int storage_get_disk_count(void);
   extern int storage_get_disk_kind(int index);
   extern int storage_get_disk_location(int index, char *buf, int max);
@@ -982,19 +981,17 @@ void refresh_external_storage_views(void) {
     seed_make_dir("", external_root);
 
     if (kind == STORAGE_KIND_CDROM) {
-      if (iso9660_copy_to_ramfs(location, mounted_root) == 0) {
+      if (vfs_mount(location, mounted_root, "iso9660", 0, NULL) == 0) {
         printk(KERN_INFO
-               "STORAGE: snapshotted CD-ROM '%s' into RAM at '%s'\n",
+               "STORAGE: mounted CD-ROM '%s' on '%s'\n",
                location, mounted_root);
         import_boot_media_assets_from(mounted_root);
-        copy_tree_to_prefix(mounted_root, external_root, 0, 0);
         continue;
       }
-      if (boot_is_installer_mode()) {
-        copy_tree_to_prefix("/setup", mounted_root, 0, 0);
-        copy_tree_to_prefix(mounted_root, external_root, 0, 0);
-        continue;
-      }
+      printk(KERN_WARNING
+             "STORAGE: CD-ROM '%s' is not ready for ISO9660 access\n",
+             location);
+      continue;
     }
 
     build_seed_path(source_root, sizeof(source_root), "/Installed", location);
