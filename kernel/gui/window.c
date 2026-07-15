@@ -10330,6 +10330,33 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
   if (!payload_root || !payload_root[0])
     return -1;
 
+  if (installer_boot_payload_is_image(payload_root)) {
+    for (int i = 0;
+         i < (int)(sizeof(required_suffixes) / sizeof(required_suffixes[0]));
+         i++) {
+      if (media_boot_image_file_has_entry(payload_root, required_suffixes[i]))
+        continue;
+      str_copy_safe(msg, "boot image unusable: ", sizeof(msg));
+      installer_append_to_buf(msg, sizeof(msg), payload_root);
+      installer_append_to_buf(msg, sizeof(msg), required_suffixes[i]);
+      installer_log(msg);
+      return -1;
+    }
+
+    for (int i = 0;
+         i < (int)(sizeof(limine_cfg_suffixes) / sizeof(limine_cfg_suffixes[0]));
+         i++) {
+      if (media_boot_image_file_has_entry(payload_root, limine_cfg_suffixes[i]))
+        return 0;
+    }
+
+    str_copy_safe(msg, "boot image unusable: no Limine config in ",
+                  sizeof(msg));
+    installer_append_to_buf(msg, sizeof(msg), payload_root);
+    installer_log(msg);
+    return -1;
+  }
+
   if (installer_system_image_is_archive(payload_root)) {
     for (int i = 0;
          i < (int)(sizeof(required_suffixes) / sizeof(required_suffixes[0]));
