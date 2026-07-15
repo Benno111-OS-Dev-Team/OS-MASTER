@@ -982,14 +982,10 @@ void refresh_external_storage_views(void) {
     seed_make_dir("", external_root);
 
     if (kind == STORAGE_KIND_CDROM) {
-      if (vfs_mount(location, mounted_root, "iso9660", 0, NULL) == 0) {
-        printk(KERN_INFO "STORAGE: mounted CD-ROM '%s' on '%s'\n", location,
-               mounted_root);
-        import_boot_media_assets_from(mounted_root);
-        copy_tree_to_prefix(mounted_root, external_root, 0, 0);
-        continue;
-      }
       if (iso9660_copy_to_ramfs(location, mounted_root) == 0) {
+        printk(KERN_INFO
+               "STORAGE: snapshotted CD-ROM '%s' into RAM at '%s'\n",
+               location, mounted_root);
         import_boot_media_assets_from(mounted_root);
         copy_tree_to_prefix(mounted_root, external_root, 0, 0);
         continue;
@@ -1053,14 +1049,14 @@ static void populate_installer_payload(void) {
       "    kernel_path: boot():/boot/bootloader.sys\n";
   static const char *installer_limine_cfg =
       "# OS8 Boot Configuration\n"
-      "# OS8 x64 installer ISO\n"
+      "# OS8 x64 graphical installer\n"
       "\n"
       "timeout: 5\n"
       "\n"
-      "/OS8 DOS Text Setup\n"
+      "/OS8 Graphical Installer\n"
       "    protocol: limine\n"
       "    kernel_path: boot():/boot/bootloader.sys\n"
-      "    cmdline: boot=usb mode=installer textsetup=1\n";
+      "    cmdline: boot=usb mode=installer drivers=generic\n";
   static const char *image_info =
       "OS8 System Image\n"
       "\n"
@@ -1092,13 +1088,11 @@ static void populate_installer_payload(void) {
       "loader=limine\n"
       "source=installed-system\n";
   static const char *installers_txt =
-      "OS8 Installer Types\n"
+      "OS8 Graphical Installer\n"
       "\n"
-      "1. DOS Text Setup\n"
-      "   Primary artifacts: DOSENV.IMG, OSINST.COM, and OSSYS.IMG.\n"
-      "   DOSENV.IMG is built from the bundled DOS boot disk image, with a FreeDOS download fallback.\n"
-      "   The DOS boot disk keeps OSINST.COM and OSSYS.IMG together in the root folder.\n"
-      "   The ISO output is only a carrier for that same DOS boot disk and payload.\n";
+      "This media boots directly into the OS8 graphical installer.\n"
+      "The installer uses /install/system-image.zip and the staged boot files\n"
+      "on this image to copy a complete system to the selected disk.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"

@@ -672,7 +672,7 @@ static int gui_is_installer_mode(void) {
 }
 
 static int gui_installer_text_mode(void) {
-  return gui_is_installer_mode();
+  return 0;
 }
 
 static char installer_status[96] = "Ready to install the system image.";

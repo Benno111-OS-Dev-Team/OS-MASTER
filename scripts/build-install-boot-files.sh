@@ -137,13 +137,11 @@ copy_boot_payload() {
 
 write_boot_metadata() {
     cat > "$INSTALL_ROOT/INSTALLERS.TXT" <<'EOF'
-OS8 Installer Types
+OS8 Graphical Installer
 
-1. DOS Text Setup
-   Primary artifacts: DOSENV.IMG, OSINST.COM, and OSSYS.IMG.
-   DOSENV.IMG is built from the bundled DOS boot disk image, with a FreeDOS download fallback.
-   The DOS boot disk keeps OSINST.COM and OSSYS.IMG together in the root folder.
-   The ISO output is only a carrier for that same DOS boot disk and payload.
+This media boots directly into the OS8 graphical installer.
+The installer uses /install/system-image.zip and the staged boot files
+on this image to copy a complete system to the selected disk.
 EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF
