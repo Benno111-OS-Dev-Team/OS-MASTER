@@ -10889,8 +10889,7 @@ static void installer_process_background_install(void) {
           18, "Validating Payload", "Preparing raw system disk image...",
           "Bootable disk image found. The installer will write it directly to the target disk.");
     } else {
-      if (installer_validate_system_image_payload() != 0 ||
-          installer_validate_boot_payload() != 0) {
+      if (installer_validate_system_image_payload() != 0) {
         installer_fail_background("Install blocked. Boot files are missing from the installer image.",
                                   "install blocked: boot payload incomplete");
         return;
