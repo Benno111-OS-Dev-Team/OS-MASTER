@@ -897,6 +897,65 @@ static int copy_tree_to_prefix(const char *src_root, const char *dst_root,
   return 0;
 }
 
+typedef struct {
+  const char *root;
+} seed_remove_ctx_t;
+
+static int remove_tree_callback(void *ctx, const char *name, int len,
+                                loff_t offset, ino_t ino, unsigned type) {
+  seed_remove_ctx_t *remove = (seed_remove_ctx_t *)ctx;
+  char path[256];
+  int idx = 0;
+  struct file *dir;
+
+  (void)offset;
+  (void)ino;
+
+  if (!remove || !remove->root || !name || len <= 0)
+    return 0;
+  if ((len == 1 && name[0] == '.') ||
+      (len == 2 && name[0] == '.' && name[1] == '.'))
+    return 0;
+
+  while (remove->root[idx] && idx < (int)sizeof(path) - 1) {
+    path[idx] = remove->root[idx];
+    idx++;
+  }
+  if (!(idx == 1 && path[0] == '/') && idx < (int)sizeof(path) - 1)
+    path[idx++] = '/';
+  for (int i = 0; i < len && idx < (int)sizeof(path) - 1; i++)
+    path[idx++] = name[i];
+  path[idx] = '\0';
+
+  if (type == 4) {
+    seed_remove_ctx_t child = {path};
+    dir = vfs_open(path, O_RDONLY, 0);
+    if (dir) {
+      vfs_readdir(dir, &child, remove_tree_callback);
+      vfs_close(dir);
+    }
+    vfs_rmdir(path);
+    return 0;
+  }
+
+  vfs_unlink(path);
+  return 0;
+}
+
+static void remove_tree_at_path(const char *root) {
+  seed_remove_ctx_t ctx = {root};
+  struct file *dir;
+
+  if (!root || !root[0])
+    return;
+  dir = vfs_open(root, O_RDONLY, 0);
+  if (!dir)
+    return;
+  vfs_readdir(dir, &ctx, remove_tree_callback);
+  vfs_close(dir);
+  vfs_rmdir(root);
+}
+
 static void import_staged_system_image(void) {
   printk(KERN_INFO "INSTALL: looking for staged system image at /install/system-image\n");
   if (!staged_system_image_exists()) {
@@ -1057,8 +1116,8 @@ static void populate_installer_payload(void) {
   static const char *image_info =
       "OS8 System Image\n"
       "\n"
-      "This installer boot seeds a bundled system image archive at\n"
-      "/install/system-image.zip so the GUI installer can copy it to disk.\n";
+      "This installer boot seeds bundled system and boot-file images so\n"
+      "the GUI installer can copy a complete system to disk.\n";
   static const char *installed_bootable_cfg =
       "bootable=1\n"
       "loader=limine\n"
@@ -1088,13 +1147,13 @@ static void populate_installer_payload(void) {
       "OS8 Graphical Installer\n"
       "\n"
       "This media boots directly into the OS8 graphical installer.\n"
-      "The installer uses /install/system-image.zip and the staged boot files\n"
-      "on this image to copy a complete system to the selected disk.\n";
+      "The installer uses /install/system-image.zip and /install/boot-files.img\n"
+      "to copy a complete system to the selected disk.\n";
   static const char *setup_info =
       "OS8 Installer Media\n"
       "\n"
       "This directory mirrors the bootable installer media contents while\n"
-      "running in setup mode, including the ZIP archive payload.\n";
+      "running in setup mode, including the boot-file image payload.\n";
   uint8_t *boot_archive_data = NULL;
   size_t boot_archive_size = 0;
   const uint8_t *kernel_image;
@@ -1258,19 +1317,21 @@ static void populate_installer_payload(void) {
   }
 
   if (installer_mode) {
-    if (copy_tree_to_prefix("/setup", "/setup/bootimage", 1, 0) != 0) {
-      printk(KERN_ERR "INSTALL: failed to mirror boot files into setup bootimage\n");
+    if (copy_tree_to_prefix("/setup", "/setup/bootimage-src", 1, 0) != 0) {
+      printk(KERN_ERR "INSTALL: failed to mirror boot files into setup boot image\n");
       return;
     }
-    if (media_zip_pack_tree("/setup/bootimage", &boot_archive_data,
-                            &boot_archive_size) != 0 ||
-        media_install_file("/setup/bootimage.zip", boot_archive_data,
+    if (media_boot_image_pack_tree("/setup/bootimage-src", &boot_archive_data,
+                                   &boot_archive_size) != 0 ||
+        media_install_file("/setup/bootimage.img", boot_archive_data,
                            boot_archive_size) != 0) {
       media_free_file(boot_archive_data);
-      printk(KERN_ERR "INSTALL: failed to package setup boot archive\n");
+      remove_tree_at_path("/setup/bootimage-src");
+      printk(KERN_ERR "INSTALL: failed to package setup boot image\n");
       return;
     }
     media_free_file(boot_archive_data);
+    remove_tree_at_path("/setup/bootimage-src");
     boot_archive_data = NULL;
     boot_archive_size = 0;
   }
