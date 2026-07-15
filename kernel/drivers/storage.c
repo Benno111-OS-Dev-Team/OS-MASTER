@@ -1364,7 +1364,8 @@ static int storage_ahci_issue_atapi(storage_ahci_port_ctx_t *ctx, uint32_t lba,
   fis->fis_type = 0x27;
   fis->pmport_c = 1U << 7;
   fis->command = 0xA0;
-  /* ATA PACKET byte count is cylinder low/high. Request one 2048-byte CD sector. */
+  fis->featurel = 1;
+  /* ATA PACKET byte count is cylinder low/high for the DMA transfer window. */
   fis->lba1 = 0x00;
   fis->lba2 = 0x08;
 
@@ -1373,8 +1374,8 @@ static int storage_ahci_issue_atapi(storage_ahci_port_ctx_t *ctx, uint32_t lba,
   table->acmd[3] = (uint8_t)((lba >> 16) & 0xFF);
   table->acmd[4] = (uint8_t)((lba >> 8) & 0xFF);
   table->acmd[5] = (uint8_t)(lba & 0xFF);
-  table->acmd[7] = (uint8_t)((blocks >> 8) & 0xFF);
-  table->acmd[8] = (uint8_t)(blocks & 0xFF);
+  table->acmd[8] = (uint8_t)((blocks >> 8) & 0xFF);
+  table->acmd[9] = (uint8_t)(blocks & 0xFF);
 
   storage_set_prdt_addr(&table->prdt[0], buffer);
   table->prdt[0].dbc_i = (uint32_t)(blocks * 2048U - 1U) | (1U << 31);
@@ -1385,12 +1386,20 @@ static int storage_ahci_issue_atapi(storage_ahci_port_ctx_t *ctx, uint32_t lba,
   while (arch_timer_get_ms() <= deadline) {
     if ((port[0x38 / 4] & 1U) == 0)
       break;
-    if (port[0x10 / 4] & (1U << 30))
+    if (port[0x10 / 4] & (1U << 30)) {
+      storage_ahci_setup_port(ctx);
       return -1;
+    }
   }
-  if (port[0x38 / 4] & 1U)
+  if (port[0x38 / 4] & 1U) {
+    storage_ahci_setup_port(ctx);
     return -1;
-  return (port[0x20 / 4] & 0x01) ? -1 : 0;
+  }
+  if (port[0x20 / 4] & 0x01) {
+    storage_ahci_setup_port(ctx);
+    return -1;
+  }
+  return 0;
 }
 
 static int storage_ahci_read(uint64_t lba, uint32_t count, void *buffer,

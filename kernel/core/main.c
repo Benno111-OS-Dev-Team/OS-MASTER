@@ -1442,6 +1442,7 @@ static void init_subsystems(void *dtb) {
   extern void pci_init(void);
   extern void storage_init(void);
   extern void gui_notify_storage_ready(void);
+  extern int boot_is_installer_mode(void);
   extern void pit_sleep(uint32_t ms);
   extern int intel_gfx_detected(void);
   extern int intel_gfx_is_ready(void);
@@ -1467,6 +1468,8 @@ static void init_subsystems(void *dtb) {
   storage_init();
   refresh_external_storage_views();
   pci_init();
+  if (boot_is_installer_mode())
+    refresh_external_storage_views();
 
   printk(KERN_INFO "  Initializing GPU driver...\n");
   if (intel_gfx_is_ready()) {
