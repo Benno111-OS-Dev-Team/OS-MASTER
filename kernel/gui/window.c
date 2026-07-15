@@ -15749,19 +15749,6 @@ static void draw_window_internal(struct window *win) {
     win->on_draw(win);
   }
 
-  /* Draw resize grip in bottom-right corner */
-  if (win->resizable && !window_uses_newwindows_chrome(win)) {
-    int gx = x + w - 14;
-    int gy = y + h - 14;
-    uint32_t grip_color = win->focused ? 0x888888 : 0x666666;
-    /* Draw diagonal grip lines (macOS style) */
-    for (int i = 0; i < 3; i++) {
-      int offset = i * 4;
-      /* Diagonal line from bottom-left to top-right */
-      gui_draw_line(gx + offset, gy + 10, gx + 10, gy + offset, grip_color);
-    }
-  }
-
   gui_restore_clip_rect(prev_clip);
 }
 
