@@ -4458,6 +4458,55 @@ void gui_get_window_content_rect(const struct window *win, int *x, int *y, int *
     *h = height;
 }
 
+static void gui_get_window_content_rect_local(const struct window *win, int *x,
+                                              int *y, int *w, int *h) {
+  int left = 0;
+  int top = 0;
+  int right = 0;
+  int bottom = 0;
+  int width = 0;
+  int height = 0;
+
+  if (!win || win->id == 0) {
+    if (x)
+      *x = 0;
+    if (y)
+      *y = 0;
+    if (w)
+      *w = 0;
+    if (h)
+      *h = 0;
+    return;
+  }
+
+  gui_newwindows_content_insets(win, &left, &top, &right, &bottom);
+  width = win->width - left - right;
+  height = win->height - top - bottom;
+  if (width < 0)
+    width = 0;
+  if (height < 0)
+    height = 0;
+
+  if (x)
+    *x = left;
+  if (y)
+    *y = top;
+  if (w)
+    *w = width;
+  if (h)
+    *h = height;
+}
+
+static int window_titlebar_drag_limit(const struct window *win) {
+  WindowSkin skin;
+
+  if (!win)
+    return 0;
+
+  skin = gui_newwindows_skin_for_window(win);
+  return skin.metrics.border_top + skin.metrics.titlebar_height;
+}
+
 void gui_set_window_layout_kind(struct window *win, gui_window_layout_kind_t kind) {
   if (!win)
     return;
@@ -5473,11 +5522,6 @@ static void draw_secure_attention_overlay(void) {
     gui_draw_system_button(bx, button_y, button_w, button_h, labels[i], variant,
                            1, i == secure_attention_selection);
   }
-}
-
-/* Draw a filled circle (for traffic light buttons) */
-static void draw_circle(int cx, int cy, int r, uint32_t color) {
-  draw_filled_circle(cx, cy, r, color);
 }
 
 /* Draw a single window */
@@ -9298,8 +9342,9 @@ int gui_launch_app_by_id(const char *app_id) {
   case GUI_APP_TERMINAL: {
     struct window *win =
         gui_create_window("Terminal", spawn_x, spawn_y, 450, 320);
-    int content_x = spawn_x + BORDER_WIDTH;
-    int content_y = spawn_y + BORDER_WIDTH + TITLEBAR_HEIGHT;
+    int content_x = 0;
+    int content_y = 0;
+    gui_get_window_content_rect(win, &content_x, &content_y, NULL, NULL);
     struct terminal *term = term_create(content_x, content_y, 55, 16);
     if (win && term) {
       win->userdata = term;
@@ -12013,8 +12058,9 @@ static void fm_open_item(struct window *win, struct fm_state *st, const char *na
     struct window *term_win =
         gui_create_window("Terminal", term_spawn_x, term_spawn_y, 500, 350);
     if (term_win) {
-      int content_x = term_spawn_x + BORDER_WIDTH;
-      int content_y = term_spawn_y + BORDER_WIDTH + TITLEBAR_HEIGHT;
+      int content_x = 0;
+      int content_y = 0;
+      gui_get_window_content_rect(term_win, &content_x, &content_y, NULL, NULL);
       struct terminal *term = term_create(content_x, content_y, 60, 18);
       if (term) {
         term_win->userdata = term;
@@ -12970,25 +13016,29 @@ static void fm_on_mouse(struct window *win, int x, int y, int buttons) {
   if (!st)
     return;
 
-  int content_x = BORDER_WIDTH;
-  int content_y = BORDER_WIDTH + TITLEBAR_HEIGHT;
+  int content_x = 0;
+  int content_y = 0;
+  int content_w = 0;
+  int content_h = 0;
   int toolbar_h = 52;
   int info_h = 54;
   int sidebar_w = 118;
   int details_w = 130;
+  gui_get_window_content_rect_local(win, &content_x, &content_y, &content_w,
+                                    &content_h);
   int list_x = content_x + sidebar_w + 10;
   int list_y = content_y + toolbar_h + info_h + 8;
-  int list_w = win->width - BORDER_WIDTH * 2 - sidebar_w - details_w - 24;
+  int list_w = content_w - sidebar_w - details_w - 24;
   int row_h = 44;
   int menu_x = st->context_menu_x;
   int menu_y = st->context_menu_y;
   int menu_w = st->context_menu_target_on_item ? 132 : 120;
   int menu_h = st->context_menu_target_on_item ? 78 : 54;
 
-  if (menu_x + menu_w > win->width - BORDER_WIDTH)
-    menu_x = win->width - BORDER_WIDTH - menu_w;
-  if (menu_y + menu_h > win->height - BORDER_WIDTH)
-    menu_y = win->height - BORDER_WIDTH - menu_h;
+  if (menu_x + menu_w > content_x + content_w)
+    menu_x = content_x + content_w - menu_w;
+  if (menu_y + menu_h > content_y + content_h)
+    menu_y = content_y + content_h - menu_h;
   if (menu_x < content_x + 4)
     menu_x = content_x + 4;
   if (menu_y < content_y + 4)
@@ -13369,104 +13419,6 @@ static void draw_window_internal(struct window *win) {
     }
 
     skin_draw_window_chrome(&renderer, &skin_window, &skin, hot_hit, pressed_hit);
-  } else if (win->has_titlebar &&
-             win->chrome_kind != GUI_WINDOW_CHROME_FRAMEBUFFER) {
-    int title_x0 = x + BORDER_WIDTH;
-    int title_y0 = y + BORDER_WIDTH;
-    int title_w = w - BORDER_WIDTH * 2;
-
-    /*
-     * Window bar should carry both effects together:
-     * 1) backdrop blur (when requested)
-     * 2) translucent glass tint layered on top
-     */
-    if (g_blur_effects_enabled) {
-      int title_blur_stride =
-          gui_adjust_blur_stride_for_area(title_w, TITLEBAR_HEIGHT, 2);
-      if (title_blur_stride > 0) {
-        gui_apply_backdrop_blur(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
-                                title_blur_stride);
-      }
-    }
-    if (g_blur_effects_mode != GUI_BLUR_EFFECTS_OFF) {
-      /* Base translucent tint */
-      gui_fill_rect_alpha(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
-                          win->focused ? theme->title_tint_focused
-                                       : theme->title_tint_inactive);
-      /* Secondary glass veil to keep transparency visible over bright content */
-      gui_fill_rect_alpha(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
-                          win->focused ? theme->title_veil_focused
-                                       : theme->title_veil_inactive);
-      gui_fill_rect_alpha(title_x0, title_y0, title_w, 1, theme->title_line_top);
-      gui_fill_rect_alpha(title_x0, title_y0 + TITLEBAR_HEIGHT - 1, title_w, 1,
-                          theme->title_line_bottom);
-    } else {
-      gui_draw_rect(title_x0, title_y0, title_w, TITLEBAR_HEIGHT,
-                    gui_make_opaque_color(win->focused
-                                              ? theme->title_tint_focused
-                                              : theme->title_tint_inactive));
-      gui_draw_rect(title_x0, title_y0, title_w, 1,
-                    gui_make_opaque_color(theme->title_line_top));
-      gui_draw_rect(title_x0, title_y0 + TITLEBAR_HEIGHT - 1, title_w, 1,
-                    gui_make_opaque_color(theme->title_line_bottom));
-    }
-
-    /* Traffic light buttons on LEFT side - Modern rounded */
-    int btn_cx = x + BORDER_WIDTH + 16; /* First circle center X */
-    int btn_cy = y + BORDER_WIDTH + TITLEBAR_HEIGHT / 2; /* Center Y */
-    int btn_r = 6;                                       /* Button radius */
-
-    /* Close button - Red */
-    if (window_close_disabled(win)) {
-      draw_circle(btn_cx, btn_cy, btn_r, 0x6B7280);
-      gui_draw_line(btn_cx - 2, btn_cy - 2, btn_cx + 2, btn_cy + 2,
-                    0x374151);
-      gui_draw_line(btn_cx - 2, btn_cy + 2, btn_cx + 2, btn_cy - 2,
-                    0x374151);
-    } else {
-      draw_circle(btn_cx, btn_cy, btn_r, COLOR_BTN_CLOSE);
-      gui_draw_line(btn_cx - 2, btn_cy - 2, btn_cx + 2, btn_cy + 2,
-                    0x7F1D1D);
-      gui_draw_line(btn_cx - 2, btn_cy + 2, btn_cx + 2, btn_cy - 2,
-                    0x7F1D1D);
-    }
-
-    /* Minimize button - Amber */
-    btn_cx += 18;
-    if (window_minimize_disabled(win)) {
-      draw_circle(btn_cx, btn_cy, btn_r, 0x6B7280);
-      gui_draw_line(btn_cx - 2, btn_cy, btn_cx + 2, btn_cy, 0x374151);
-    } else {
-      draw_circle(btn_cx, btn_cy, btn_r, COLOR_BTN_MINIMIZE);
-      gui_draw_line(btn_cx - 2, btn_cy, btn_cx + 2, btn_cy, 0x78350F);
-    }
-
-    /* Zoom button - Green */
-    btn_cx += 18;
-    draw_circle(btn_cx, btn_cy, btn_r, COLOR_BTN_ZOOM);
-    /* Draw + icon */
-    gui_draw_line(btn_cx - 2, btn_cy, btn_cx + 2, btn_cy, 0x14532D);
-    gui_draw_line(btn_cx, btn_cy - 2, btn_cx, btn_cy + 2, 0x14532D);
-
-    /* Window title - centered with modern font styling */
-    int title_len = 0;
-    for (const char *p = win->title; *p; p++)
-      title_len++;
-    int title_x = x + (w - title_len * 8) / 2;
-    int title_y = y + BORDER_WIDTH + 7;
-    uint32_t title_glow_rgb = theme->title_glow & 0x00FFFFFF;
-    uint32_t title_glow_soft = gui_argb(win->focused ? 0x20 : 0x14, title_glow_rgb);
-    uint32_t title_glow_core = gui_argb(win->focused ? 0x2E : 0x1E, title_glow_rgb);
-    uint32_t title_fg = gui_contrast_title_color(title_glow_rgb);
-    gui_draw_string(title_x - 2, title_y, win->title, title_glow_soft, 0x00000000);
-    gui_draw_string(title_x + 2, title_y, win->title, title_glow_soft, 0x00000000);
-    gui_draw_string(title_x, title_y - 2, win->title, title_glow_soft, 0x00000000);
-    gui_draw_string(title_x, title_y + 2, win->title, title_glow_soft, 0x00000000);
-    gui_draw_string(title_x - 1, title_y - 1, win->title, title_glow_core, 0x00000000);
-    gui_draw_string(title_x + 1, title_y - 1, win->title, title_glow_core, 0x00000000);
-    gui_draw_string(title_x - 1, title_y + 1, win->title, title_glow_core, 0x00000000);
-    gui_draw_string(title_x + 1, title_y + 1, win->title, title_glow_core, 0x00000000);
-    gui_draw_string(title_x, title_y, win->title, title_fg, 0x00000000);
   }
 
   /* Draw content area */
@@ -13835,10 +13787,10 @@ static void draw_window_internal(struct window *win) {
       const char *row2 = st->context_menu_target_on_item ? "Rename" : "New File";
       const char *row3 = st->context_menu_target_on_item ? "Delete" : NULL;
 
-      if (menu_x + menu_w > win->x + win->width - BORDER_WIDTH)
-        menu_x = win->x + win->width - BORDER_WIDTH - menu_w;
-      if (menu_y + menu_h > win->y + win->height - BORDER_WIDTH)
-        menu_y = win->y + win->height - BORDER_WIDTH - menu_h;
+      if (menu_x + menu_w > content_x + content_w)
+        menu_x = content_x + content_w - menu_w;
+      if (menu_y + menu_h > content_y + content_h)
+        menu_y = content_y + content_h - menu_h;
       if (menu_x < content_x + 4)
         menu_x = content_x + 4;
       if (menu_y < content_y + 4)
@@ -19960,9 +19912,6 @@ static void window_begin_resize(struct window *win, int edge, int x, int y) {
   resize_start_win_y = win->y;
 }
 
-#define RESIZE_BORDER                                                          \
-  12 /* Pixel width of resize grab area - larger for easier grabbing */
-
 static int gui_resize_edge_from_skin_hit(SkinHit hit) {
   switch (hit) {
   case SKIN_HIT_RESIZE_RIGHT:
@@ -20163,8 +20112,11 @@ static void window_update_drag(struct window *win, int x, int y) {
     drag_offset_x = win->width / 2;
     if (drag_offset_x < 40)
       drag_offset_x = 40;
-    if (drag_offset_y > TITLEBAR_HEIGHT)
-      drag_offset_y = TITLEBAR_HEIGHT;
+    {
+      int drag_limit = window_titlebar_drag_limit(win);
+      if (drag_offset_y > drag_limit)
+        drag_offset_y = drag_limit;
+    }
     win->x = x - drag_offset_x;
     win->y = y - drag_offset_y;
     chrome_drag_state.active = false;
@@ -20181,10 +20133,13 @@ static void window_update_drag(struct window *win, int x, int y) {
 
   if (win->y < MENU_BAR_HEIGHT)
     win->y = MENU_BAR_HEIGHT;
-  if (win->y > (int)primary_display.height - dock_reserved_height() -
-                   TITLEBAR_HEIGHT - WINDOW_BOTTOM_CLEARANCE)
-    win->y = primary_display.height - dock_reserved_height() - TITLEBAR_HEIGHT -
-             WINDOW_BOTTOM_CLEARANCE;
+  {
+    int drag_limit = window_titlebar_drag_limit(win);
+    if (win->y > (int)primary_display.height - dock_reserved_height() -
+                     drag_limit - WINDOW_BOTTOM_CLEARANCE)
+      win->y = primary_display.height - dock_reserved_height() - drag_limit -
+               WINDOW_BOTTOM_CLEARANCE;
+  }
   if (win->x > (int)primary_display.width - 100)
     win->x = primary_display.width - 100;
   if (win->x < 0)
@@ -20244,10 +20199,9 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
       desktop_hide_context_menu();
 
     if (left_click && startup_window) {
-      int content_x = startup_window->x + BORDER_WIDTH;
-      int content_y = startup_window->y + BORDER_WIDTH;
-      int content_w = startup_window->width - BORDER_WIDTH * 2;
-      int content_h = startup_window->height - BORDER_WIDTH * 2;
+      int content_x = 0, content_y = 0, content_w = 0, content_h = 0;
+      gui_get_window_content_rect(startup_window, &content_x, &content_y,
+                                  &content_w, &content_h);
 
       gui_focus_window(startup_window);
       if (startup_setup_account_active()) {
@@ -20683,83 +20637,18 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
           window_begin_drag(win, x, y, hit);
           return;
         }
-      } else {
-        {
-          int at_left = (x >= draw_x && x < draw_x + RESIZE_BORDER);
-          int at_right = (x >= draw_x + draw_w - RESIZE_BORDER &&
-                          x < draw_x + draw_w);
-          int at_top = (y >= draw_y && y < draw_y + RESIZE_BORDER);
-          int at_bottom = (y >= draw_y + draw_h - RESIZE_BORDER &&
-                           y < draw_y + draw_h);
-
-          int edge = RESIZE_NONE;
-          if (at_bottom && at_right)
-            edge = RESIZE_BOTTOM_RIGHT;
-          else if (at_bottom && at_left)
-            edge = RESIZE_BOTTOM_LEFT;
-          else if (at_top && at_right)
-            edge = RESIZE_TOP_RIGHT;
-          else if (at_top && at_left)
-            edge = RESIZE_TOP_LEFT;
-          else if (at_right)
-            edge = RESIZE_RIGHT;
-          else if (at_bottom)
-            edge = RESIZE_BOTTOM;
-          else if (at_left)
-            edge = RESIZE_LEFT;
-          else if (at_top && !win->has_titlebar)
-            edge = RESIZE_TOP;
-
-          if (edge != RESIZE_NONE) {
-            window_begin_resize(win, edge, x, y);
-            return;
-          }
-        }
-
-        if (win->has_titlebar) {
-          int btn_cy = draw_y + BORDER_WIDTH + TITLEBAR_HEIGHT / 2;
-          int btn_r = 8;
-          int close_cx = draw_x + BORDER_WIDTH + 18;
-          if ((x - close_cx) * (x - close_cx) + (y - btn_cy) * (y - btn_cy) <=
-              btn_r * btn_r) {
-            if (!window_close_disabled(win))
-              gui_destroy_window(win);
-            return;
-          }
-
-          int min_cx = close_cx + 20;
-          if ((x - min_cx) * (x - min_cx) + (y - btn_cy) * (y - btn_cy) <=
-              btn_r * btn_r) {
-            if (!window_minimize_disabled(win)) {
-              window_minimize(win);
-            }
-            return;
-          }
-
-          int zoom_cx = min_cx + 20;
-          if ((x - zoom_cx) * (x - zoom_cx) + (y - btn_cy) * (y - btn_cy) <=
-              btn_r * btn_r) {
-            window_toggle_maximize(win);
-            return;
-          }
-
-          if (y >= win->y + BORDER_WIDTH &&
-              y < win->y + BORDER_WIDTH + TITLEBAR_HEIGHT &&
-              x >= win->x + BORDER_WIDTH + 70) {
-            window_begin_drag(win, x, y, SKIN_HIT_TITLEBAR);
-            return;
-          }
-        }
       }
 
       /* Handle clicks inside Calculator window */
       if (win->title[0] == 'C' && win->title[1] == 'a' &&
           win->title[2] == 'l') {
         /* Calculate content area */
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
-        int content_w = win->width - BORDER_WIDTH * 2;
-        int content_h = win->height - BORDER_WIDTH * 2 - TITLEBAR_HEIGHT;
+        int content_x = 0;
+        int content_y = 0;
+        int content_w = 0;
+        int content_h = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, &content_w,
+                                    &content_h);
 
         /* Button layout - 5x4 grid matching render */
         static const char btns[5][4] = {
@@ -20804,8 +20693,9 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
       /* Handle clicks inside Background Settings window */
       if (win->title[0] == 'B' && win->title[1] == 'a' &&
           win->title[2] == 'c') {
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
+        int content_x = 0;
+        int content_y = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, NULL, NULL);
 
         /* Wallpaper grid layout (matching render) */
         int header_h = 42;
@@ -20840,10 +20730,13 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
       /* Handle clicks inside Settings window */
       if (win->title[0] == 'S' && win->title[1] == 'e' &&
           win->title[2] == 't') {
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
+        int content_x = 0;
+        int content_y = 0;
+        int content_w = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, &content_w,
+                                    NULL);
         int sidebar_w = 132;
-        int panel_w = win->width - BORDER_WIDTH * 2 - sidebar_w - 3;
+        int panel_w = content_w - sidebar_w - 3;
         int panel_x = content_x + sidebar_w + 3;
         int panel_y = content_y + 42;
         int toolbar_y = content_y + 8;
@@ -21494,9 +21387,11 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
       /* Handle clicks inside App Store window */
       if (win->title[0] == 'A' && win->title[1] == 'p' &&
           win->title[2] == 'p' && win->title[3] == ' ') {
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
-        int content_w = win->width - BORDER_WIDTH * 2;
+        int content_x = 0;
+        int content_y = 0;
+        int content_w = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, &content_w,
+                                    NULL);
         int y_row = content_y + 12 + 18 + 24;
 
         for (int i = 0; i < app_catalog_count; i++) {
@@ -21524,10 +21419,12 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
 
       if (win->title[0] == 'I' && win->title[1] == 'n' &&
           win->title[2] == 's' && win->title[3] == 't') {
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
-        int content_w = win->width - BORDER_WIDTH * 2;
-        int content_h = win->height - BORDER_WIDTH * 2 - TITLEBAR_HEIGHT;
+        int content_x = 0;
+        int content_y = 0;
+        int content_w = 0;
+        int content_h = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, &content_w,
+                                    &content_h);
         int panel_x = content_x + 20;
         int panel_y = content_y + 18;
         int panel_w = content_w - 40;
@@ -21620,8 +21517,9 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
 
       if (win->title[0] == 'P' && win->title[1] == 'a' &&
           win->title[2] == 'r' && win->title[3] == 't') {
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
+        int content_x = 0;
+        int content_y = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, NULL, NULL);
         int selected_disk_index = installer_selected_disk_index();
         extern int storage_create_partition(int disk_index,
                                             storage_partition_kind_t kind,
@@ -21817,10 +21715,12 @@ void gui_handle_mouse_event(int x, int y, int buttons) {
 
       if (win->title[0] == 'D' && win->title[1] == 'i' &&
           win->title[2] == 's' && win->title[3] == 'k') {
-        int content_x = win->x + BORDER_WIDTH;
-        int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
-        int content_w = win->width - BORDER_WIDTH * 2;
-        int content_h = win->height - BORDER_WIDTH * 2 - TITLEBAR_HEIGHT;
+        int content_x = 0;
+        int content_y = 0;
+        int content_w = 0;
+        int content_h = 0;
+        gui_get_window_content_rect(win, &content_x, &content_y, &content_w,
+                                    &content_h);
         int list_x = content_x + 18;
         int list_y = content_y + 78;
         int list_w = (content_w - 54) / 2;
@@ -22243,23 +22143,26 @@ struct window *gui_create_file_manager_path(int x, int y, const char *path) {
 }
 
 static void notepad_on_mouse(struct window *win, int x, int y, int buttons) {
-  int content_x = BORDER_WIDTH;
-  int content_y = BORDER_WIDTH + TITLEBAR_HEIGHT;
+  int content_x = 0;
+  int content_y = 0;
+  int content_w = 0;
+  int content_h = 0;
   int toolbar_h = 30;
   int status_h = 22;
+  gui_get_window_content_rect_local(win, &content_x, &content_y, &content_w,
+                                    &content_h);
   int text_area_y = content_y + toolbar_h + 2;
-  int text_area_h = win->height - BORDER_WIDTH * 2 - TITLEBAR_HEIGHT - toolbar_h -
-                    status_h - 4;
+  int text_area_h = content_h - toolbar_h - status_h - 4;
   int gutter_w = 40;
   int text_x = content_x + 8 + gutter_w;
-  int max_x = content_x + win->width - BORDER_WIDTH * 2 - 12;
+  int max_x = content_x + content_w - 12;
   int max_y = text_area_y + text_area_h - 8;
 
   if (notepad_dialog_mode != NOTEPAD_DIALOG_NONE) {
     struct fm_item items[FM_MAX_ITEMS];
     int item_count = fm_collect_items(notepad_dialog_dir, items, FM_MAX_ITEMS);
-    int panel_w = win->width - BORDER_WIDTH * 2 - 80;
-    int panel_h = win->height - BORDER_WIDTH * 2 - TITLEBAR_HEIGHT - 70;
+    int panel_w = content_w - 80;
+    int panel_h = content_h - 70;
     int panel_x = content_x + 40;
     int panel_y = content_y + 26;
     int list_x = panel_x + 16;
@@ -22352,7 +22255,7 @@ static void notepad_on_mouse(struct window *win, int x, int y, int buttons) {
     }
   }
 
-  if (x >= content_x + 5 && x < content_x + win->width - BORDER_WIDTH * 2 - 4 &&
+  if (x >= content_x + 5 && x < content_x + content_w - 4 &&
       y >= text_area_y && y < text_area_y + text_area_h) {
     int old_cursor = notepad_cursor;
     int old_selection_anchor = notepad_selection_anchor;
@@ -22397,9 +22300,11 @@ void gui_open_notepad(const char *path) {
 static void rename_on_mouse(struct window *win, int x, int y, int buttons) {
   (void)buttons;
   /* Check Save Button */
-  int content_y = BORDER_WIDTH + TITLEBAR_HEIGHT;
+  int content_x = 0;
+  int content_y = 0;
+  gui_get_window_content_rect_local(win, &content_x, &content_y, NULL, NULL);
   if (y >= content_y && y < content_y + 30) {
-    if (x >= BORDER_WIDTH + 10 && x < BORDER_WIDTH + 70) {
+    if (x >= content_x + 10 && x < content_x + 70) {
       /* Save (Rename) clicked */
       if (rename_path[0] && rename_text[0]) {
         /* Construct new full path */
@@ -22628,10 +22533,12 @@ static void image_viewer_on_draw(struct window *win) {
   int screen_h = primary_display.height;
 
   /* Content area (below titlebar, inside borders) */
-  int content_x = win->x + BORDER_WIDTH;
-  int content_y = win->y + BORDER_WIDTH + TITLEBAR_HEIGHT;
-  int content_w = win->width - 2 * BORDER_WIDTH;
-  int content_h = win->height - 2 * BORDER_WIDTH - TITLEBAR_HEIGHT;
+  int content_x = 0;
+  int content_y = 0;
+  int content_w = 0;
+  int content_h = 0;
+  gui_get_window_content_rect(win, &content_x, &content_y, &content_w,
+                              &content_h);
 
   /* In fullscreen mode, use entire screen */
   int draw_x = g_imgview.fullscreen ? 0 : content_x;
@@ -22897,10 +22804,12 @@ static void image_viewer_on_mouse(struct window *win, int x, int y,
   /* x,y are already window-relative (0,0 = window top-left) */
 
   /* Content area within window (relative coords) */
-  int content_x = BORDER_WIDTH;
-  int content_y = BORDER_WIDTH + TITLEBAR_HEIGHT;
-  int content_w = win->width - 2 * BORDER_WIDTH;
-  int content_h = win->height - 2 * BORDER_WIDTH - TITLEBAR_HEIGHT;
+  int content_x = 0;
+  int content_y = 0;
+  int content_w = 0;
+  int content_h = 0;
+  gui_get_window_content_rect_local(win, &content_x, &content_y, &content_w,
+                                    &content_h);
 
   /* Toolbar position within content area */
   int tb_w = 520;
