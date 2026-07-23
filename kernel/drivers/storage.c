@@ -391,14 +391,27 @@ const char *storage_partition_kind_name(storage_partition_kind_t kind) {
 }
 
 static uint32_t storage_partition_used_mib(int disk_index) {
-  uint32_t total = 0;
+  uint64_t total = 0;
   if (disk_index < 0 || disk_index >= storage_disk_count)
     return 0;
   for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
     if (storage_partitions[disk_index][i].present)
       total += storage_partitions[disk_index][i].size_mib;
   }
-  return total;
+  return total > UINT32_MAX ? UINT32_MAX : (uint32_t)total;
+}
+
+static int storage_partition_space_available(int disk_index,
+                                             uint32_t used_mib,
+                                             uint32_t request_mib) {
+  uint32_t capacity;
+
+  if (disk_index < 0 || disk_index >= storage_disk_count || request_mib == 0)
+    return 0;
+  capacity = storage_disks[disk_index].capacity_mib;
+  if (used_mib > capacity)
+    return 0;
+  return request_mib <= capacity - used_mib;
 }
 
 static int storage_find_free_partition_slot(int disk_index) {
@@ -440,8 +453,12 @@ static void storage_default_partition_label(char *buf, int max,
   }
 }
 
-static uint32_t storage_mib_to_sectors(uint32_t size_mib) {
-  return size_mib * 2048U;
+static int storage_mib_to_sectors_checked(uint32_t size_mib,
+                                          uint32_t *sectors) {
+  if (!sectors || size_mib == 0 || size_mib > UINT32_MAX / 2048U)
+    return -1;
+  *sectors = size_mib * 2048U;
+  return 0;
 }
 
 static uint8_t storage_partition_mbr_type(storage_partition_kind_t kind) {
@@ -2109,23 +2126,33 @@ int storage_write_disk_image_file(int disk_index, const char *path) {
   return 0;
 }
 
-static void storage_recompute_partition_layout(int disk_index) {
-  uint32_t next_lba = 2048;
+static int storage_recompute_partition_layout(int disk_index) {
+  uint64_t next_lba = 2048;
 
   if (disk_index < 0 || disk_index >= storage_disk_count)
-    return;
+    return -1;
 
   for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
+    uint32_t sectors = 0;
+
     if (!storage_partitions[disk_index][i].present) {
       storage_partitions[disk_index][i].start_lba = 0;
       storage_partitions[disk_index][i].sector_count = 0;
       continue;
     }
-    storage_partitions[disk_index][i].start_lba = next_lba;
-    storage_partitions[disk_index][i].sector_count =
-        storage_mib_to_sectors(storage_partitions[disk_index][i].size_mib);
-    next_lba += storage_partitions[disk_index][i].sector_count;
+    if (next_lba > UINT32_MAX ||
+        storage_mib_to_sectors_checked(
+            storage_partitions[disk_index][i].size_mib, &sectors) != 0 ||
+        (uint64_t)sectors > UINT32_MAX - next_lba) {
+      storage_partitions[disk_index][i].start_lba = 0;
+      storage_partitions[disk_index][i].sector_count = 0;
+      return -1;
+    }
+    storage_partitions[disk_index][i].start_lba = (uint32_t)next_lba;
+    storage_partitions[disk_index][i].sector_count = sectors;
+    next_lba += sectors;
   }
+  return 0;
 }
 
 static int storage_read_sectors(int disk_index, uint32_t lba, uint32_t count,
@@ -2359,7 +2386,8 @@ static int storage_commit_gpt_partitions(int disk_index) {
   if (disk_sectors <= (uint64_t)(STORAGE_GPT_ENTRY_SECTOR_COUNT * 2 + 3))
     return -1;
 
-  storage_recompute_partition_layout(disk_index);
+  if (storage_recompute_partition_layout(disk_index) != 0)
+    return -1;
   last_usable_lba = disk_sectors - (uint64_t)STORAGE_GPT_ENTRY_SECTOR_COUNT - 2;
 
   for (int i = 0; i < STORAGE_MAX_PARTITIONS; i++) {
@@ -2511,7 +2539,8 @@ static int storage_commit_mbr_partitions(int disk_index) {
   if (present_count > 4)
     return -1;
 
-  storage_recompute_partition_layout(disk_index);
+  if (storage_recompute_partition_layout(disk_index) != 0)
+    return -1;
   if (storage_disk_read_sector(disk_index, 0, sector) != 0) {
     for (int i = 0; i < STORAGE_SECTOR_SIZE; i++)
       sector[i] = 0;
@@ -3623,8 +3652,8 @@ int storage_create_partition(int disk_index, storage_partition_kind_t kind,
     return -1;
   if (size_mib == 0)
     return -1;
-  if (storage_partition_used_mib(disk_index) + size_mib >
-      storage_disks[disk_index].capacity_mib)
+  if (!storage_partition_space_available(
+          disk_index, storage_partition_used_mib(disk_index), size_mib))
     return -1;
 
   slot = storage_find_free_partition_slot(disk_index);
@@ -3686,7 +3715,8 @@ int storage_update_partition(int disk_index, int partition_index,
     return -1;
 
   used_without_part = storage_partition_used_mib(disk_index) - part->size_mib;
-  if (used_without_part + size_mib > storage_disks[disk_index].capacity_mib)
+  if (!storage_partition_space_available(disk_index, used_without_part,
+                                         size_mib))
     return -1;
 
   part->kind = kind;
