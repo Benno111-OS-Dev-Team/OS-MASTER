@@ -196,6 +196,7 @@ typedef struct {
   char *name;
   uint8_t *data;
   size_t size;
+  size_t local_offset;
   uint32_t crc32;
 } media_zip_entry_t;
 
@@ -220,6 +221,60 @@ typedef struct {
   const uint8_t *data;
   size_t size;
 } media_zip_view_t;
+
+static int media_size_add_overflow(size_t a, size_t b, size_t *out) {
+  if (a > (size_t)-1 - b)
+    return 1;
+  *out = a + b;
+  return 0;
+}
+
+static int media_size_mul_overflow(size_t a, size_t b, size_t *out) {
+  if (a != 0 && b > (size_t)-1 / a)
+    return 1;
+  *out = a * b;
+  return 0;
+}
+
+static int media_zip_fits_u16(size_t value) { return value <= 0xFFFFu; }
+
+static int media_zip_fits_u32(size_t value) {
+  return value <= 0xFFFFFFFFu;
+}
+
+static int media_zip_safe_name(const char *name) {
+  size_t comp_start = 0;
+  size_t i = 0;
+  int saw_component = 0;
+
+  if (!name)
+    return 0;
+  while (name[i] == '/' || name[i] == '\\')
+    i++;
+  comp_start = i;
+  for (;; i++) {
+    char c = name[i];
+    if (c == '\\')
+      c = '/';
+    if (c == '/' || c == '\0') {
+      size_t comp_len = i - comp_start;
+      if (comp_len == 0) {
+        if (c == '\0')
+          return saw_component;
+        return 0;
+      }
+      if (comp_len == 1 && name[comp_start] == '.')
+        return 0;
+      if (comp_len == 2 && name[comp_start] == '.' &&
+          name[comp_start + 1] == '.')
+        return 0;
+      saw_component = 1;
+      if (c == '\0')
+        return 1;
+      comp_start = i + 1;
+    }
+  }
+}
 
 static uint32_t media_zip_crc32(const uint8_t *data, size_t size) {
   uint32_t crc = 0xFFFFFFFFu;
@@ -259,8 +314,10 @@ static int media_zip_name_copy(char *dst, size_t dst_size, const char *src) {
 
   if (!dst || dst_size == 0 || !src)
     return -EINVAL;
+  if (!media_zip_safe_name(src))
+    return -EINVAL;
 
-  while (*src == '/')
+  while (*src == '/' || *src == '\\')
     src++;
 
   for (; src[idx] && idx < dst_size - 1; idx++) {
@@ -281,22 +338,28 @@ static int media_zip_path_join(char *dst, size_t dst_size, const char *base,
 
   if (!dst || dst_size == 0 || !name)
     return -EINVAL;
+  if (!media_zip_safe_name(name))
+    return -EINVAL;
 
   if (base && base[0]) {
     while (base[base_len] && idx < dst_size - 1) {
       dst[idx++] = base[base_len++];
     }
+    if (base[base_len])
+      return -ENAMETOOLONG;
     if (idx > 0 && dst[idx - 1] != '/' && idx < dst_size - 1)
       dst[idx++] = '/';
   }
 
-  while (name[name_idx] == '/')
+  while (name[name_idx] == '/' || name[name_idx] == '\\')
     name_idx++;
   while (name[name_idx] && idx < dst_size - 1) {
     dst[idx++] = (name[name_idx] == '\\') ? '/' : name[name_idx];
     name_idx++;
   }
   dst[idx] = '\0';
+  if (name[name_idx])
+    return -ENAMETOOLONG;
   return (idx == 0) ? -EINVAL : 0;
 }
 
@@ -327,11 +390,20 @@ static int media_zip_builder_reserve(media_zip_builder_t *builder,
     return 0;
 
   new_capacity = builder->capacity ? builder->capacity * 2 : 8;
-  while (new_capacity < min_capacity)
+  if (builder->capacity && new_capacity < builder->capacity)
+    return -ENOMEM;
+  while (new_capacity < min_capacity) {
+    if (new_capacity > (size_t)-1 / 2)
+      return -ENOMEM;
     new_capacity *= 2;
+  }
 
-  new_entries = (media_zip_entry_t *)kmalloc(
-      new_capacity * sizeof(media_zip_entry_t), GFP_KERNEL);
+  size_t alloc_size;
+  if (media_size_mul_overflow(new_capacity, sizeof(media_zip_entry_t),
+                              &alloc_size))
+    return -ENOMEM;
+
+  new_entries = (media_zip_entry_t *)kmalloc(alloc_size, GFP_KERNEL);
   if (!new_entries)
     return -ENOMEM;
 
@@ -368,6 +440,8 @@ static int media_zip_builder_add_file(media_zip_builder_t *builder,
 
   if (!builder || !name || !name[0] || (!data && size > 0))
     return -EINVAL;
+  if (builder->count == (size_t)-1)
+    return -ENOMEM;
   if (media_zip_builder_reserve(builder, builder->count + 1) != 0)
     return -ENOMEM;
 
@@ -389,6 +463,7 @@ static int media_zip_builder_add_file(media_zip_builder_t *builder,
     entry->data = NULL;
   }
   entry->size = size;
+  entry->local_offset = 0;
   entry->crc32 = media_zip_crc32(data ? data : (const uint8_t *)"", size);
   builder->count++;
   return 0;
@@ -402,9 +477,11 @@ static int media_zip_pack_tree_callback(void *ctx, const char *name, int len,
                                         loff_t offset, ino_t ino,
                                         unsigned type) {
   media_zip_walk_ctx_t *walk = (media_zip_walk_ctx_t *)ctx;
+  char entry_name[256];
   char child_src[256];
   char child_rel[256];
   struct file *dir;
+  int i;
 
   (void)offset;
   (void)ino;
@@ -412,17 +489,24 @@ static int media_zip_pack_tree_callback(void *ctx, const char *name, int len,
   if (!walk || walk->error || !walk->builder || !walk->src_root || !name ||
       len <= 0)
     return 0;
+  if (len >= (int)sizeof(entry_name)) {
+    walk->error = -ENAMETOOLONG;
+    return 0;
+  }
   if ((len == 1 && name[0] == '.') ||
       (len == 2 && name[0] == '.' && name[1] == '.'))
     return 0;
+  for (i = 0; i < len; i++)
+    entry_name[i] = name[i];
+  entry_name[len] = '\0';
 
   if (media_zip_path_join(child_src, sizeof(child_src), walk->src_root,
-                          name) != 0) {
+                          entry_name) != 0) {
     walk->error = -ENAMETOOLONG;
     return 0;
   }
   if (media_zip_path_join(child_rel, sizeof(child_rel), walk->rel_root,
-                          name) != 0) {
+                          entry_name) != 0) {
     walk->error = -ENAMETOOLONG;
     return 0;
   }
@@ -498,13 +582,31 @@ int media_zip_pack_tree(const char *src_root, uint8_t **out_data,
     return -EIO;
   }
 
+  if (!media_zip_fits_u16(builder.count)) {
+    media_zip_builder_free(&builder);
+    return -EIO;
+  }
+
   for (size_t i = 0; i < builder.count; i++) {
     size_t name_len = 0;
+    size_t local_size;
+    size_t central_size;
     media_zip_entry_t *entry = &builder.entries[i];
     while (entry->name[name_len])
       name_len++;
-    total_size += 30 + name_len + entry->size;
-    total_size += 46 + name_len;
+    if (name_len == 0 || !media_zip_fits_u16(name_len) ||
+        !media_zip_fits_u32(entry->size)) {
+      media_zip_builder_free(&builder);
+      return -EIO;
+    }
+    if (media_size_add_overflow(30, name_len, &local_size) ||
+        media_size_add_overflow(local_size, entry->size, &local_size) ||
+        media_size_add_overflow(46, name_len, &central_size) ||
+        media_size_add_overflow(total_size, local_size, &total_size) ||
+        media_size_add_overflow(total_size, central_size, &total_size)) {
+      media_zip_builder_free(&builder);
+      return -EIO;
+    }
   }
 
   archive = (uint8_t *)kmalloc(total_size, GFP_KERNEL);
@@ -516,9 +618,14 @@ int media_zip_pack_tree(const char *src_root, uint8_t **out_data,
   for (size_t i = 0; i < builder.count; i++) {
     media_zip_entry_t *entry = &builder.entries[i];
     size_t name_len = 0;
-    size_t local_header_offset = offset;
     while (entry->name[name_len])
       name_len++;
+    entry->local_offset = offset;
+    if (!media_zip_fits_u32(entry->local_offset)) {
+      media_zip_builder_free(&builder);
+      kfree(archive);
+      return -EIO;
+    }
 
     media_zip_write_u32(archive, &offset, MEDIA_ZIP_LOCAL_HEADER_SIG);
     media_zip_write_u16(archive, &offset, 20);
@@ -535,29 +642,20 @@ int media_zip_pack_tree(const char *src_root, uint8_t **out_data,
       archive[offset++] = (uint8_t)entry->name[j];
     for (size_t j = 0; j < entry->size; j++)
       archive[offset++] = entry->data[j];
-
-    (void)local_header_offset;
   }
 
   central_dir_offset = offset;
+  if (!media_zip_fits_u32(central_dir_offset)) {
+    media_zip_builder_free(&builder);
+    kfree(archive);
+    return -EIO;
+  }
   for (size_t i = 0; i < builder.count; i++) {
     media_zip_entry_t *entry = &builder.entries[i];
     size_t name_len = 0;
-    size_t local_header_offset = 0;
-    size_t data_offset = 0;
 
     while (entry->name[name_len])
       name_len++;
-
-    data_offset = 0;
-    for (size_t j = 0; j < i; j++) {
-      media_zip_entry_t *prev = &builder.entries[j];
-      size_t prev_name_len = 0;
-      while (prev->name[prev_name_len])
-        prev_name_len++;
-      data_offset += 30 + prev_name_len + prev->size;
-    }
-    local_header_offset = data_offset;
 
     media_zip_write_u32(archive, &offset, MEDIA_ZIP_CENTRAL_HEADER_SIG);
     media_zip_write_u16(archive, &offset, 20);
@@ -575,12 +673,18 @@ int media_zip_pack_tree(const char *src_root, uint8_t **out_data,
     media_zip_write_u16(archive, &offset, 0);
     media_zip_write_u16(archive, &offset, 0);
     media_zip_write_u32(archive, &offset, 0);
-    media_zip_write_u32(archive, &offset, (uint32_t)local_header_offset);
+    media_zip_write_u32(archive, &offset, (uint32_t)entry->local_offset);
     for (size_t j = 0; j < name_len; j++)
       archive[offset++] = (uint8_t)entry->name[j];
   }
 
   central_dir_size = offset - central_dir_offset;
+  if (!media_zip_fits_u32(central_dir_size) ||
+      !media_zip_fits_u32(central_dir_offset)) {
+    media_zip_builder_free(&builder);
+    kfree(archive);
+    return -EIO;
+  }
   media_zip_write_u32(archive, &offset, MEDIA_ZIP_END_SIG);
   media_zip_write_u16(archive, &offset, 0);
   media_zip_write_u16(archive, &offset, 0);
@@ -603,12 +707,15 @@ static int media_zip_foreach(const uint8_t *data, size_t size,
   if (!data || size < 30 || !cb)
     return -EINVAL;
 
-  while (offset + 30 <= size) {
+  while (size - offset >= 30) {
     uint32_t sig;
     uint16_t method;
     uint16_t name_len;
     uint16_t extra_len;
     uint32_t comp_size;
+    size_t name_offset;
+    size_t data_offset;
+    size_t record_size;
     char name[256];
 
     sig = (uint32_t)data[offset] |
@@ -628,20 +735,28 @@ static int media_zip_foreach(const uint8_t *data, size_t size,
 
     if (method != 0)
       return -EIO;
-    if (offset + 30 + name_len + extra_len + comp_size > size)
+    if (media_size_add_overflow(offset, 30, &name_offset) ||
+        media_size_add_overflow(name_offset, name_len, &data_offset) ||
+        media_size_add_overflow(data_offset, extra_len, &data_offset) ||
+        media_size_add_overflow(30, name_len, &record_size) ||
+        media_size_add_overflow(record_size, extra_len, &record_size) ||
+        media_size_add_overflow(record_size, comp_size, &record_size) ||
+        record_size > size - offset)
       return -EIO;
     if (name_len >= sizeof(name))
       return -ENAMETOOLONG;
 
     for (size_t i = 0; i < name_len; i++)
-      name[i] = (char)data[offset + 30 + i];
+      name[i] = (char)data[name_offset + i];
     name[name_len] = '\0';
-    if (cb(ctx, name, data + offset + 30 + name_len + extra_len, comp_size,
+    if (!media_zip_safe_name(name))
+      return -EIO;
+    if (cb(ctx, name, data + data_offset, comp_size,
            name_len > 0 && name[name_len - 1] == '/') != 0) {
       return -EIO;
     }
 
-    offset += 30 + name_len + extra_len + comp_size;
+    offset += record_size;
   }
 
   return 0;
@@ -887,6 +1002,10 @@ static int media_zip_file_foreach(const char *archive_path,
       break;
     }
     name[name_len] = '\0';
+    if (!media_zip_safe_name(name)) {
+      ret = -EIO;
+      break;
+    }
     if (media_zip_stream_skip(archive, extra_len) != 0) {
       ret = -EIO;
       break;
@@ -1162,11 +1281,18 @@ int media_boot_image_pack_tree(const char *src_root, uint8_t **out_data,
 
     while (entry->name[name_len])
       name_len++;
-    if (name_len == 0 || name_len > 0xFFFFu) {
+    if (name_len == 0 || !media_zip_fits_u16(name_len)) {
       media_zip_builder_free(&builder);
       return -ENAMETOOLONG;
     }
-    total_size += MEDIA_BOOT_IMAGE_ENTRY_HEADER_SIZE + name_len + entry->size;
+    size_t entry_size;
+    if (media_size_add_overflow(MEDIA_BOOT_IMAGE_ENTRY_HEADER_SIZE, name_len,
+                                &entry_size) ||
+        media_size_add_overflow(entry_size, entry->size, &entry_size) ||
+        media_size_add_overflow(total_size, entry_size, &total_size)) {
+      media_zip_builder_free(&builder);
+      return -EIO;
+    }
   }
 
   image = (uint8_t *)kmalloc(total_size, GFP_KERNEL);
