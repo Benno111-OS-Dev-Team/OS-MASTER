@@ -7,6 +7,7 @@
 #include "../include/fs/vfs_compat.h"
 #include "../include/fs/vfs.h"
 #include "../include/printk.h"
+#include "../include/string.h"
 #include "mm/kmalloc.h"
 
 /* Current working directory */
@@ -43,16 +44,6 @@ static void free_node(vfs_node_t *node) {
   }
 }
 
-/* Simple string copy */
-static void strcpy_safe(char *dst, const char *src, size_t max) {
-  size_t i = 0;
-  while (src[i] && i < max - 1) {
-    dst[i] = src[i];
-    i++;
-  }
-  dst[i] = '\0';
-}
-
 typedef struct vfs_readdir_compat_ctx {
   int target_index;
   int current_index;
@@ -65,7 +56,6 @@ typedef struct vfs_readdir_compat_ctx {
 static int vfs_readdir_compat_fill(void *ctx, const char *name, int len,
                                    loff_t offset, ino_t ino, unsigned type) {
   vfs_readdir_compat_ctx_t *state = (vfs_readdir_compat_ctx_t *)ctx;
-  int copy_len;
 
   (void)offset;
   (void)ino;
@@ -77,10 +67,11 @@ static int vfs_readdir_compat_fill(void *ctx, const char *name, int len,
     return 0;
 
   if (state->current_index == state->target_index) {
-    copy_len = (len < (int)state->name_size - 1) ? len
-                                                 : (int)state->name_size - 1;
     if (state->name && state->name_size > 0) {
-      for (int i = 0; i < copy_len; i++)
+      size_t copy_len = (size_t)len;
+      if (copy_len >= state->name_size)
+        copy_len = state->name_size - 1;
+      for (size_t i = 0; i < copy_len; i++)
         state->name[i] = name[i];
       state->name[copy_len] = '\0';
     }
@@ -101,7 +92,7 @@ vfs_node_t *vfs_lookup(const char *path) {
   if (!node)
     return NULL;
 
-  strcpy_safe(node->name, path, sizeof(node->name));
+  strlcpy(node->name, path, sizeof(node->name));
   node->size = 0;
   node->is_dir = 0;
   node->internal = NULL;
@@ -201,7 +192,7 @@ vfs_node_t *vfs_create_compat(const char *path) {
   vfs_node_t *node = alloc_node();
   if (!node)
     return NULL;
-  strcpy_safe(node->name, path, sizeof(node->name));
+  strlcpy(node->name, path, sizeof(node->name));
   node->size = 0;
   node->is_dir = 0;
   node->internal = NULL;
@@ -219,7 +210,7 @@ vfs_node_t *vfs_mkdir_compat(const char *path) {
   vfs_node_t *node = alloc_node();
   if (!node)
     return NULL;
-  strcpy_safe(node->name, path, sizeof(node->name));
+  strlcpy(node->name, path, sizeof(node->name));
   node->size = 0;
   node->is_dir = 1;
   node->internal = NULL;
@@ -281,12 +272,16 @@ int vfs_readdir_compat(vfs_node_t *dir, int index, char *name, size_t name_size,
 
 /* Set CWD */
 int vfs_set_cwd(const char *path) {
-  strcpy_safe(cwd, path, sizeof(cwd));
+  if (!path || path[0] == '\0')
+    return -1;
+  strlcpy(cwd, path, sizeof(cwd));
   return 0;
 }
 
 /* Get CWD */
 int vfs_get_cwd_path(char *buf, size_t size) {
-  strcpy_safe(buf, cwd, size);
+  if (!buf || size == 0)
+    return -1;
+  strlcpy(buf, cwd, size);
   return 0;
 }
