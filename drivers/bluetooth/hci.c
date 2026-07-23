@@ -107,6 +107,11 @@ static struct bt_adapter adapter = {0};
 static int hci_send_cmd(uint16_t opcode, void *params, uint8_t plen)
 {
     uint8_t buf[256];
+
+    if (plen > sizeof(buf) - 4)
+        return -1;
+    if (plen > 0 && !params)
+        return -1;
     
     buf[0] = HCI_COMMAND_PKT;
     
@@ -145,11 +150,16 @@ int bt_set_local_name(const char *name)
 {
     uint8_t params[248] = {0};
     int len = 0;
+
+    if (!name)
+        return -1;
     
     while (name[len] && len < 247) {
         params[len] = name[len];
         len++;
     }
+    for (int i = 0; i < 248; i++)
+        adapter.name[i] = params[i];
     
     return hci_send_cmd(HCI_OP_WRITE_LOCAL_NAME, params, 248);
 }
@@ -174,6 +184,9 @@ int bt_cancel_inquiry(void)
 int bt_connect(bdaddr_t *addr)
 {
     uint8_t params[13] = {0};
+
+    if (!addr)
+        return -1;
     
     /* Copy BD_ADDR */
     for (int i = 0; i < 6; i++) {
@@ -223,15 +236,26 @@ void bt_process_event(uint8_t *data, int len)
     
     struct hci_event_hdr *hdr = (struct hci_event_hdr *)data;
     uint8_t *params = data + 2;
+    int plen = hdr->plen;
+
+    if (plen > len - 2) {
+        printk(KERN_WARNING "BT: Truncated event 0x%02x (%d/%d bytes)\n",
+               hdr->evt, len - 2, plen);
+        return;
+    }
     
     switch (hdr->evt) {
         case HCI_EV_CMD_COMPLETE: {
+            if (plen < 4)
+                break;
             uint16_t opcode = params[1] | (params[2] << 8);
             uint8_t status = params[3];
             printk(KERN_DEBUG "BT: Command complete: opcode=0x%04x status=%d\n",
                    opcode, status);
             
             if (opcode == HCI_OP_READ_BD_ADDR && status == 0) {
+                if (plen < 10)
+                    break;
                 for (int i = 0; i < 6; i++) {
                     adapter.addr.b[i] = params[4 + i];
                 }
@@ -243,16 +267,33 @@ void bt_process_event(uint8_t *data, int len)
         }
         
         case HCI_EV_INQUIRY_RESULT: {
+            if (plen < 1)
+                break;
             int num = params[0];
+            int required;
+
+            if (num < 0)
+                break;
+            if (num > (plen - 1) / 14)
+                num = (plen - 1) / 14;
+            required = 1 + num * 14;
+            if (required > plen)
+                break;
             printk(KERN_INFO "BT: Found %d device(s)\n", num);
             
             for (int i = 0; i < num && adapter.device_count < MAX_BT_DEVICES; i++) {
                 struct bt_device *dev = &adapter.devices[adapter.device_count++];
                 
-                int offset = 1 + i * 14;
+                int offset = 1 + i * 6;
                 for (int j = 0; j < 6; j++) {
                     dev->addr.b[j] = params[offset + j];
                 }
+                for (int j = 0; j < 3; j++) {
+                    dev->class[j] = params[1 + num * 8 + i * 3 + j];
+                }
+                dev->rssi = 0;
+                dev->connected = false;
+                dev->handle = 0;
                 
                 printk(KERN_INFO "BT:   Device: %02x:%02x:%02x:%02x:%02x:%02x\n",
                        dev->addr.b[5], dev->addr.b[4], dev->addr.b[3],
@@ -262,6 +303,8 @@ void bt_process_event(uint8_t *data, int len)
         }
         
         case HCI_EV_CONN_COMPLETE: {
+            if (plen < 3)
+                break;
             uint8_t status = params[0];
             uint16_t handle = params[1] | (params[2] << 8);
             
@@ -276,6 +319,8 @@ void bt_process_event(uint8_t *data, int len)
         }
         
         case HCI_EV_DISCONN_COMPLETE: {
+            if (plen < 3)
+                break;
             uint16_t handle = params[1] | (params[2] << 8);
             printk(KERN_INFO "BT: Disconnected (handle=%d)\n", handle);
             adapter.connected = false;
@@ -335,6 +380,9 @@ void bt_get_info(bdaddr_t *addr, char *name, bool *powered)
 /* Get discovered devices */
 int bt_get_devices(struct bt_device *devices, int max_count)
 {
+    if (!devices || max_count <= 0)
+        return 0;
+
     int count = (adapter.device_count < max_count) ? adapter.device_count : max_count;
     
     for (int i = 0; i < count; i++) {
