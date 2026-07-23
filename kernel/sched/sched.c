@@ -72,6 +72,10 @@ static void *alloc_stack(size_t size)
 
 static void enqueue_task(struct task_struct *task)
 {
+    if (!task || task == runqueue.idle) {
+        return;
+    }
+
     task->state = TASK_RUNNING;
     
     if (!runqueue.head) {
@@ -87,8 +91,22 @@ static void enqueue_task(struct task_struct *task)
     runqueue.nr_running++;
 }
 
+static int task_on_runqueue(struct task_struct *task)
+{
+    for (struct task_struct *iter = runqueue.head; iter; iter = iter->next) {
+        if (iter == task) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void dequeue_task(struct task_struct *task)
 {
+    if (!task || !task_on_runqueue(task)) {
+        return;
+    }
+
     if (task->prev) {
         task->prev->next = task->next;
     } else {
@@ -146,19 +164,22 @@ void schedule(void)
     struct task_struct *next;
     
     /* Don't schedule if interrupts disabled (should check) */
+
+    /* Keep runnable non-idle tasks in the queue while they are not current. */
+    if (prev && prev->state == TASK_RUNNING && prev != runqueue.idle &&
+        !task_on_runqueue(prev)) {
+        enqueue_task(prev);
+    }
     
     /* Pick next task */
     next = pick_next_task();
-    
+    if (next && next != runqueue.idle) {
+        dequeue_task(next);
+    }
+
     if (next == prev) {
         /* Same task, no switch needed */
         return;
-    }
-    
-    /* Move current to end of queue if still runnable */
-    if (prev->state == TASK_RUNNING && prev != runqueue.idle) {
-        dequeue_task(prev);
-        enqueue_task(prev);
     }
     
     /* Perform context switch */
