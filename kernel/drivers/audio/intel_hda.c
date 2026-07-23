@@ -203,9 +203,17 @@ void intel_hda_init(pci_device_t *pci_dev) {
   /* CORB: 1024 bytes. RIRB: 2048 bytes. */
 
   void *raw_corb = kmalloc(1024 + 128);
+  if (!raw_corb) {
+    printk("HDA: Failed to allocate CORB buffer\n");
+    return;
+  }
   corb_buffer = (uint32_t *)(((uint64_t)raw_corb + 127) & ~127ULL);
 
   void *raw_rirb = kmalloc(2048 + 128);
+  if (!raw_rirb) {
+    printk("HDA: Failed to allocate RIRB buffer\n");
+    return;
+  }
   rirb_buffer = (uint64_t *)(((uint64_t)raw_rirb + 127) & ~127ULL);
 
   /* Zero buffers */
@@ -473,7 +481,15 @@ static void hda_flush_cache(void *addr, size_t size) {
 
 int intel_hda_play_pcm(const void *data, uint32_t samples, uint8_t channels,
                        uint32_t sample_rate) {
+  uint32_t size;
+
   if (!hda_regs)
+    return -1;
+  if (!data || !samples || !channels || !sample_rate)
+    return -1;
+  if (channels > 16)
+    return -1;
+  if (samples > ((uint32_t)-1) / channels / 2U)
     return -1;
 
   /* Initialize ring buffer on first use */
@@ -481,7 +497,7 @@ int intel_hda_play_pcm(const void *data, uint32_t samples, uint8_t channels,
     return -1;
 
   /* Calculate size in bytes (16-bit = 2 bytes) */
-  uint32_t size = samples * channels * 2;
+  size = samples * channels * 2U;
 
   /* Limit to available ring buffer space */
   uint32_t max_size = HDA_RING_BUFFER_SIZE / 2; /* Don't fill more than half */
