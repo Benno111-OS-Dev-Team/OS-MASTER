@@ -92,6 +92,8 @@ EFI_STATUS efi_read_file(EFI_HANDLE image, EFI_SYSTEM_TABLE *st, const CHAR16 *p
   EFI_GUID info_guid = EFI_FILE_INFO_GUID;
   EFI_FILE_PROTOCOL *root = NULL;
   EFI_FILE_PROTOCOL *file = NULL;
+  EFI_FILE_INFO *info = NULL;
+  uint64_t info_size = 0;
   EFI_STATUS status = efi_open_root(image, st, &root);
   if (EFI_ERROR(status)) return status;
 
@@ -101,18 +103,39 @@ EFI_STATUS efi_read_file(EFI_HANDLE image, EFI_SYSTEM_TABLE *st, const CHAR16 *p
     return status;
   }
 
-  uint8_t info_buf[512];
-  uint64_t info_size = sizeof(info_buf);
-  status = file->GetInfo(file, &info_guid, &info_size, info_buf);
+  status = file->GetInfo(file, &info_guid, &info_size, NULL);
+  if (EFI_STATUS_CODE(status) != EFI_BUFFER_TOO_SMALL || info_size == 0) {
+    file->Close(file);
+    root->Close(root);
+    return status;
+  }
+
+  status = st->BootServices->AllocatePool(EfiLoaderData, info_size,
+                                          (void **)&info);
   if (EFI_ERROR(status)) {
     file->Close(file);
     root->Close(root);
     return status;
   }
 
-  EFI_FILE_INFO *info = (EFI_FILE_INFO *)info_buf;
+  status = file->GetInfo(file, &info_guid, &info_size, info);
+  if (EFI_ERROR(status)) {
+    st->BootServices->FreePool(info);
+    file->Close(file);
+    root->Close(root);
+    return status;
+  }
+
+  if (info->FileSize == UINT64_MAX) {
+    st->BootServices->FreePool(info);
+    file->Close(file);
+    root->Close(root);
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   void *data = NULL;
   status = st->BootServices->AllocatePool(EfiLoaderData, info->FileSize + 1, &data);
+  st->BootServices->FreePool(info);
   if (EFI_ERROR(status)) {
     file->Close(file);
     root->Close(root);
@@ -125,6 +148,8 @@ EFI_STATUS efi_read_file(EFI_HANDLE image, EFI_SYSTEM_TABLE *st, const CHAR16 *p
     ((uint8_t *)data)[read_size] = 0;
     *buffer = data;
     *size = read_size;
+  } else {
+    st->BootServices->FreePool(data);
   }
   file->Close(file);
   root->Close(root);
@@ -132,9 +157,10 @@ EFI_STATUS efi_read_file(EFI_HANDLE image, EFI_SYSTEM_TABLE *st, const CHAR16 *p
 }
 
 const char *cfg_get(const char *cfg, const char *key, char *out, uint64_t out_len) {
-  uint64_t key_len = efi_strlen(key);
+  uint64_t key_len;
   const char *p = cfg;
   if (!cfg || !key || !out || out_len == 0) return NULL;
+  key_len = efi_strlen(key);
   while (*p) {
     while (*p == '\r' || *p == '\n' || *p == ' ') p++;
     if (!efi_memcmp(p, key, key_len) && p[key_len] == '=') {
