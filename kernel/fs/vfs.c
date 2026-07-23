@@ -695,8 +695,9 @@ int vfs_readdir(struct file *file, void *ctx,
 int vfs_close(struct file *file) {
   if (!file)
     return -EBADF;
-  if (file->f_op && file->f_op->release && file->f_dentry) {
-    file->f_op->release(file->f_dentry->d_inode, file);
+  if (file->f_op && file->f_op->release) {
+    struct inode *inode = file->f_dentry ? file->f_dentry->d_inode : NULL;
+    file->f_op->release(inode, file);
   }
   file->f_count.counter--;
   if (file->f_count.counter <= 0) {

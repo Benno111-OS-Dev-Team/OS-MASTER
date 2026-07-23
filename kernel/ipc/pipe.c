@@ -141,7 +141,9 @@ static int pipe_release_read(struct inode *inode, struct file *file) {
   struct pipe *p = (struct pipe *)file->private_data;
   if (p) {
     pipe_lock(p);
-    p->readers--;
+    if (p->readers > 0)
+      p->readers--;
+    file->private_data = NULL;
 
     /* Free pipe if no users */
     if (p->readers == 0 && p->writers == 0) {
@@ -162,7 +164,9 @@ static int pipe_release_write(struct inode *inode, struct file *file) {
   struct pipe *p = (struct pipe *)file->private_data;
   if (p) {
     pipe_lock(p);
-    p->writers--;
+    if (p->writers > 0)
+      p->writers--;
+    file->private_data = NULL;
 
     if (p->readers == 0 && p->writers == 0) {
       pipe_unlock(p);
@@ -193,6 +197,12 @@ static const struct file_operations pipe_write_ops = {
 /* ===================================================================== */
 
 int do_pipe(struct file **read_file, struct file **write_file) {
+  if (!read_file || !write_file) {
+    return -EINVAL;
+  }
+  *read_file = NULL;
+  *write_file = NULL;
+
   /* Allocate pipe structure */
   struct pipe *p = kzalloc(sizeof(struct pipe), GFP_KERNEL);
   if (!p) {
