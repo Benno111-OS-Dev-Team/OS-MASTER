@@ -175,6 +175,14 @@ static uint64_t pci_read_bar(uint8_t bus, uint8_t slot, uint8_t func,
   return addr;
 }
 
+static int pci_bar_raw_is_64bit(uint32_t bar_raw) {
+  if (bar_raw == 0 || bar_raw == 0xFFFFFFFF)
+    return 0;
+  if (bar_raw & 0x1)
+    return 0;
+  return (bar_raw & 0x6) == 0x4;
+}
+
 /* Allocate BAR if unassigned */
 static uint64_t pci_alloc_bar(uint8_t bus, uint8_t slot, uint8_t func,
                               uint8_t bar_offset) {
@@ -257,9 +265,19 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   pci_dev->subclass = (class_rev >> 16) & 0xFF;
   pci_dev->prog_if = (class_rev >> 8) & 0xFF;
 
+  uint32_t bar0_raw = pci_read32(bus, slot, func, PCI_BAR0);
+  uint32_t bar1_raw = 0;
+
   pci_dev->bar0 = pci_alloc_bar(bus, slot, func, PCI_BAR0);
-  pci_dev->bar1 = pci_alloc_bar(bus, slot, func, PCI_BAR1);
-  pci_dev->bar2 = pci_alloc_bar(bus, slot, func, PCI_BAR2);
+  if (pci_bar_raw_is_64bit(bar0_raw)) {
+    pci_dev->bar1 = 0;
+  } else {
+    bar1_raw = pci_read32(bus, slot, func, PCI_BAR1);
+    pci_dev->bar1 = pci_alloc_bar(bus, slot, func, PCI_BAR1);
+  }
+  pci_dev->bar2 = pci_bar_raw_is_64bit(bar1_raw)
+                      ? 0
+                      : pci_alloc_bar(bus, slot, func, PCI_BAR2);
 
   uint32_t irq_line = pci_read32(bus, slot, func, PCI_INTERRUPT);
   pci_dev->irq = irq_line & 0xFF;
