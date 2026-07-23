@@ -225,7 +225,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean check-source-complete kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete custom-uefi-chain kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 
 all: check-source-complete kernel image
 	@echo "=========================================="
@@ -274,6 +274,18 @@ help:
 
 check-source-complete:
 	@$(ROOT_DIR)/scripts/check-source-complete.sh
+
+custom-uefi-chain: check-source-complete
+ifeq ($(ARCH),x86_64)
+	@echo "[UEFI] Compiling OS8 custom boot chain"
+	@SKIP_BOOT_CONFIG=1 bash "$(CUSTOM_UEFI_SCRIPT)" "$(BUILD_DIR)" >/dev/null
+	@test -s "$(CUSTOM_UEFI_DIR)/BOOTX64.EFI"
+	@test -s "$(CUSTOM_UEFI_DIR)/STARTUPX64.EFI"
+	@echo "[UEFI] Custom boot chain ready: $(CUSTOM_UEFI_DIR)"
+else
+	@echo "[UEFI] custom-uefi-chain is supported only with ARCH=x86_64"
+	@exit 1
+endif
 
 # ============================================================================
 # Directory Setup
