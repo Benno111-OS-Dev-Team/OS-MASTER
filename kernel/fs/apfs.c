@@ -145,8 +145,14 @@ static struct apfs_fs *mounted_apfs = NULL;
 
 static int apfs_read_block(struct apfs_fs *fs, uint64_t block, void *buf)
 {
-    if (!fs->read_block) return -1;
+    if (!fs || !fs->read_block || !buf) return -1;
+    if (fs->block_count != 0 && block >= fs->block_count) return -1;
     return fs->read_block(fs->device, block, buf);
+}
+
+static int apfs_valid_block_size(uint32_t block_size)
+{
+    return block_size == APFS_BLOCK_SIZE;
 }
 
 /* ===================================================================== */
@@ -195,6 +201,13 @@ static int apfs_read_container(struct apfs_fs *fs)
         return -1;
     }
     
+    if (!apfs_valid_block_size(sb->block_size) || sb->block_count == 0 ||
+        sb->max_file_systems > APFS_MAX_VOLUMES) {
+        printk(KERN_ERR "APFS: Invalid container geometry\n");
+        kfree(buf);
+        return -1;
+    }
+
     fs->block_size = sb->block_size;
     fs->block_count = sb->block_count;
     
@@ -265,8 +278,10 @@ static int apfs_read_volume(struct apfs_fs *fs, int vol_idx)
 int apfs_mount(void *device, int (*read_block)(void*, uint64_t, void*))
 {
     printk(KERN_INFO "APFS: Mounting Apple File System (read-only)\n");
+
+    if (!read_block) return -1;
     
-    struct apfs_fs *fs = kmalloc(sizeof(struct apfs_fs));
+    struct apfs_fs *fs = kzalloc(sizeof(struct apfs_fs), GFP_KERNEL);
     if (!fs) return -1;
     
     fs->device = device;
