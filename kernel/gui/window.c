@@ -4663,7 +4663,11 @@ static int window_ensure_surface_storage(struct window *win) {
       win->surface_height == win->height)
     return 0;
 
+  if ((size_t)win->height > ((size_t)-1) / (size_t)win->width)
+    return -ENOMEM;
   pixel_count = (size_t)win->width * (size_t)win->height;
+  if (pixel_count > ((size_t)-1) / sizeof(uint32_t))
+    return -ENOMEM;
   new_surface = kmalloc(pixel_count * sizeof(uint32_t));
   if (!new_surface)
     return -ENOMEM;
@@ -21978,7 +21982,11 @@ int gui_init(uint32_t *framebuffer, uint32_t width, uint32_t height,
   input_set_gui_key_callback(gui_handle_key_event);
 
   /* Allocate backbuffer for double-buffering */
-  primary_display.backbuffer = kmalloc(pitch * height);
+  if (height && pitch > ((uint32_t)-1) / height) {
+    primary_display.backbuffer = NULL;
+  } else {
+    primary_display.backbuffer = kmalloc((size_t)pitch * (size_t)height);
+  }
   if (!primary_display.backbuffer) {
     printk(KERN_WARNING
            "GUI: Backbuffer allocation failed, rendering directly to framebuffer\n");

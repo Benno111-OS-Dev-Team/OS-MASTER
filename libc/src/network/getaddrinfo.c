@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <endian.h>
 #include <errno.h>
+#include <limits.h>
 #include "lookup.h"
 
 int getaddrinfo(const char *restrict host, const char *restrict serv, const struct addrinfo *restrict hint, struct addrinfo **restrict res)
@@ -96,9 +97,12 @@ int getaddrinfo(const char *restrict host, const char *restrict serv, const stru
 
 	if (no_family) return EAI_NODATA;
 
-	nais = nservs * naddrs;
 	canon_len = strlen(canon);
-	out = calloc(1, nais * sizeof(*out) + canon_len + 1);
+	if (nservs && naddrs > INT_MAX / nservs) return EAI_MEMORY;
+	nais = nservs * naddrs;
+	if ((size_t)nais > (((size_t)-1) - canon_len - 1) / sizeof(*out))
+		return EAI_MEMORY;
+	out = calloc(1, (size_t)nais * sizeof(*out) + canon_len + 1);
 	if (!out) return EAI_MEMORY;
 
 	if (canon_len) {

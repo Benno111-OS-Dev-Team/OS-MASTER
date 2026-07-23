@@ -20,7 +20,12 @@
 
 /* Kernel-compatible calloc replacement */
 static inline void *tpng_kcalloc(size_t n, size_t sz) {
-    size_t total = n * sz;
+    size_t total;
+
+    if (sz && n > ((size_t)-1) / sz)
+        return 0;
+
+    total = n * sz;
     void *ptr = kmalloc(total, GFP_KERNEL);
     if (ptr) {
         memset(ptr, 0, total);
