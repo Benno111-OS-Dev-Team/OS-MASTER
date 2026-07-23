@@ -90,6 +90,17 @@ static inline uint16_t ntohs(uint16_t x) {
     return htons(x);
 }
 
+static bool dns_name_fits(const char *name)
+{
+    if (!name) return false;
+
+    for (size_t i = 0; i < DNS_MAX_NAME_LEN; i++) {
+        if (name[i] == '\0') return true;
+    }
+
+    return false;
+}
+
 /* Encode domain name to DNS format (labels) */
 static int dns_encode_name(const char *name, uint8_t *buf, size_t buf_len)
 {
@@ -99,6 +110,7 @@ static int dns_encode_name(const char *name, uint8_t *buf, size_t buf_len)
     
     while (name[len]) {
         if (name[len] == '.') {
+            if (len == label_start || len - label_start > 63) return -1;
             if (pos + 1 + (len - label_start) >= buf_len) return -1;
             buf[pos++] = len - label_start;
             for (size_t i = label_start; i < len; i++) {
@@ -111,6 +123,7 @@ static int dns_encode_name(const char *name, uint8_t *buf, size_t buf_len)
     
     /* Last label */
     if (len > label_start) {
+        if (len - label_start > 63) return -1;
         if (pos + 1 + (len - label_start) >= buf_len) return -1;
         buf[pos++] = len - label_start;
         for (size_t i = label_start; i < len; i++) {
@@ -168,6 +181,33 @@ static int dns_decode_name(const uint8_t *response, size_t response_len,
     return jumped ? read_len : read_len;
 }
 
+static int dns_skip_name(const uint8_t *response, size_t response_len, size_t *offset)
+{
+    size_t pos = *offset;
+
+    while (pos < response_len) {
+        uint8_t len = response[pos];
+
+        if (len == 0) {
+            pos++;
+            *offset = pos;
+            return 0;
+        }
+
+        if ((len & 0xC0) == 0xC0) {
+            if (pos + 1 >= response_len) return -1;
+            *offset = pos + 2;
+            return 0;
+        }
+
+        if ((len & 0xC0) != 0 || len > 63) return -1;
+        if (pos + 1 > response_len || len > response_len - pos - 1) return -1;
+        pos += 1 + len;
+    }
+
+    return -1;
+}
+
 /* ===================================================================== */
 /* DNS Functions */
 /* ===================================================================== */
@@ -219,29 +259,15 @@ static int dns_parse_response(const uint8_t *response, size_t len, uint32_t *ip_
     /* Skip questions */
     size_t pos = DNS_HEADER_SIZE;
     for (int i = 0; i < qdcount; i++) {
-        while (pos < len && response[pos] != 0) {
-            if ((response[pos] & 0xC0) == 0xC0) {
-                pos += 2;
-                break;
-            }
-            pos += 1 + response[pos];
-        }
-        if (response[pos] == 0) pos++;
+        if (dns_skip_name(response, len, &pos) < 0) return -1;
+        if (pos + 4 > len) return -1;
         pos += 4;  /* qtype + qclass */
     }
     
     /* Parse answers */
     for (int i = 0; i < ancount && pos < len; i++) {
         /* Skip name */
-        while (pos < len && response[pos] != 0) {
-            if ((response[pos] & 0xC0) == 0xC0) {
-                pos += 2;
-                goto got_name;
-            }
-            pos += 1 + response[pos];
-        }
-        if (response[pos] == 0) pos++;
-    got_name:
+        if (dns_skip_name(response, len, &pos) < 0) return -1;
         
         if (pos + 10 > len) break;
         
@@ -251,6 +277,7 @@ static int dns_parse_response(const uint8_t *response, size_t len, uint32_t *ip_
         pos += 4;  /* ttl */
         uint16_t rdlength = (response[pos] << 8) | response[pos + 1];
         pos += 2;
+        if (rdlength > len - pos) return -1;
         
         if (type == DNS_TYPE_A && rdlength == 4) {
             *ip_out = (response[pos] << 24) | (response[pos + 1] << 16) |
@@ -315,6 +342,8 @@ static void dns_cache_add(const char *name, uint32_t ip, uint32_t ttl)
 
 int dns_resolve(const char *hostname, uint32_t *ip_out)
 {
+    if (!ip_out || !dns_name_fits(hostname)) return -1;
+
     printk(KERN_DEBUG "DNS: Resolving %s\n", hostname);
     
     /* Check cache first */
