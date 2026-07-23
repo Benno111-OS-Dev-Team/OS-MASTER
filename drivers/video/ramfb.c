@@ -35,6 +35,7 @@
 /* DRM fourcc format codes */
 #define DRM_FORMAT_XRGB8888 0x34325258 /* XR24 little-endian */
 #define DRM_FORMAT_RGB888 0x34324752   /* RG24 */
+#define RAMFB_MAX_DIMENSION 16384U
 
 struct ramfb_cfg {
   uint64_t addr;   /* Framebuffer physical address (big-endian) */
@@ -104,6 +105,24 @@ static void fw_cfg_write(const void *buf, size_t len) {
 
 static uint16_t ramfb_selector = 0;
 
+static int ramfb_geometry_is_sane(uint64_t fb_addr, uint32_t width,
+                                  uint32_t height, uint32_t stride) {
+  uint32_t min_stride;
+
+  if (!fb_addr || !width || !height)
+    return 0;
+  if (width > RAMFB_MAX_DIMENSION || height > RAMFB_MAX_DIMENSION)
+    return 0;
+
+  min_stride = width * sizeof(uint32_t);
+  if (stride < min_stride)
+    return 0;
+  if (stride > min_stride * 8U)
+    return 0;
+
+  return 1;
+}
+
 /* Find the ramfb config file in fw_cfg */
 static int ramfb_find_cfg(void) {
   uint32_t count;
@@ -135,6 +154,13 @@ static int ramfb_find_cfg(void) {
 int ramfb_setup(uint64_t fb_addr, uint32_t width, uint32_t height,
                 uint32_t stride) {
   printk(KERN_INFO "RAMFB: Configuring display %ux%u\n", width, height);
+
+  if (!ramfb_geometry_is_sane(fb_addr, width, height, stride)) {
+    printk(KERN_ERR
+           "RAMFB: Invalid framebuffer geometry addr=0x%lx %ux%u stride=%u\n",
+           (unsigned long)fb_addr, width, height, stride);
+    return -1;
+  }
 
   /* Find the ramfb config selector */
   if (ramfb_selector == 0) {
@@ -201,6 +227,6 @@ int ramfb_init(uint32_t *framebuffer, uint32_t width, uint32_t height) {
   printk(KERN_INFO "RAMFB: fw_cfg detected\n");
 
   /* Configure ramfb with our framebuffer */
-  uint32_t stride = width * 4; /* 32bpp */
+  uint32_t stride = width * sizeof(uint32_t); /* 32bpp */
   return ramfb_setup((uint64_t)(uintptr_t)framebuffer, width, height, stride);
 }
