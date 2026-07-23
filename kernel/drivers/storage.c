@@ -65,6 +65,7 @@ static inline void storage_io_wait(void) {
 #define NVME_ADMIN_Q_DEPTH 16
 #define NVME_IO_Q_DEPTH 16
 #define NVME_PAGE_SIZE 4096
+#define NVME_MMIO_MAP_SIZE 0x4000
 
 #define STORAGE_SECTOR_SIZE 512
 #define STORAGE_MBR_PARTITION_OFFSET 446
@@ -1491,9 +1492,26 @@ static uint32_t storage_nvme_db_stride(volatile uint32_t *regs) {
 
 static volatile uint32_t *storage_nvme_db_reg(volatile uint32_t *regs,
                                               uint16_t qid, int is_cq) {
-  uintptr_t base = (uintptr_t)regs + 0x1000;
   uintptr_t stride = storage_nvme_db_stride(regs);
-  return (volatile uint32_t *)(base + ((qid * 2U + (is_cq ? 1U : 0U)) * stride));
+  uintptr_t offset =
+      0x1000 + ((uintptr_t)(qid * 2U + (is_cq ? 1U : 0U)) * stride);
+
+  if (!regs || offset > NVME_MMIO_MAP_SIZE - sizeof(uint32_t))
+    return NULL;
+  return (volatile uint32_t *)((uintptr_t)regs + offset);
+}
+
+static int storage_nvme_ring_doorbell(storage_nvme_ctx_t *ctx, uint16_t qid,
+                                      int is_cq, uint32_t value) {
+  volatile uint32_t *db;
+
+  if (!ctx || !ctx->regs)
+    return -1;
+  db = storage_nvme_db_reg(ctx->regs, qid, is_cq);
+  if (!db)
+    return -1;
+  *db = value;
+  return 0;
 }
 
 static int storage_nvme_wait_ready(storage_nvme_ctx_t *ctx, int ready) {
@@ -1522,7 +1540,8 @@ static int storage_nvme_submit_admin(storage_nvme_ctx_t *ctx, nvme_sqe_t *cmd) {
   cmd->cid = cid;
   sq[ctx->admin_sq_tail] = *cmd;
   ctx->admin_sq_tail = (uint16_t)((ctx->admin_sq_tail + 1) % NVME_ADMIN_Q_DEPTH);
-  *storage_nvme_db_reg(ctx->regs, 0, 0) = ctx->admin_sq_tail;
+  if (storage_nvme_ring_doorbell(ctx, 0, 0, ctx->admin_sq_tail) != 0)
+    return -1;
   deadline = storage_get_deadline_ms(STORAGE_IO_TIMEOUT_MS);
   while (arch_timer_get_ms() <= deadline) {
     nvme_cqe_t *entry = &cq[ctx->admin_cq_head];
@@ -1533,7 +1552,8 @@ static int storage_nvme_submit_admin(storage_nvme_ctx_t *ctx, nvme_sqe_t *cmd) {
           (uint16_t)((ctx->admin_cq_head + 1) % NVME_ADMIN_Q_DEPTH);
       if (ctx->admin_cq_head == 0)
         ctx->admin_phase ^= 1U;
-      *storage_nvme_db_reg(ctx->regs, 0, 1) = ctx->admin_cq_head;
+      if (storage_nvme_ring_doorbell(ctx, 0, 1, ctx->admin_cq_head) != 0)
+        return -1;
       return 0;
     }
   }
@@ -1554,7 +1574,8 @@ static int storage_nvme_submit_io(storage_nvme_ctx_t *ctx, nvme_sqe_t *cmd) {
   cmd->cid = cid;
   sq[ctx->io_sq_tail] = *cmd;
   ctx->io_sq_tail = (uint16_t)((ctx->io_sq_tail + 1) % NVME_IO_Q_DEPTH);
-  *storage_nvme_db_reg(ctx->regs, 1, 0) = ctx->io_sq_tail;
+  if (storage_nvme_ring_doorbell(ctx, 1, 0, ctx->io_sq_tail) != 0)
+    return -1;
   deadline = storage_get_deadline_ms(STORAGE_IO_TIMEOUT_MS);
   while (arch_timer_get_ms() <= deadline) {
     nvme_cqe_t *entry = &cq[ctx->io_cq_head];
@@ -1564,7 +1585,8 @@ static int storage_nvme_submit_io(storage_nvme_ctx_t *ctx, nvme_sqe_t *cmd) {
       ctx->io_cq_head = (uint16_t)((ctx->io_cq_head + 1) % NVME_IO_Q_DEPTH);
       if (ctx->io_cq_head == 0)
         ctx->io_phase ^= 1U;
-      *storage_nvme_db_reg(ctx->regs, 1, 1) = ctx->io_cq_head;
+      if (storage_nvme_ring_doorbell(ctx, 1, 1, ctx->io_cq_head) != 0)
+        return -1;
       return 0;
     }
   }
@@ -1578,9 +1600,15 @@ static int storage_nvme_rw(storage_nvme_ctx_t *ctx, uint64_t lba,
 
   if (!ctx || !ctx->active || !buffer || count == 0)
     return -1;
-  bytes = count * ctx->sector_size;
-  if (bytes > sizeof(ctx->io_buffer))
+  if (ctx->sector_size == 0 || ctx->sector_size > sizeof(ctx->io_buffer))
     return -1;
+  if (count > sizeof(ctx->io_buffer) / ctx->sector_size)
+    return -1;
+  if (ctx->sector_count > 0) {
+    if (lba >= ctx->sector_count || (uint64_t)count > ctx->sector_count - lba)
+      return -1;
+  }
+  bytes = count * ctx->sector_size;
   if (write) {
     const uint8_t *src = (const uint8_t *)buffer;
     for (uint32_t i = 0; i < bytes; i++)
@@ -1733,7 +1761,7 @@ static void storage_probe_nvme_controller(int controller_index,
   if (!dev || !dev->bar0)
     return;
 
-  vmm_map_range(dev->bar0, dev->bar0, 0x1000, VM_DEVICE);
+  vmm_map_range(dev->bar0, dev->bar0, NVME_MMIO_MAP_SIZE, VM_DEVICE);
   regs = (volatile uint32_t *)(uintptr_t)dev->bar0;
   cap_lo = regs[0x00 / 4];
   cap_hi = regs[0x04 / 4];
