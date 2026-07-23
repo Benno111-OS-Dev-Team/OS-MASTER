@@ -62,6 +62,10 @@
 
 /* Maximum number of scanouts */
 #define VIRTIO_GPU_MAX_SCANOUTS 16
+#define VIRTIO_PCI_CAP_BASE_LEN 16
+#define VIRTIO_PCI_NOTIFY_CAP_LEN 20
+#define PCI_CONFIG_SPACE_SIZE 256
+#define PCI_MAX_BARS 6
 
 /* ===================================================================== */
 /* Virtqueue Structures */
@@ -183,11 +187,32 @@ static inline uint32_t vgpu_read32(volatile uint8_t *base, uint32_t offset) {
 
 static int vgpu_alloc_virtqueue(uint16_t size) {
   /* Allocate descriptor table, available ring, and used ring */
-  size_t desc_size = sizeof(virtq_desc_t) * size;
-  size_t avail_size = sizeof(uint16_t) * (3 + size);
-  size_t used_size = sizeof(uint16_t) * 3 + sizeof(virtq_used_elem_t) * size;
+  size_t queue_size;
+  size_t desc_size;
+  size_t avail_entries;
+  size_t avail_size;
+  size_t used_size;
+  size_t total;
 
-  size_t total = desc_size + avail_size + used_size;
+  if (size == 0) {
+    return -1;
+  }
+  queue_size = (size_t)size;
+  desc_size = sizeof(virtq_desc_t) * queue_size;
+
+  avail_entries = queue_size + 3;
+  avail_size = sizeof(uint16_t) * avail_entries;
+
+  used_size = sizeof(uint16_t) * 3 + sizeof(virtq_used_elem_t) * queue_size;
+
+  if (desc_size > SIZE_MAX - avail_size ||
+      desc_size + avail_size > SIZE_MAX - used_size) {
+    return -1;
+  }
+  total = desc_size + avail_size + used_size;
+  if (total > SIZE_MAX - 4095) {
+    return -1;
+  }
   total = (total + 4095) & ~4095; /* Page align */
 
   void *mem = (void *)pmm_alloc_pages(total / 4096);
@@ -213,15 +238,40 @@ static int vgpu_alloc_virtqueue(uint16_t size) {
 /* Capability Parsing */
 /* ===================================================================== */
 
+static bool vgpu_cap_has_bytes(uint8_t cap_ptr, uint8_t cap_len,
+                               uint8_t needed) {
+  if (cap_ptr < 0x40 || cap_len < needed) {
+    return false;
+  }
+  return (uint16_t)cap_ptr + needed <= PCI_CONFIG_SPACE_SIZE;
+}
+
 /* Helper to read a BAR from config space, allocating if needed */
 static uint64_t vgpu_read_bar(pci_device_t *pci, uint8_t bar_num) {
   uint16_t bar_offset = PCI_BAR0 + (bar_num * 4);
-  uint32_t bar_raw = pci_read32(pci->bus, pci->slot, pci->func, bar_offset);
-  uint32_t flags = bar_raw & 0xF;
-  bool is_64bit = (flags & 0x4);
+  uint32_t bar_raw;
+  uint32_t flags;
+  bool is_64bit;
+  uint64_t addr;
+
+  if (!pci || bar_num >= PCI_MAX_BARS) {
+    return 0;
+  }
+
+  bar_raw = pci_read32(pci->bus, pci->slot, pci->func, bar_offset);
+  flags = bar_raw & 0xF;
+  if (flags & 0x1) {
+    printk("VGPU: Ignoring I/O BAR%d\n", bar_num);
+    return 0;
+  }
+  is_64bit = (flags & 0x4);
+  if (is_64bit && bar_num >= PCI_MAX_BARS - 1) {
+    printk("VGPU: Invalid 64-bit BAR%d\n", bar_num);
+    return 0;
+  }
 
   /* Check if already assigned */
-  uint64_t addr = bar_raw & 0xFFFFFFF0;
+  addr = bar_raw & 0xFFFFFFF0;
   if (is_64bit) {
     uint32_t bar_high =
         pci_read32(pci->bus, pci->slot, pci->func, bar_offset + 4);
@@ -248,7 +298,13 @@ static uint64_t vgpu_read_bar(pci_device_t *pci, uint8_t bar_num) {
 
   /* Use a safe MMIO address above what PCI init uses */
   static uint64_t vgpu_mmio_base = 0x10100000;
+  if (vgpu_mmio_base > UINT64_MAX - (uint64_t)size + 1) {
+    return 0;
+  }
   vgpu_mmio_base = (vgpu_mmio_base + size - 1) & ~((uint64_t)size - 1);
+  if (vgpu_mmio_base > UINT64_MAX - size) {
+    return 0;
+  }
   addr = vgpu_mmio_base;
 
   pci_write32(pci->bus, pci->slot, pci->func, bar_offset,
@@ -284,11 +340,26 @@ static int vgpu_parse_capabilities(pci_device_t *pci) {
 
   while (cap_ptr && ttl-- > 0) {
     uint8_t cap_id = pci_read8(pci->bus, pci->slot, pci->func, cap_ptr);
+    uint8_t cap_len = pci_read8(pci->bus, pci->slot, pci->func, cap_ptr + 2);
 
     if (cap_id == PCI_CAP_ID_VNDR) { /* Vendor-specific = virtio */
+      if (!vgpu_cap_has_bytes(cap_ptr, cap_len, VIRTIO_PCI_CAP_BASE_LEN)) {
+        printk("VGPU: Ignoring short virtio PCI cap at 0x%02x\n", cap_ptr);
+        cap_ptr = pci_read8(pci->bus, pci->slot, pci->func, cap_ptr + 1);
+        cap_ptr &= 0xFC;
+        continue;
+      }
+
       uint8_t cfg_type = pci_read8(pci->bus, pci->slot, pci->func, cap_ptr + 3);
       uint8_t bar_num = pci_read8(pci->bus, pci->slot, pci->func, cap_ptr + 4);
       uint32_t offset = pci_read32(pci->bus, pci->slot, pci->func, cap_ptr + 8);
+
+      if (bar_num >= PCI_MAX_BARS) {
+        printk("VGPU: Ignoring cap with invalid BAR%d\n", bar_num);
+        cap_ptr = pci_read8(pci->bus, pci->slot, pci->func, cap_ptr + 1);
+        cap_ptr &= 0xFC;
+        continue;
+      }
 
       /* Read (or allocate) the BAR */
       uint64_t bar_addr = vgpu_read_bar(pci, bar_num);
@@ -308,6 +379,10 @@ static int vgpu_parse_capabilities(pci_device_t *pci) {
         printk("VGPU: Found common config at BAR%d+0x%x\n", bar_num, offset);
         break;
       case VIRTIO_PCI_CAP_NOTIFY_CFG:
+        if (!vgpu_cap_has_bytes(cap_ptr, cap_len, VIRTIO_PCI_NOTIFY_CAP_LEN)) {
+          printk("VGPU: Ignoring short notify cap at 0x%02x\n", cap_ptr);
+          break;
+        }
         vgpu_dev.notify_base = cfg_base;
         vgpu_dev.notify_offset_mult =
             pci_read32(pci->bus, pci->slot, pci->func, cap_ptr + 16);
@@ -405,6 +480,11 @@ int virtio_gpu_init(pci_device_t *pci) {
   uint16_t queue_size =
       vgpu_read16(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_Q_SIZE);
   printk("VGPU: Control queue size: %d\n", queue_size);
+
+  if (queue_size == 0) {
+    printk("VGPU: Control queue is unavailable\n");
+    return -1;
+  }
 
   if (queue_size > 256)
     queue_size = 256; /* Limit for safety */
