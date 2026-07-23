@@ -6,6 +6,7 @@
 
 #include "bootmanager.h"
 #include "printk.h"
+#include "string.h"
 
 #define BOOT_TIMEOUT_DEFAULT 5
 #define BOOT_TARGET_KERNEL 0
@@ -44,6 +45,14 @@ static struct boot_entry boot_entries[MAX_BOOT_ENTRIES];
 static int num_boot_entries = 0;
 static progress_callback_t boot_progress_cb = NULL;
 
+static int clamp_percent(int percent) {
+  if (percent < 0)
+    return 0;
+  if (percent > 100)
+    return 100;
+  return percent;
+}
+
 static int str_contains_token(const char *haystack, const char *needle) {
   int i = 0;
   int nlen = 0;
@@ -65,6 +74,7 @@ static int str_contains_token(const char *haystack, const char *needle) {
 
 static void draw_progress_bar(int percent) {
   const int bar_width = 40;
+  percent = clamp_percent(percent);
   int filled = (bar_width * percent) / 100;
 
   printk("\r  [");
@@ -83,22 +93,15 @@ static void draw_progress_bar(int percent) {
 int boot_add_entry(const char *name, const char *path, const char *cmdline) {
   struct boot_entry *entry;
 
+  if (!name || !path || !cmdline)
+    return -1;
   if (num_boot_entries >= MAX_BOOT_ENTRIES)
     return -1;
 
   entry = &boot_entries[num_boot_entries++];
-  for (int i = 0; i < 63 && name[i]; i++) {
-    entry->name[i] = name[i];
-    entry->name[i + 1] = '\0';
-  }
-  for (int i = 0; i < 127 && path[i]; i++) {
-    entry->path[i] = path[i];
-    entry->path[i + 1] = '\0';
-  }
-  for (int i = 0; i < 255 && cmdline[i]; i++) {
-    entry->cmdline[i] = cmdline[i];
-    entry->cmdline[i + 1] = '\0';
-  }
+  strlcpy(entry->name, name, sizeof(entry->name));
+  strlcpy(entry->path, path, sizeof(entry->path));
+  strlcpy(entry->cmdline, cmdline, sizeof(entry->cmdline));
   entry->is_default = (num_boot_entries == 1);
   return 0;
 }
@@ -166,6 +169,8 @@ int boot_cmdline_has_token(const char *token) {
 void boot_set_timeout(uint32_t seconds) { boot_cfg.timeout_seconds = seconds; }
 
 void boot_set_default(int target) {
+  if (target < 0 || target >= num_boot_entries)
+    return;
   for (int i = 0; i < num_boot_entries; i++)
     boot_entries[i].is_default = (i == target);
   boot_cfg.default_target = target;
