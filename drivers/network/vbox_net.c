@@ -18,12 +18,14 @@
 #define VBOX_PCNET_DEVICE_ID 0x2000
 #define VBOX_PCNET_ALT_DEVICE_ID 0x2001
 
-static pci_device_t *vbox_pci_dev = 0;
 static struct net_interface *vbox_iface = 0;
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+static pci_device_t *vbox_pci_dev = 0;
 static uint16_t vbox_io_base = 0;
 static uint8_t vbox_mac[ETH_ALEN];
-static char vbox_name[40] = "VirtualBox AMD PCnet";
 static int vbox_warned_probe = 0;
+#endif
+static char vbox_name[40] = "VirtualBox AMD PCnet";
 static uint32_t vbox_server_seq = 0x20000000;
 
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
@@ -95,9 +97,13 @@ static void vbox_handle_arp(const struct ethhdr *eth, const uint8_t *payload,
     } __attribute__((packed)) arp;
   } __attribute__((packed)) reply;
 
-  const uint16_t opcode = ntohs(*(const uint16_t *)(payload + 6));
+  uint16_t opcode;
 
-  if (payload_len < 28 || opcode != 1)
+  if (payload_len < 28)
+    return;
+
+  opcode = ntohs(*(const uint16_t *)(payload + 6));
+  if (opcode != 1)
     return;
 
   const uint32_t target_ip = *(const uint32_t *)(payload + 24);
@@ -129,6 +135,10 @@ static void vbox_handle_icmp(const struct ethhdr *eth, const struct iphdr *ip,
   uint8_t *ricmp = reply + icmp_offset;
 
   if (!vbox_iface || payload_len < 8)
+    return;
+  if (payload_len > sizeof(reply) - icmp_offset)
+    return;
+  if (payload_len > 0xFFFFu - sizeof(struct iphdr))
     return;
 
   memset(reply, 0, sizeof(reply));
@@ -180,7 +190,7 @@ static void vbox_handle_tcp(const struct ethhdr *eth, const struct iphdr *ip,
   tcp = (const struct vbox_tcp_hdr *)payload;
   tcp_hdr_len = (tcp->data_offset >> 4) * 4;
   if (tcp_hdr_len < sizeof(struct vbox_tcp_hdr) || tcp_hdr_len > payload_len)
-    tcp_hdr_len = sizeof(struct vbox_tcp_hdr);
+    return;
   data_len = payload_len - tcp_hdr_len;
   src_port = ntohs(tcp->source);
   dst_port = ntohs(tcp->dest);
@@ -269,10 +279,14 @@ static void vbox_handle_ipv4(const struct ethhdr *eth, const uint8_t *payload,
     return;
 
   ip = (const struct iphdr *)payload;
+  if ((ip->version_ihl >> 4) != 4)
+    return;
   header_len = (size_t)(ip->version_ihl & 0x0F) * 4;
   if (header_len < sizeof(struct iphdr) || header_len > payload_len)
-    header_len = sizeof(struct iphdr);
+    return;
   ip_len = ntohs(ip->tot_len);
+  if (ip_len < header_len)
+    return;
   if (ip_len > payload_len)
     ip_len = payload_len;
 

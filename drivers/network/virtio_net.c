@@ -150,7 +150,8 @@ static void mmio_write32(volatile uint32_t *addr, uint32_t val) {
 int virtio_net_send(struct net_interface *iface, const void *data, size_t len)
 {
     (void)iface;
-    if (!net_base) return -1;
+    if (!net_base || !data) return -1;
+    if (len > PACKET_SIZE - sizeof(struct virtio_net_hdr)) return -1;
     
     /* Find free descriptor in TX queue */
     /* Checks omitted for brevity - assuming low traffic unique sender */
@@ -191,12 +192,17 @@ void virtio_net_poll(void)
         uint16_t idx = rx_q.last_used_idx % VIRT_QUEUE_SIZE;
         uint32_t id = rx_q.used->ring[idx].id;
         uint32_t len = rx_q.used->ring[idx].len;
-        
+
+        if (id >= VIRT_QUEUE_SIZE) {
+            rx_q.last_used_idx++;
+            continue;
+        }
+
         struct virtio_net_hdr *hdr = (struct virtio_net_hdr *)rx_q.bufs[id];
         uint8_t *data = (uint8_t *)(hdr + 1);
         
         /* Pass to Stack */
-        if (len > sizeof(struct virtio_net_hdr)) {
+        if (len > sizeof(struct virtio_net_hdr) && len <= PACKET_SIZE) {
             net_rx(net_iface, data, len - sizeof(struct virtio_net_hdr));
         }
         
