@@ -43,6 +43,20 @@ static int tp_clamp(int value, int lo, int hi) {
   return value;
 }
 
+static int tp_clamp64(int64_t value, int lo, int hi) {
+  if (value < (int64_t)lo)
+    return lo;
+  if (value > (int64_t)hi)
+    return hi;
+  return (int)value;
+}
+
+static int tp_add_scaled_clamped(int current, int delta, int scale, int lo,
+                                 int hi) {
+  int64_t value = (int64_t)current + (int64_t)delta * (int64_t)scale;
+  return tp_clamp64(value, lo, hi);
+}
+
 int trackpad_input_init(void) {
   trackpad_x = trackpad_bounds_w / 2;
   trackpad_y = trackpad_bounds_h / 2;
@@ -94,9 +108,9 @@ void trackpad_submit_report(const trackpad_report_t *report) {
     trackpad_y = tp_clamp(report->y, 0, max_y);
   } else {
     trackpad_x =
-        tp_clamp(trackpad_x + report->dx * trackpad_scale, 0, max_x);
+        tp_add_scaled_clamped(trackpad_x, report->dx, trackpad_scale, 0, max_x);
     trackpad_y =
-        tp_clamp(trackpad_y + report->dy * trackpad_scale, 0, max_y);
+        tp_add_scaled_clamped(trackpad_y, report->dy, trackpad_scale, 0, max_y);
   }
 
   trackpad_buttons = report->buttons & 0x1F;
@@ -104,7 +118,7 @@ void trackpad_submit_report(const trackpad_report_t *report) {
   /* Basic two-finger scroll fallback until a wheel path exists in the GUI. */
   if (report->fingers >= 2 && report->scroll_y != 0) {
     trackpad_y =
-        tp_clamp(trackpad_y - report->scroll_y * 12, 0, max_y);
+        tp_add_scaled_clamped(trackpad_y, -report->scroll_y, 12, 0, max_y);
   }
 }
 
