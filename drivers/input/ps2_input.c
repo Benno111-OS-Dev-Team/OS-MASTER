@@ -90,33 +90,41 @@ static const char scancode_to_ascii_shift[128] = {
 #define KEY_WINDOW_SWITCHER 0x110
 #define KEY_CTRL_ALT_DEL 0x111
 
-static void ps2_wait_input(void) {
+static int ps2_wait_input(void) {
   int timeout = 100000;
   while ((inb(PS2_STATUS_PORT) & PS2_STATUS_INPUT_FULL) && timeout-- > 0) {
     io_wait();
   }
+  return (inb(PS2_STATUS_PORT) & PS2_STATUS_INPUT_FULL) ? -1 : 0;
 }
 
-static void ps2_wait_output(void) {
+static int ps2_wait_output(void) {
   int timeout = 100000;
   while (!(inb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL) && timeout-- > 0) {
     io_wait();
   }
+  return (inb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL) ? 0 : -1;
 }
 
-static void ps2_send_command(uint8_t cmd) {
-  ps2_wait_input();
+static int ps2_send_command(uint8_t cmd) {
+  if (ps2_wait_input() != 0)
+    return -1;
   outb(PS2_COMMAND_PORT, cmd);
+  return 0;
 }
 
-static void ps2_send_data(uint8_t data) {
-  ps2_wait_input();
+static int ps2_send_data(uint8_t data) {
+  if (ps2_wait_input() != 0)
+    return -1;
   outb(PS2_DATA_PORT, data);
+  return 0;
 }
 
-static uint8_t ps2_read_data(void) {
-  ps2_wait_output();
-  return inb(PS2_DATA_PORT);
+static int ps2_read_data(uint8_t *data) {
+  if (!data || ps2_wait_output() != 0)
+    return -1;
+  *data = inb(PS2_DATA_PORT);
+  return 0;
 }
 
 static void ps2_flush_output(void) {
@@ -130,41 +138,49 @@ static void ps2_flush_output(void) {
 static int ps2_keyboard_send(uint8_t cmd) {
   int retries = 3;
   while (retries-- > 0) {
-    ps2_wait_input();
+    if (ps2_wait_input() != 0)
+      continue;
     outb(PS2_DATA_PORT, cmd);
-    ps2_wait_output();
-    switch (inb(PS2_DATA_PORT)) {
+    {
+      uint8_t response;
+      if (ps2_read_data(&response) != 0)
+        continue;
+      switch (response) {
     case 0xFA:
       return 0;
     case 0xFE:
       break;
     default:
       break;
+      }
     }
   }
   return -1;
 }
 
-static void ps2_mouse_write(uint8_t data) {
-  ps2_send_command(PS2_CMD_WRITE_MOUSE);
-  ps2_send_data(data);
+static int ps2_mouse_write(uint8_t data) {
+  if (ps2_send_command(PS2_CMD_WRITE_MOUSE) != 0)
+    return -1;
+  return ps2_send_data(data);
 }
 
 static int ps2_mouse_command(uint8_t cmd, uint8_t *response) {
   int retries = 3;
 
   while (retries-- > 0) {
-    ps2_flush_output();
-    ps2_mouse_write(cmd);
-    ps2_wait_output();
+    uint8_t ack;
 
-    if (inb(PS2_DATA_PORT) != 0xFA) {
+    ps2_flush_output();
+    if (ps2_mouse_write(cmd) != 0)
+      continue;
+
+    if (ps2_read_data(&ack) != 0 || ack != 0xFA) {
       continue;
     }
 
     if (response) {
-      ps2_wait_output();
-      *response = inb(PS2_DATA_PORT);
+      if (ps2_read_data(response) != 0)
+        continue;
     }
     return 0;
   }
@@ -176,17 +192,19 @@ static int ps2_mouse_set_rate(uint8_t rate) {
   int retries = 3;
 
   while (retries-- > 0) {
+    uint8_t ack;
+
     ps2_flush_output();
-    ps2_mouse_write(MOUSE_CMD_SET_RATE);
-    ps2_wait_output();
-    if (inb(PS2_DATA_PORT) != 0xFA) {
+    if (ps2_mouse_write(MOUSE_CMD_SET_RATE) != 0)
+      continue;
+    if (ps2_read_data(&ack) != 0 || ack != 0xFA) {
       continue;
     }
 
     ps2_flush_output();
-    ps2_mouse_write(rate);
-    ps2_wait_output();
-    if (inb(PS2_DATA_PORT) == 0xFA) {
+    if (ps2_mouse_write(rate) != 0)
+      continue;
+    if (ps2_read_data(&ack) == 0 && ack == 0xFA) {
       return 0;
     }
   }
@@ -479,19 +497,25 @@ int input_init(void) {
   trackpad_input_init();
 
   ps2_flush_output();
-  ps2_send_command(PS2_CMD_DISABLE_KB);
-  ps2_send_command(PS2_CMD_DISABLE_MOUSE);
+  (void)ps2_send_command(PS2_CMD_DISABLE_KB);
+  (void)ps2_send_command(PS2_CMD_DISABLE_MOUSE);
   ps2_flush_output();
 
-  ps2_send_command(PS2_CMD_READ_CONFIG);
-  config = ps2_read_data();
+  if (ps2_send_command(PS2_CMD_READ_CONFIG) != 0 ||
+      ps2_read_data(&config) != 0) {
+    printk(KERN_ERR "INPUT: Failed to read PS/2 controller config\n");
+    return -1;
+  }
   config &= ~0x03;
   config |= 0x44;
   config &= ~0x30;
-  ps2_send_command(PS2_CMD_WRITE_CONFIG);
-  ps2_send_data(config);
+  if (ps2_send_command(PS2_CMD_WRITE_CONFIG) != 0 ||
+      ps2_send_data(config) != 0) {
+    printk(KERN_ERR "INPUT: Failed to write PS/2 controller config\n");
+    return -1;
+  }
 
-  ps2_send_command(PS2_CMD_TEST_CONTROLLER);
+  (void)ps2_send_command(PS2_CMD_TEST_CONTROLLER);
   for (int i = 0; i < 10000; i++) {
     if (inb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL) {
       (void)inb(PS2_DATA_PORT);
@@ -500,11 +524,11 @@ int input_init(void) {
     io_wait();
   }
 
-  ps2_send_command(PS2_CMD_WRITE_CONFIG);
-  ps2_send_data(config);
-  ps2_send_command(PS2_CMD_ENABLE_KB);
-  ps2_send_command(PS2_CMD_ENABLE_MOUSE);
-  ps2_send_command(PS2_CMD_TEST_MOUSE);
+  (void)ps2_send_command(PS2_CMD_WRITE_CONFIG);
+  (void)ps2_send_data(config);
+  (void)ps2_send_command(PS2_CMD_ENABLE_KB);
+  (void)ps2_send_command(PS2_CMD_ENABLE_MOUSE);
+  (void)ps2_send_command(PS2_CMD_TEST_MOUSE);
   ps2_flush_output();
 
   (void)ps2_keyboard_send(KB_CMD_DEFAULTS);
@@ -527,12 +551,18 @@ int input_init(void) {
     ps2_flush_output();
   }
 
-  ps2_send_command(PS2_CMD_READ_CONFIG);
-  config = ps2_read_data();
+  if (ps2_send_command(PS2_CMD_READ_CONFIG) != 0 ||
+      ps2_read_data(&config) != 0) {
+    printk(KERN_ERR "INPUT: Failed to read final PS/2 controller config\n");
+    return -1;
+  }
   config |= 0x03;
   config &= ~0x30;
-  ps2_send_command(PS2_CMD_WRITE_CONFIG);
-  ps2_send_data(config);
+  if (ps2_send_command(PS2_CMD_WRITE_CONFIG) != 0 ||
+      ps2_send_data(config) != 0) {
+    printk(KERN_ERR "INPUT: Failed to enable PS/2 controller IRQs\n");
+    return -1;
+  }
   ps2_flush_output();
 
   printk(KERN_INFO "INPUT: PS/2 ready\n");
