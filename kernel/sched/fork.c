@@ -9,6 +9,7 @@
 #include "mm/vmm.h"
 #include "printk.h"
 #include "sched/sched.h"
+#include "string.h"
 
 /* Forward declaration */
 static void fork_entry(void *arg);
@@ -51,6 +52,26 @@ struct elf64_phdr {
   uint64_t p_memsz;
   uint64_t p_align;
 };
+
+static int u64_add_overflow(uint64_t a, uint64_t b, uint64_t *out) {
+  if (a > UINT64_MAX - b)
+    return 1;
+  *out = a + b;
+  return 0;
+}
+
+static int u64_mul_overflow(uint64_t a, uint64_t b, uint64_t *out) {
+  if (a != 0 && b > UINT64_MAX / a)
+    return 1;
+  *out = a * b;
+  return 0;
+}
+
+static int file_range_invalid(uint64_t offset, uint64_t size,
+                              uint64_t file_size) {
+  uint64_t end = 0;
+  return u64_add_overflow(offset, size, &end) || end > file_size;
+}
 
 /* ===================================================================== */
 /* Fork implementation */
@@ -107,7 +128,13 @@ long do_fork(unsigned long flags) {
 static int load_elf_binary(const char *path, uint64_t *entry_point) {
   struct file *file;
   struct elf64_hdr ehdr;
+  uint64_t file_size = 0;
+  uint64_t ph_table_size = 0;
   ssize_t bytes_read;
+
+  if (!path || !entry_point) {
+    return -1;
+  }
 
   file = vfs_open(path, O_RDONLY, 0);
   if (!file) {
@@ -121,22 +148,55 @@ static int load_elf_binary(const char *path, uint64_t *entry_point) {
     return -1;
   }
 
-  if (ehdr.e_ident_magic != ELF_MAGIC || ehdr.e_machine != EM_AARCH64) {
+  if (file->f_dentry && file->f_dentry->d_inode) {
+    file_size = (uint64_t)file->f_dentry->d_inode->i_size;
+  }
+
+  if (file_size < sizeof(ehdr)) {
+    vfs_close(file);
+    return -1;
+  }
+
+  if (ehdr.e_ident_magic != ELF_MAGIC || ehdr.e_machine != EM_AARCH64 ||
+      ehdr.e_type != ET_EXEC ||
+      ehdr.e_phentsize != sizeof(struct elf64_phdr) || ehdr.e_phnum == 0 ||
+      u64_mul_overflow((uint64_t)ehdr.e_phnum, sizeof(struct elf64_phdr),
+                       &ph_table_size) ||
+      file_range_invalid(ehdr.e_phoff, ph_table_size, file_size)) {
     vfs_close(file);
     return -1;
   }
 
   for (int i = 0; i < ehdr.e_phnum; i++) {
     struct elf64_phdr phdr;
+    uint64_t phoff = 0;
 
-    file->f_pos = ehdr.e_phoff + i * ehdr.e_phentsize;
+    if (u64_mul_overflow((uint64_t)i, ehdr.e_phentsize, &phoff) ||
+        u64_add_overflow(ehdr.e_phoff, phoff, &phoff)) {
+      vfs_close(file);
+      return -1;
+    }
+    file->f_pos = (loff_t)phoff;
     bytes_read = vfs_read(file, (char *)&phdr, sizeof(phdr));
     if (bytes_read < (ssize_t)sizeof(phdr) || phdr.p_type != PT_LOAD) {
       continue;
     }
 
+    if (phdr.p_filesz > phdr.p_memsz ||
+        file_range_invalid(phdr.p_offset, phdr.p_filesz, file_size)) {
+      vfs_close(file);
+      return -1;
+    }
+
     virt_addr_t vaddr = phdr.p_vaddr & ~(PAGE_SIZE - 1);
-    size_t size = PAGE_ALIGN(phdr.p_memsz + (phdr.p_vaddr - vaddr));
+    uint64_t page_delta = phdr.p_vaddr - vaddr;
+    uint64_t segment_size = 0;
+    if (u64_add_overflow(phdr.p_memsz, page_delta, &segment_size) ||
+        segment_size > (uint64_t)((size_t)-1) - (PAGE_SIZE - 1)) {
+      vfs_close(file);
+      return -1;
+    }
+    size_t size = PAGE_ALIGN((size_t)segment_size);
 
     for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
       phys_addr_t paddr = pmm_alloc_page();
@@ -151,12 +211,20 @@ static int load_elf_binary(const char *path, uint64_t *entry_point) {
       if (phdr.p_flags & 0x2)
         vm_flags |= VM_WRITE;
 
-      vmm_map_page(vaddr + offset, paddr, vm_flags);
+      if (vmm_map_page(vaddr + offset, paddr, vm_flags) != 0) {
+        pmm_free_page(paddr);
+        vfs_close(file);
+        return -1;
+      }
     }
 
     if (phdr.p_filesz > 0) {
       file->f_pos = phdr.p_offset;
-      vfs_read(file, (char *)phdr.p_vaddr, phdr.p_filesz);
+      bytes_read = vfs_read(file, (char *)phdr.p_vaddr, phdr.p_filesz);
+      if (bytes_read != (ssize_t)phdr.p_filesz) {
+        vfs_close(file);
+        return -1;
+      }
     }
   }
 
@@ -195,6 +263,10 @@ long do_execve(const char *filename, char *const argv[], char *const envp[]) {
   struct task_struct *current_task = get_current();
   uint64_t entry_point;
 
+  if (!filename || filename[0] == '\0') {
+    return -1;
+  }
+
   printk(KERN_INFO "execve: loading '%s'\n", filename);
 
   if (!current_task->mm) {
@@ -217,9 +289,7 @@ long do_execve(const char *filename, char *const argv[], char *const envp[]) {
       name = filename + 1;
     filename++;
   }
-  for (int i = 0; i < TASK_COMM_LEN - 1 && name[i]; i++) {
-    current_task->comm[i] = name[i];
-  }
+  strlcpy(current_task->comm, name, sizeof(current_task->comm));
 
   current_task->cpu_context.pc = entry_point;
   current_task->cpu_context.sp = user_sp;
