@@ -445,13 +445,14 @@ int virtio_gpu_init(pci_device_t *pci) {
   /* Read features */
   vgpu_write32(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_DFSELECT, 0);
   uint32_t features = vgpu_read32(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_DF);
+  uint32_t accepted_features = features & VIRTIO_GPU_F_VIRGL;
 
-  vgpu_dev.has_virgl = (features & VIRTIO_GPU_F_VIRGL) != 0;
+  vgpu_dev.has_virgl = (accepted_features & VIRTIO_GPU_F_VIRGL) != 0;
   printk("VGPU: Features: 0x%08x (virgl=%d)\n", features, vgpu_dev.has_virgl);
 
   /* Accept features */
   vgpu_write32(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_GFSELECT, 0);
-  vgpu_write32(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_GF, features);
+  vgpu_write32(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_GF, accepted_features);
 
   /* Set FEATURES_OK */
   status = vgpu_read8(vgpu_dev.common_cfg, VIRTIO_PCI_COMMON_STATUS);
