@@ -356,7 +356,8 @@ int process_create(const char *path, int argc, char **argv) {
 uint32_t get_current_stack_top(void) {
   if (!current_process)
     return 0;
-  return (uint32_t)current_process->stack_base + current_process->stack_size;
+  return (uint32_t)((uintptr_t)current_process->stack_base +
+                    current_process->stack_size);
 }
 
 // Entry wrapper - called when a new process is switched to for the first time

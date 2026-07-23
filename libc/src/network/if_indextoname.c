@@ -19,5 +19,6 @@ char *if_indextoname(unsigned index, char *name)
 		if (errno == ENODEV) errno = ENXIO;
 		return 0;
 	}
-	return strncpy(name, ifr.ifr_name, IF_NAMESIZE);
+	strlcpy(name, ifr.ifr_name, IF_NAMESIZE);
+	return name;
 }

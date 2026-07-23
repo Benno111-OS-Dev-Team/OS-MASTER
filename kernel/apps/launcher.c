@@ -176,12 +176,12 @@ static uint8_t kapi_mouse_get_buttons(void) {
 #endif
 }
 
-static int last_mouse_x = 0, last_mouse_y = 0;
 static void kapi_mouse_get_delta(int *dx, int *dy) {
 #ifdef ARCH_X86_64
     if (dx) *dx = 0;
     if (dy) *dy = 0;
 #else
+    static int last_mouse_x = 0, last_mouse_y = 0;
     int x, y;
     mouse_get_position(&x, &y);
     *dx = x - last_mouse_x;
@@ -198,6 +198,8 @@ extern int intel_hda_play_pcm(const void *data, uint32_t samples, uint8_t channe
 
 static int kapi_sound_play_wav(const void *data, uint32_t size) {
     /* TODO: Parse WAV header */
+    (void)data;
+    (void)size;
     return 0; 
 }
 

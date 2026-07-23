@@ -353,23 +353,11 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
   uint32_t pitch = 0;
   uint32_t pitch_pixels;
   char cpu_info[96] = "unavailable";
-  char line0[128];
-  char line1[128];
-  char line2[128];
-  char line3[128];
-  char line4[128];
-  char line5[128];
   char stop_code_line[160];
-  char log_buf[768];
-  size_t log_size;
-  size_t log_offset;
-  size_t copied;
   int panel_x;
   int panel_y;
   int panel_w;
   int panel_h;
-  int max_log_chars;
-  uint64_t uptime_ms;
 
   extern void fb_get_info(uint32_t **buffer, uint32_t *width, uint32_t *height);
   extern uint32_t fb_get_pitch(void);
@@ -395,20 +383,10 @@ static void panic_draw_screen(const char *msg, uintptr_t caller_hint,
     return;
 
   pitch_pixels = pitch ? (pitch / 4) : fb_w;
-  uptime_ms = arch_timer_get_ms();
   arch_cpu_info(cpu_info, sizeof(cpu_info));
 
-  panic_make_kv_u64(line0, sizeof(line0), "Uptime", uptime_ms, " ms");
-  panic_make_kv_hex(line1, sizeof(line1), "Caller", (uint64_t)caller_hint,
-                    sizeof(uintptr_t) * 2);
-  panic_make_kv_hex(line2, sizeof(line2), "Stack", (uint64_t)stack_hint,
-                    sizeof(uintptr_t) * 2);
-  panic_make_kv_hex(line3, sizeof(line3), "Kernel", (uint64_t)(uintptr_t)__kernel_start,
-                    sizeof(uintptr_t) * 2);
-  panic_make_kv_hex(line4, sizeof(line4), "Kernel End",
-                    (uint64_t)(uintptr_t)__kernel_end, sizeof(uintptr_t) * 2);
-  panic_make_kv_hex(line5, sizeof(line5), "Framebuffer",
-                    (uint64_t)(uintptr_t)fb, sizeof(uintptr_t) * 2);
+  (void)caller_hint;
+  (void)stack_hint;
   {
     size_t stop_code_idx = 0;
     const char *stop_code = (msg && msg[0]) ? msg : "KERNEL_PANIC";
@@ -1888,9 +1866,6 @@ static void init_subsystems(void *dtb) {
 /*
  * start_init_process - Start the first userspace process (PID 1)
  */
-
-/* Global terminal pointer for keyboard callback */
-static void *g_active_terminal = 0;
 
 #define GUI_KEY_QUEUE_SIZE 256
 static volatile int g_gui_key_queue[GUI_KEY_QUEUE_SIZE];

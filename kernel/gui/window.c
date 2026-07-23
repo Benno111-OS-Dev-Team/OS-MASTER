@@ -17998,7 +17998,7 @@ static void draw_desktop_internal(void) {
       text_x = 12;
 
     gui_draw_string(text_x, text_y, build_info, 0xD9E4F4, 0x00000000);
-    gui_draw_string(text_x, text_y + 16, ("build", BUILD_NUMBER), 0xAEB9CB, 0x00000000);
+    gui_draw_string(text_x, text_y + 16, BUILD_NUMBER, 0xAEB9CB, 0x00000000);
   }
 }
 

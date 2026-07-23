@@ -49,7 +49,6 @@ static uint64_t get_hardware_entropy(void) {
   /* Mix in RDRAND if available (feature check usually needed, assuming modern
    * CPU for now) */
   /* Fallback: Mix with some stack garbage or other timer */
-  uint64_t pmc = 0;
   /* Simple valid instruction for extra jitter */
   asm volatile("nop");
 

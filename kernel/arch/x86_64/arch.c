@@ -278,7 +278,7 @@ void arch_context_switch(cpu_context_t *old_ctx, cpu_context_t *new_ctx)
 void arch_context_init(cpu_context_t *ctx, void (*entry)(void*), void *stack, void *arg)
 {
     /* Zero out context */
-    for (int i = 0; i < sizeof(cpu_context_t); i++) {
+    for (size_t i = 0; i < sizeof(cpu_context_t); i++) {
         ((uint8_t*)ctx)[i] = 0;
     }
     

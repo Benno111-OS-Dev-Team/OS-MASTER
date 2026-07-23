@@ -374,21 +374,21 @@ static int16 getExtendOffset(uint8 i)
    switch (i)
    {
       case 0: return 0;
-      case 1: return ((-1)<<1) + 1; 
-      case 2: return ((-1)<<2) + 1; 
-      case 3: return ((-1)<<3) + 1; 
-      case 4: return ((-1)<<4) + 1; 
-      case 5: return ((-1)<<5) + 1; 
-      case 6: return ((-1)<<6) + 1; 
-      case 7: return ((-1)<<7) + 1; 
-      case 8: return ((-1)<<8) + 1; 
-      case 9: return ((-1)<<9) + 1;
-      case 10: return ((-1)<<10) + 1; 
-      case 11: return ((-1)<<11) + 1; 
-      case 12: return ((-1)<<12) + 1; 
-      case 13: return ((-1)<<13) + 1; 
-      case 14: return ((-1)<<14) + 1; 
-      case 15: return ((-1)<<15) + 1;
+      case 1: return -(int16)((1U << 1) - 1U); 
+      case 2: return -(int16)((1U << 2) - 1U); 
+      case 3: return -(int16)((1U << 3) - 1U); 
+      case 4: return -(int16)((1U << 4) - 1U); 
+      case 5: return -(int16)((1U << 5) - 1U); 
+      case 6: return -(int16)((1U << 6) - 1U); 
+      case 7: return -(int16)((1U << 7) - 1U); 
+      case 8: return -(int16)((1U << 8) - 1U); 
+      case 9: return -(int16)((1U << 9) - 1U);
+      case 10: return -(int16)((1U << 10) - 1U); 
+      case 11: return -(int16)((1U << 11) - 1U); 
+      case 12: return -(int16)((1U << 12) - 1U); 
+      case 13: return -(int16)((1U << 13) - 1U); 
+      case 14: return -(int16)((1U << 14) - 1U); 
+      case 15: return -(int16)((1U << 15) - 1U);
       default: return 0;
    }
 };
@@ -684,8 +684,6 @@ static uint8 readSOSMarker(void)
 {
    uint8 i;
    uint16 left = getBits1(16);
-   uint8 spectral_start, spectral_end, successive_high, successive_low;
-
    gCompsInScan = (uint8)getBits1(8);
 
    left -= 3;
@@ -713,10 +711,10 @@ static uint8 readSOSMarker(void)
       gCompACTab[ci] = (c & 15);
    }
 
-   spectral_start  = (uint8)getBits1(8);
-   spectral_end    = (uint8)getBits1(8);
-   successive_high = (uint8)getBits1(4);
-   successive_low  = (uint8)getBits1(4);
+   (void)getBits1(8);
+   (void)getBits1(8);
+   (void)getBits1(4);
+   (void)getBits1(4);
 
    left -= 3;
 
@@ -732,14 +730,11 @@ static uint8 readSOSMarker(void)
 static uint8 nextMarker(void)
 {
    uint8 c;
-   uint8 bytes = 0;
 
    do
    {
       do
       {
-         bytes++;
-
          c = (uint8)getBits1(8);
 
       } while (c != 0xFF);
@@ -1730,10 +1725,12 @@ static void convertCb(uint8 dstOfs)
       int16 cbG, cbB;
 
       cbG = ((cb * 88U) >> 8U) - 44U;
-      *pDstG++ = subAndClamp(pDstG[0], cbG);
+      pDstG[0] = subAndClamp(pDstG[0], cbG);
+      pDstG++;
 
       cbB = (cb + ((cb * 198U) >> 8U)) - 227U;
-      *pDstB++ = addAndClamp(pDstB[0], cbB);
+      pDstB[0] = addAndClamp(pDstB[0], cbB);
+      pDstB++;
    }
 }
 /*----------------------------------------------------------------------------*/
@@ -1751,10 +1748,12 @@ static void convertCr(uint8 dstOfs)
       int16 crR, crG;
 
       crR = (cr + ((cr * 103U) >> 8U)) - 179;
-      *pDstR++ = addAndClamp(pDstR[0], crR);
+      pDstR[0] = addAndClamp(pDstR[0], crR);
+      pDstR++;
 
       crG = ((cr * 183U) >> 8U) - 91;
-      *pDstG++ = subAndClamp(pDstG[0], crG);
+      pDstG[0] = subAndClamp(pDstG[0], crG);
+      pDstG++;
    }
 }
 /*----------------------------------------------------------------------------*/

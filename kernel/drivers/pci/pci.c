@@ -21,8 +21,10 @@ static int device_count = 0;
 static pci_device_t *device_list = NULL;
 static int pci_generic_drivers_only = 0;
 
+#if !(defined(ARCH_X86_64) || defined(ARCH_X86))
 /* MMIO allocation for unassigned BARs */
 static uint64_t next_mmio_base = 0x10000000;
+#endif
 
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
 extern uint64_t limine_get_hhdm_offset(void);

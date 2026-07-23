@@ -776,6 +776,7 @@ void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
         case TCP_SYN_SENT:
             /* Expecting SYN+ACK */
             if ((flags & (TCP_SYN | TCP_ACK)) == (TCP_SYN | TCP_ACK)) {
+                conn->seq = ack;
                 conn->ack = seq + 1;
                 conn->state = TCP_ESTABLISHED;
                 /* Send ACK */
@@ -809,11 +810,13 @@ void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
             } else if (flags & TCP_ACK) {
                 /* ACK for our data */
                 /* Update send window, remove acknowledged data from send buffer */
+                conn->seq = ack;
             }
             break;
             
         case TCP_FIN_WAIT_1:
             if (flags & TCP_ACK) {
+                conn->seq = ack;
                 conn->state = TCP_FIN_WAIT_2;
                 printk(KERN_DEBUG "TCP: Entering FIN_WAIT_2\n");
             }

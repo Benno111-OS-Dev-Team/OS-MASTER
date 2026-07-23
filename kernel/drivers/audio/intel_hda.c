@@ -308,9 +308,7 @@ void intel_hda_init(pci_device_t *pci_dev) {
   /* Also set format for DAC to match? Default usually works. */
   /* Set Converter Stream/Channel (Verb 706) */
   /* Stream 1, Channel 0 -> Payload 0x10 */
-  /* Note: We used Stream Descriptor 0... wait.
-     SD0 maps to Stream ID 1?
-     Usually default map is straightforward.
+  /* Note: SD0 maps to Stream ID 1 in this setup. */
   /* 3. Output Converter (Node 2) */
   /* Set Stream Tag to 1, Channel 0. Verb 706. Payload 0x10 */
   wp++;
