@@ -27,6 +27,7 @@ void boot_report_progress(const char *stage, int percent);
 int boot_show_menu(void);
 void boot_init(void);
 struct boot_config *boot_get_config(void);
+int boot_cmdline_has_token(const char *token);
 void boot_set_timeout(uint32_t seconds);
 void boot_set_default(int target);
 void boot_parse_cmdline(const char *cmdline);

@@ -487,6 +487,12 @@ static void iso9660_node_add_child(iso9660_node_t *parent,
   parent->children = child;
 }
 
+static char iso_ascii_fold(char c) {
+  if (c >= 'A' && c <= 'Z')
+    return (char)(c - 'A' + 'a');
+  return c;
+}
+
 static iso9660_node_t *iso9660_node_find_child(iso9660_node_t *parent,
                                                const char *name) {
   iso9660_node_t *child;
@@ -497,7 +503,8 @@ static iso9660_node_t *iso9660_node_find_child(iso9660_node_t *parent,
   child = parent->children;
   while (child) {
     int i = 0;
-    while (child->name[i] && name[i] && child->name[i] == name[i])
+    while (child->name[i] && name[i] &&
+           iso_ascii_fold(child->name[i]) == iso_ascii_fold(name[i]))
       i++;
     if (child->name[i] == '\0' && name[i] == '\0')
       return child;

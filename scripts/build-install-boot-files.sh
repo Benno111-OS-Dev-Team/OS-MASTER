@@ -14,9 +14,11 @@ RAW_PARTS_DIR="${BUILD_DIR}/kernel/raw"
 RAW_PARTS_SCRIPT="${ROOT_DIR}/scripts/export-kernel-raw-parts.sh"
 BOOT_MANAGER_DIR="${BUILD_DIR}/boot-assets/os-boot-manager"
 BOOT_MANAGER_SYNC="${ROOT_DIR}/scripts/update-os-boot-manager.sh"
+CUSTOM_UEFI_SCRIPT="${ROOT_DIR}/scripts/build-custom-uefi.sh"
 
 BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
+CUSTOM_UEFI_DIR=""
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -107,21 +109,25 @@ resolve_dependencies() {
     require_file "$KERNEL_PATH"
     require_file "$RAW_PARTS_SCRIPT"
     require_file "$LIMINE_CFG_SOURCE"
-    require_file "$LIMINE_BIN_DIR/BOOTX64.EFI"
     require_file "$LIMINE_BIN_DIR/limine-bios.sys"
     require_file "$LIMINE_BIN_DIR/limine-bios-cd.bin"
-    require_file "$LIMINE_BIN_DIR/limine-uefi-cd.bin"
+    require_file "$CUSTOM_UEFI_SCRIPT"
 
     PYTHON_CMD="$(resolve_python)"
     if [ -z "$PYTHON_CMD" ]; then
         fail "python3 or python is required to package boot files"
     fi
+    CUSTOM_UEFI_DIR="$(bash "$CUSTOM_UEFI_SCRIPT" "$BUILD_DIR")"
+    require_file "$CUSTOM_UEFI_DIR/BOOTX64.EFI"
+    require_file "$CUSTOM_UEFI_DIR/STARTUPX64.EFI"
+    require_file "$CUSTOM_UEFI_DIR/os8boot.cfg"
 }
 
 ensure_layout() {
     mkdir -p "$INSTALL_ROOT/boot"
     mkdir -p "$INSTALL_ROOT/boot/raw"
     mkdir -p "$INSTALL_ROOT/EFI/BOOT"
+    mkdir -p "$INSTALL_ROOT/EFI/OS8"
     mkdir -p "$INSTALL_ROOT/limine"
     mkdir -p "$INSTALL_ROOT/System"
 }
@@ -136,12 +142,12 @@ copy_boot_payload() {
     cp "$LIMINE_CFG_SOURCE" "$INSTALL_ROOT/limine.conf"
     cp "$LIMINE_CFG_SOURCE" "$INSTALL_ROOT/boot/limine.conf"
     cp "$LIMINE_CFG_SOURCE" "$INSTALL_ROOT/limine/limine.conf"
-    cp "$LIMINE_CFG_SOURCE" "$INSTALL_ROOT/EFI/BOOT/limine.conf"
 
     cp "$LIMINE_BIN_DIR/limine-bios.sys" "$INSTALL_ROOT/boot/"
     cp "$LIMINE_BIN_DIR/limine-bios-cd.bin" "$INSTALL_ROOT/boot/"
-    cp "$LIMINE_BIN_DIR/limine-uefi-cd.bin" "$INSTALL_ROOT/boot/"
-    cp "$LIMINE_BIN_DIR/BOOTX64.EFI" "$INSTALL_ROOT/EFI/BOOT/"
+    cp "$CUSTOM_UEFI_DIR/BOOTX64.EFI" "$INSTALL_ROOT/EFI/BOOT/BOOTX64.EFI"
+    cp "$CUSTOM_UEFI_DIR/STARTUPX64.EFI" "$INSTALL_ROOT/EFI/OS8/STARTUPX64.EFI"
+    cp "$CUSTOM_UEFI_DIR/os8boot.cfg" "$INSTALL_ROOT/EFI/OS8/os8boot.cfg"
 }
 
 write_boot_metadata() {
@@ -155,13 +161,13 @@ EOF
 
     cat > "$INSTALL_ROOT/BOOTABLE.CFG" <<EOF
 bootable=1
-loader=limine
+loader=os8-custom
 source=${BOOTABLE_SOURCE}
 EOF
 
     cat > "$INSTALL_ROOT/EFI/BOOT/BOOTABLE.CFG" <<EOF
 bootable=1
-loader=limine
+loader=os8-custom
 source=${BOOTABLE_SOURCE}
 EOF
 
@@ -169,7 +175,7 @@ EOF
 bootable=1
 scheme=mbr
 active_partition=System
-loader=limine
+loader=limine-bios
 source=${BIOS_BOOTABLE_SOURCE}
 EOF
 
@@ -182,7 +188,7 @@ EOF
 
     cat > "$INSTALL_ROOT/System/efi-boot.cfg" <<EOF
 bootable=1
-loader=limine
+loader=os8-custom
 source=${BOOTABLE_SOURCE}
 EOF
 
@@ -190,7 +196,7 @@ EOF
 bootable=1
 scheme=mbr
 active_partition=System
-loader=limine
+loader=limine-bios
 source=${BIOS_BOOTABLE_SOURCE}
 EOF
 
@@ -199,7 +205,8 @@ OS8 System Image
 
 This image contains:
 - a staged OS install tree
-- Limine BIOS and UEFI boot files
+- Limine BIOS compatibility files
+- OS8 custom UEFI loader chain
 
 Primary payload files:
 - /boot/bootloader.sys
@@ -212,11 +219,11 @@ Primary payload files:
 - /limine.conf
 - /boot/limine.conf
 - /limine/limine.conf
-- /EFI/BOOT/limine.conf
 - /boot/limine-bios.sys
 - /boot/limine-bios-cd.bin
-- /boot/limine-uefi-cd.bin
 - /EFI/BOOT/BOOTX64.EFI
+- /EFI/OS8/STARTUPX64.EFI
+- /EFI/OS8/os8boot.cfg
 EOF
 }
 

@@ -115,10 +115,8 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 require_file "$KERNEL_PATH"
-require_file "$LIMINE_BIN_DIR/BOOTX64.EFI"
 require_file "$LIMINE_BIN_DIR/limine-bios.sys"
 require_file "$LIMINE_BIN_DIR/limine-bios-cd.bin"
-require_file "$LIMINE_BIN_DIR/limine-uefi-cd.bin"
 require_file "$LIMINE_CFG_SOURCE"
 require_cmd mkfs.fat
 require_cmd mmd
@@ -169,7 +167,7 @@ OS8 DOS Environment
 
 This image is compatible with:
 - BIOS / MBR boot through Limine BIOS stages
-- UEFI boot through /EFI/BOOT/BOOTX64.EFI
+- UEFI boot through the OS8 custom loader at /EFI/BOOT/BOOTX64.EFI
 
 Included DOS payload:
 - /OSINST.COM
@@ -234,6 +232,7 @@ LIMINE_TOOL="$(resolve_limine_tool)"
 log "Seeding UEFI boot files into FAT image"
 mmd -i "$MTOOLS_IMAGE" ::/EFI
 mmd -i "$MTOOLS_IMAGE" ::/EFI/BOOT
+mmd -i "$MTOOLS_IMAGE" ::/EFI/OS8
 mmd -i "$MTOOLS_IMAGE" ::/boot
 mmd -i "$MTOOLS_IMAGE" ::/limine
 mmd -i "$MTOOLS_IMAGE" ::/System

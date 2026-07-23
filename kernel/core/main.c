@@ -67,6 +67,7 @@ static void seed_write_text(const char *prefix, const char *path, mode_t mode,
                             const char *content);
 static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
                              const uint8_t *data, size_t size);
+static int verify_init_script(void);
 static void keyboard_handler(int key);
 static void keyboard_gui_handler(int key);
 static int cmdline_has_token(const char *cmdline, const char *token);
@@ -642,6 +643,192 @@ static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
   ramfs_create_file_bytes(full_path, mode, data, size);
 }
 
+static uint32_t boot_sha256_rotr(uint32_t x, uint32_t n) {
+  return (x >> n) | (x << (32 - n));
+}
+
+static void boot_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
+  static const uint32_t k[64] = {
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+      0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+      0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+      0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+      0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+      0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+      0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+      0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+      0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+  uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                   0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+  uint64_t bit_len = (uint64_t)len * 8;
+  size_t padded_len = len + 1 + 8;
+  if (padded_len & 63)
+    padded_len = (padded_len + 63) & ~(size_t)63;
+
+  for (size_t offset = 0; offset < padded_len; offset += 64) {
+    uint8_t block[64];
+    uint32_t w[64];
+
+    memset(block, 0, sizeof(block));
+    for (size_t i = 0; i < 64; i++) {
+      size_t pos = offset + i;
+      if (pos < len)
+        block[i] = data[pos];
+      else if (pos == len)
+        block[i] = 0x80;
+    }
+    if (offset + 64 == padded_len) {
+      for (int i = 0; i < 8; i++)
+        block[63 - i] = (uint8_t)(bit_len >> (i * 8));
+    }
+
+    for (int i = 0; i < 16; i++) {
+      w[i] = ((uint32_t)block[i * 4] << 24) |
+             ((uint32_t)block[i * 4 + 1] << 16) |
+             ((uint32_t)block[i * 4 + 2] << 8) | block[i * 4 + 3];
+    }
+    for (int i = 16; i < 64; i++) {
+      uint32_t s0 = boot_sha256_rotr(w[i - 15], 7) ^
+                    boot_sha256_rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      uint32_t s1 = boot_sha256_rotr(w[i - 2], 17) ^
+                    boot_sha256_rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+
+    uint32_t a = h[0], b = h[1], c = h[2], d = h[3];
+    uint32_t e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (int i = 0; i < 64; i++) {
+      uint32_t s1 = boot_sha256_rotr(e, 6) ^ boot_sha256_rotr(e, 11) ^
+                    boot_sha256_rotr(e, 25);
+      uint32_t ch = (e & f) ^ ((~e) & g);
+      uint32_t temp1 = hh + s1 + ch + k[i] + w[i];
+      uint32_t s0 = boot_sha256_rotr(a, 2) ^ boot_sha256_rotr(a, 13) ^
+                    boot_sha256_rotr(a, 22);
+      uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+      uint32_t temp2 = s0 + maj;
+      hh = g;
+      g = f;
+      f = e;
+      e = d + temp1;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2;
+    }
+    h[0] += a;
+    h[1] += b;
+    h[2] += c;
+    h[3] += d;
+    h[4] += e;
+    h[5] += f;
+    h[6] += g;
+    h[7] += hh;
+  }
+
+  for (int i = 0; i < 8; i++) {
+    out[i * 4] = (uint8_t)(h[i] >> 24);
+    out[i * 4 + 1] = (uint8_t)(h[i] >> 16);
+    out[i * 4 + 2] = (uint8_t)(h[i] >> 8);
+    out[i * 4 + 3] = (uint8_t)h[i];
+  }
+}
+
+static void boot_hex_digest(const uint8_t digest[32], char out[65]) {
+  static const char hex[] = "0123456789abcdef";
+
+  for (int i = 0; i < 32; i++) {
+    out[i * 2] = hex[digest[i] >> 4];
+    out[i * 2 + 1] = hex[digest[i] & 0xf];
+  }
+  out[64] = '\0';
+}
+
+static int boot_cfg_append(char *dst, size_t dst_size, size_t *idx,
+                           const char *text) {
+  if (!dst || !idx || !text || *idx >= dst_size)
+    return -1;
+
+  while (*text) {
+    if (*idx + 1 >= dst_size)
+      return -1;
+    dst[(*idx)++] = *text++;
+  }
+  dst[*idx] = '\0';
+  return 0;
+}
+
+static int build_os8_boot_config(const uint8_t *kernel_image,
+                                 size_t kernel_size,
+                                 const uint8_t *startup_image,
+                                 size_t startup_size, char *dst,
+                                 size_t dst_size) {
+  uint8_t kernel_digest[32];
+  uint8_t startup_digest[32];
+  char kernel_hex[65];
+  char startup_hex[65];
+  size_t idx = 0;
+
+  if (!kernel_image || kernel_size == 0 || !startup_image ||
+      startup_size == 0 || !dst || dst_size == 0)
+    return -1;
+
+  boot_sha256(startup_image, startup_size, startup_digest);
+  boot_sha256(kernel_image, kernel_size, kernel_digest);
+  boot_hex_digest(startup_digest, startup_hex);
+  boot_hex_digest(kernel_digest, kernel_hex);
+  dst[0] = '\0';
+
+  if (boot_cfg_append(dst, dst_size, &idx,
+                      "version=1\n"
+                      "input_timeout_ms=1500\n"
+                      "startup_path=\\EFI\\OS8\\STARTUPX64.EFI\n"
+                      "startup_sha256=") != 0 ||
+      boot_cfg_append(dst, dst_size, &idx, startup_hex) != 0 ||
+      boot_cfg_append(dst, dst_size, &idx,
+                      "\n"
+                      "kernel_path=\\boot\\main.sys\n"
+                      "kernel_sha256=") != 0 ||
+      boot_cfg_append(dst, dst_size, &idx, kernel_hex) != 0 ||
+      boot_cfg_append(dst, dst_size, &idx,
+                      "\n"
+                      "trusted_key=os8-development\n"
+                      "recovery_partition=auto\n"
+                      "boot_options=normal\n") != 0)
+    return -1;
+
+  return 0;
+}
+
+static int verify_init_script(void) {
+  static int cached_result = -1;
+  uint8_t digest[32];
+
+  if (cached_result >= 0)
+    return cached_result;
+
+  boot_sha256(init_bin, init_bin_len, digest);
+  cached_result = 1;
+  for (int i = 0; i < 32; i++) {
+    if (digest[i] != init_bin_sha256[i]) {
+      cached_result = 0;
+      break;
+    }
+  }
+
+  if (cached_result)
+    printk(KERN_INFO "INIT: /sbin/init verification passed\n");
+  else
+    printk(KERN_ERR "INIT-0001: /sbin/init verification failed\n");
+  return cached_result;
+}
+
 static void populate_seed_tree_at(const char *prefix) {
 #if CONFIG_EMBED_SEED_ASSETS
   extern const unsigned char bootstrap_test_png[];
@@ -737,6 +924,8 @@ static void populate_seed_tree_at(const char *prefix) {
   seed_make_dir(prefix, "usr");
   seed_make_dir(prefix, "usr/bin");
 
+  if (!verify_init_script())
+    panic("INIT-0001: /sbin/init verification failed");
   seed_write_bytes(prefix, "/sbin/init", 0755, init_bin, init_bin_len);
   seed_write_bytes(prefix, "/bin/login", 0755, login_bin, login_bin_len);
   seed_write_bytes(prefix, "/bin/sh", 0755, shell_bin, shell_bin_len);
@@ -787,6 +976,7 @@ static void ensure_boot_payload_dirs(const char *prefix) {
   seed_make_dir(prefix, "boot");
   seed_make_dir(prefix, "EFI");
   seed_make_dir(prefix, "EFI/BOOT");
+  seed_make_dir(prefix, "EFI/OS8");
   seed_make_dir(prefix, "limine");
 }
 
@@ -1044,7 +1234,13 @@ void refresh_external_storage_views(void) {
         printk(KERN_INFO
                "STORAGE: mounted CD-ROM '%s' on '%s'\n",
                location, mounted_root);
-        import_boot_media_assets_from(mounted_root);
+        {
+          extern int boot_is_installer_mode(void);
+          if (!boot_is_installer_mode())
+            import_boot_media_assets_from(mounted_root);
+        }
+        printk(KERN_INFO "INSTALL: installer payload available at %s/install\n",
+               mounted_root);
         continue;
       }
       printk(KERN_WARNING
@@ -1088,15 +1284,15 @@ static void populate_installer_payload(void) {
   extern uint64_t limine_get_kernel_file_size(void);
   extern const unsigned char installer_payload_bootx64_efi[];
   extern const unsigned char installer_payload_bootx64_efi_end[];
+  extern const unsigned char installer_payload_startupx64_efi[];
+  extern const unsigned char installer_payload_startupx64_efi_end[];
   extern const unsigned char installer_payload_limine_bios_sys[];
   extern const unsigned char installer_payload_limine_bios_sys_end[];
   extern const unsigned char installer_payload_limine_bios_cd_bin[];
   extern const unsigned char installer_payload_limine_bios_cd_bin_end[];
-  extern const unsigned char installer_payload_limine_uefi_cd_bin[];
-  extern const unsigned char installer_payload_limine_uefi_cd_bin_end[];
   static const char *installed_limine_cfg =
       "# OS8 Boot Configuration\n"
-      "# OS8 x64\n"
+      "# OS8 x64 legacy BIOS fallback\n"
       "\n"
       "timeout: 0\n"
       "\n"
@@ -1105,7 +1301,7 @@ static void populate_installer_payload(void) {
       "    kernel_path: boot():/boot/bootloader.sys\n";
   static const char *installer_limine_cfg =
       "# OS8 Boot Configuration\n"
-      "# OS8 x64 graphical installer\n"
+      "# OS8 x64 graphical installer legacy BIOS fallback\n"
       "\n"
       "timeout: 5\n"
       "\n"
@@ -1120,13 +1316,13 @@ static void populate_installer_payload(void) {
       "the GUI installer can copy a complete system to disk.\n";
   static const char *installed_bootable_cfg =
       "bootable=1\n"
-      "loader=limine\n"
+      "loader=os8-custom\n"
       "source=installed-system\n";
   static const char *installed_bios_bootable_cfg =
       "bootable=1\n"
       "scheme=mbr\n"
       "active_partition=System\n"
-      "loader=limine\n"
+      "loader=limine-bios\n"
       "source=installed-system\n";
   static const char *installed_installer_state =
       "installed=1\n"
@@ -1135,13 +1331,13 @@ static void populate_installer_payload(void) {
       "first_boot_setup=1\n";
   static const char *installed_efi_boot_cfg =
       "bootable=1\n"
-      "loader=limine\n"
+      "loader=os8-custom\n"
       "source=installed-system\n";
   static const char *installed_mbr_boot_cfg =
       "bootable=1\n"
       "scheme=mbr\n"
       "active_partition=System\n"
-      "loader=limine\n"
+      "loader=limine-bios\n"
       "source=installed-system\n";
   static const char *installers_txt =
       "OS8 Graphical Installer\n"
@@ -1159,9 +1355,10 @@ static void populate_installer_payload(void) {
   const uint8_t *kernel_image;
   size_t kernel_size;
   size_t bootx64_efi_size;
+  size_t startupx64_efi_size;
   size_t limine_bios_sys_size;
   size_t limine_bios_cd_size;
-  size_t limine_uefi_cd_size;
+  char os8boot_cfg[512];
   int installer_mode = boot_is_installer_mode();
 
   kernel_image = (const uint8_t *)limine_get_kernel_file_addr();
@@ -1172,12 +1369,19 @@ static void populate_installer_payload(void) {
   }
   bootx64_efi_size = (size_t)(installer_payload_bootx64_efi_end -
                               installer_payload_bootx64_efi);
+  startupx64_efi_size = (size_t)(installer_payload_startupx64_efi_end -
+                                 installer_payload_startupx64_efi);
   limine_bios_sys_size = (size_t)(installer_payload_limine_bios_sys_end -
                                   installer_payload_limine_bios_sys);
   limine_bios_cd_size = (size_t)(installer_payload_limine_bios_cd_bin_end -
                                  installer_payload_limine_bios_cd_bin);
-  limine_uefi_cd_size = (size_t)(installer_payload_limine_uefi_cd_bin_end -
-                                 installer_payload_limine_uefi_cd_bin);
+  if (build_os8_boot_config(kernel_image, kernel_size,
+                            installer_payload_startupx64_efi,
+                            startupx64_efi_size, os8boot_cfg,
+                            sizeof(os8boot_cfg)) != 0) {
+    printk(KERN_ERR "INSTALL: failed to generate OS8 boot configuration\n");
+    return;
+  }
   int staged_image_present = staged_system_image_exists();
 
   if (!staged_image_present) {
@@ -1199,17 +1403,12 @@ static void populate_installer_payload(void) {
                                 installed_limine_cfg) != 0 ||
         media_install_text_file("/install/system-image/limine/limine.conf",
                                 installed_limine_cfg) != 0 ||
-        media_install_text_file("/install/system-image/EFI/BOOT/limine.conf",
-                                installed_limine_cfg) != 0 ||
         media_install_file("/install/system-image/boot/limine-bios.sys",
                            installer_payload_limine_bios_sys,
                            limine_bios_sys_size) != 0 ||
         media_install_file("/install/system-image/boot/limine-bios-cd.bin",
                            installer_payload_limine_bios_cd_bin,
                            limine_bios_cd_size) != 0 ||
-        media_install_file("/install/system-image/boot/limine-uefi-cd.bin",
-                           installer_payload_limine_uefi_cd_bin,
-                           limine_uefi_cd_size) != 0 ||
         media_install_text_file("/install/system-image/INSTALLERS.TXT",
                                 installers_txt) != 0 ||
         media_install_text_file("/install/system-image/BOOTABLE.CFG",
@@ -1221,6 +1420,11 @@ static void populate_installer_payload(void) {
         media_install_file("/install/system-image/EFI/BOOT/BOOTX64.EFI",
                            installer_payload_bootx64_efi,
                            bootx64_efi_size) != 0 ||
+        media_install_file("/install/system-image/EFI/OS8/STARTUPX64.EFI",
+                           installer_payload_startupx64_efi,
+                           startupx64_efi_size) != 0 ||
+        media_install_text_file("/install/system-image/EFI/OS8/os8boot.cfg",
+                                os8boot_cfg) != 0 ||
         media_install_text_file("/install/system-image/System/installer-state.txt",
                                 installed_installer_state) != 0 ||
         media_install_text_file("/install/system-image/System/efi-boot.cfg",
@@ -1247,19 +1451,19 @@ static void populate_installer_payload(void) {
                                 installer_limine_cfg) != 0 ||
         media_install_text_file("/setup/limine/limine.conf",
                                 installer_limine_cfg) != 0 ||
-        media_install_text_file("/setup/EFI/BOOT/limine.conf",
-                                installer_limine_cfg) != 0 ||
         media_install_file("/setup/boot/limine-bios.sys",
                            installer_payload_limine_bios_sys,
                            limine_bios_sys_size) != 0 ||
         media_install_file("/setup/boot/limine-bios-cd.bin",
                            installer_payload_limine_bios_cd_bin,
                            limine_bios_cd_size) != 0 ||
-        media_install_file("/setup/boot/limine-uefi-cd.bin",
-                           installer_payload_limine_uefi_cd_bin,
-                           limine_uefi_cd_size) != 0 ||
         media_install_file("/setup/EFI/BOOT/BOOTX64.EFI",
                            installer_payload_bootx64_efi, bootx64_efi_size) != 0 ||
+        media_install_file("/setup/EFI/OS8/STARTUPX64.EFI",
+                           installer_payload_startupx64_efi,
+                           startupx64_efi_size) != 0 ||
+        media_install_text_file("/setup/EFI/OS8/os8boot.cfg",
+                                os8boot_cfg) != 0 ||
         media_install_text_file("/setup/SETUP_INFO.txt", setup_info) != 0 ||
         media_install_text_file("/setup/INSTALLERS.TXT", installers_txt) != 0;
 
@@ -1276,17 +1480,12 @@ static void populate_installer_payload(void) {
                                   installed_limine_cfg) != 0 ||
           media_install_text_file("/setup/install/system-image/limine/limine.conf",
                                   installed_limine_cfg) != 0 ||
-          media_install_text_file("/setup/install/system-image/EFI/BOOT/limine.conf",
-                                  installed_limine_cfg) != 0 ||
           media_install_file("/setup/install/system-image/boot/limine-bios.sys",
                              installer_payload_limine_bios_sys,
                              limine_bios_sys_size) != 0 ||
           media_install_file("/setup/install/system-image/boot/limine-bios-cd.bin",
                              installer_payload_limine_bios_cd_bin,
                              limine_bios_cd_size) != 0 ||
-          media_install_file("/setup/install/system-image/boot/limine-uefi-cd.bin",
-                             installer_payload_limine_uefi_cd_bin,
-                             limine_uefi_cd_size) != 0 ||
           media_install_text_file("/setup/install/system-image/INSTALLERS.TXT",
                                   installers_txt) != 0 ||
           media_install_text_file("/setup/install/system-image/BOOTABLE.CFG",
@@ -1299,6 +1498,12 @@ static void populate_installer_payload(void) {
           media_install_file("/setup/install/system-image/EFI/BOOT/BOOTX64.EFI",
                              installer_payload_bootx64_efi,
                              bootx64_efi_size) != 0 ||
+          media_install_file("/setup/install/system-image/EFI/OS8/STARTUPX64.EFI",
+                             installer_payload_startupx64_efi,
+                             startupx64_efi_size) != 0 ||
+          media_install_text_file(
+              "/setup/install/system-image/EFI/OS8/os8boot.cfg",
+              os8boot_cfg) != 0 ||
           media_install_text_file(
               "/setup/install/system-image/System/installer-state.txt",
               installed_installer_state) != 0 ||
@@ -1902,6 +2107,11 @@ static void start_init_process(void) {
       last_buttons = mbuttons;
     }
     frame_profile.mouse_us = profile_split_us(&step_start_us);
+
+    {
+      extern void gui_installer_background_tick(void);
+      gui_installer_background_tick();
+    }
 
     if (gui_needs_redraw()) {
       uint64_t compose_start_us = gui_monotonic_us();

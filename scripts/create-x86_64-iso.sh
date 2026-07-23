@@ -17,8 +17,6 @@ BOOT_FILES_SCRIPT="${ROOT_DIR}/scripts/build-install-boot-files.sh"
 SYSTEM_IMAGE_SCRIPT="${ROOT_DIR}/scripts/create-system-image.sh"
 BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
-LIMINE_SRC_DIR="${BOOT_MANAGER_DIR}"
-LIMINE_TOOL_PATH="${LIMINE_SRC_DIR}/limine"
 LIMINE_CFG="${LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine.conf}"
 INSTALL_LIMINE_CFG="${INSTALL_LIMINE_CFG:-${X86_64_BOOT_ASSET_DIR}/limine-installed.conf}"
 INCLUDE_INSTALLER="${INCLUDE_INSTALLER:-0}"
@@ -117,70 +115,17 @@ require_cmd() {
     fi
 }
 
-ensure_executable() {
-    local path="$1"
-    if [ ! -x "$path" ]; then
-        chmod +x "$path" 2>/dev/null || true
-    fi
-    if [ ! -x "$path" ]; then
-        echo "[ERROR] Required executable is not runnable: $path" >&2
-        exit 1
-    fi
-}
-
-tool_runs() {
-    local path="$1"
-    if [ ! -x "$path" ]; then
-        return 1
-    fi
-    if "$path" --help >/dev/null 2>&1; then
-        return 0
-    fi
-    case $? in
-        126|127)
-            return 1
-            ;;
-        *)
-            return 0
-            ;;
-    esac
-}
-
-resolve_limine_tool() {
-    local host_tool="${LIMINE_SRC_DIR}/limine-host"
-
-    if tool_runs "$LIMINE_TOOL_PATH"; then
-        printf '%s\n' "$LIMINE_TOOL_PATH"
-        return 0
-    fi
-
-    require_file "${LIMINE_SRC_DIR}/limine.c"
-    require_cmd cc
-
-    if ! tool_runs "$host_tool"; then
-        log "Bundled Limine host tool is not runnable on this platform; building a native copy" >&2
-        cc -g -O2 -pipe -Wall -Wextra -std=c99 "${LIMINE_SRC_DIR}/limine.c" -o "$host_tool"
-        ensure_executable "$host_tool"
-    fi
-
-    if ! tool_runs "$host_tool"; then
-        echo "[ERROR] Failed to build a runnable Limine host tool: $host_tool" >&2
-        exit 1
-    fi
-
-    printf '%s\n' "$host_tool"
-}
-
 require_file "$KERNEL_PATH"
 require_file "$LIMINE_CFG"
 if [ "$INCLUDE_INSTALLER" = "1" ]; then
     require_file "$INSTALL_LIMINE_CFG"
 fi
-require_file "$LIMINE_BIN_DIR/BOOTX64.EFI"
 require_file "$LIMINE_BIN_DIR/limine-bios.sys"
 require_file "$LIMINE_BIN_DIR/limine-bios-cd.bin"
-require_file "$LIMINE_BIN_DIR/limine-uefi-cd.bin"
 require_cmd xorriso
+require_cmd mformat
+require_cmd mmd
+require_cmd mcopy
 
 mkdir -p "$IMAGE_DIR"
 rm -rf "$ISO_ROOT"
@@ -203,30 +148,46 @@ if [ "$INCLUDE_INSTALLER" = "1" ]; then
         cp "$SYSTEM_DISK_IMAGE" "$ISO_ROOT/install/system.img"
     fi
 fi
-LIMINE_TOOL="$(resolve_limine_tool)"
-
 if [ -d "${BUILD_DIR}/assets" ]; then
     mkdir -p "$ISO_ROOT/assets"
     cp -R "${BUILD_DIR}/assets"/. "$ISO_ROOT/assets/"
 fi
+
+EFI_BOOT_IMAGE="${ISO_ROOT}/EFI/efiboot.img"
+log "Creating UEFI El Torito boot image: $EFI_BOOT_IMAGE"
+dd if=/dev/zero of="$EFI_BOOT_IMAGE" bs=1M count=16 status=none
+mformat -i "$EFI_BOOT_IMAGE" -v OS8EFI ::
+mmd -i "$EFI_BOOT_IMAGE" ::/EFI
+mmd -i "$EFI_BOOT_IMAGE" ::/EFI/BOOT
+mmd -i "$EFI_BOOT_IMAGE" ::/EFI/OS8
+mmd -i "$EFI_BOOT_IMAGE" ::/boot
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/EFI/OS8/STARTUPX64.EFI" ::/EFI/OS8/STARTUPX64.EFI
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/EFI/OS8/os8boot.cfg" ::/EFI/OS8/os8boot.cfg
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/boot/main.sys" ::/boot/main.sys
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/boot/bootloader.sys" ::/boot/bootloader.sys
 
 ISO_PATH="${IMAGE_DIR}/${ISO_NAME}"
 rm -f "$ISO_PATH"
 
 log "Creating hybrid BIOS+UEFI ISO: $ISO_PATH"
 xorriso -as mkisofs \
+    -J \
+    -joliet-long \
+    -r \
     -b boot/limine-bios-cd.bin \
     -no-emul-boot \
     -boot-load-size 4 \
     -boot-info-table \
-    --efi-boot boot/limine-uefi-cd.bin \
+    -eltorito-alt-boot \
+    -e EFI/efiboot.img \
+    -no-emul-boot \
     -efi-boot-part \
     --efi-boot-image \
     --protective-msdos-label \
     "$ISO_ROOT" \
     -o "$ISO_PATH"
 
-"$LIMINE_TOOL" bios-install "$ISO_PATH" >/dev/null 2>&1 || true
 compress_iso "$ISO_PATH"
 if [ "$INCLUDE_INSTALLER" = "1" ]; then
     compress_installer_7z "$ISO_PATH"
@@ -250,12 +211,13 @@ require_iso_path "/boot/bootloader.sys"
 require_iso_path "/boot/main.sys"
 require_iso_path "/boot/raw/manifest.txt"
 require_iso_path "/boot/limine-bios-cd.bin"
-require_iso_path "/boot/limine-uefi-cd.bin"
 require_iso_path "/boot/limine-bios.sys"
 require_iso_path "/EFI/BOOT/BOOTX64.EFI"
+require_iso_path "/EFI/OS8/STARTUPX64.EFI"
+require_iso_path "/EFI/OS8/os8boot.cfg"
+require_iso_path "/EFI/efiboot.img"
 require_iso_path "/limine.conf"
 require_iso_path "/boot/limine.conf"
-require_iso_path "/EFI/BOOT/limine.conf"
 if [ "$INCLUDE_INSTALLER" = "1" ]; then
     require_iso_path "/INSTALLERS.TXT"
     require_iso_path "/install/system-image.zip"
@@ -272,11 +234,11 @@ if [ "$INCLUDE_INSTALLER" = "1" ]; then
     require_iso_path "/install/system-image/limine.conf"
     require_iso_path "/install/system-image/boot/limine.conf"
     require_iso_path "/install/system-image/limine/limine.conf"
-    require_iso_path "/install/system-image/EFI/BOOT/limine.conf"
     require_iso_path "/install/system-image/boot/limine-bios.sys"
     require_iso_path "/install/system-image/boot/limine-bios-cd.bin"
-    require_iso_path "/install/system-image/boot/limine-uefi-cd.bin"
     require_iso_path "/install/system-image/EFI/BOOT/BOOTX64.EFI"
+    require_iso_path "/install/system-image/EFI/OS8/STARTUPX64.EFI"
+    require_iso_path "/install/system-image/EFI/OS8/os8boot.cfg"
     require_iso_path "/install/system-image/IMAGE_INFO.txt"
 fi
 log "ISO created successfully: $ISO_PATH"

@@ -1996,10 +1996,13 @@ int storage_write_disk_image(int disk_index, const uint8_t *data, size_t size) {
 }
 
 int storage_write_disk_image_file(int disk_index, const char *path) {
+  enum { IMAGE_IO_BUFFER_SIZE = STORAGE_SECTOR_SIZE * 128 };
+  static uint8_t image_buffer[IMAGE_IO_BUFFER_SIZE];
   struct file *file;
-  uint8_t sector[STORAGE_SECTOR_SIZE];
   uint64_t disk_sectors;
   uint64_t image_sectors;
+  uint64_t sectors_written = 0;
+  uint64_t bytes_remaining;
   loff_t file_size;
 
   if (disk_index < 0 || disk_index >= storage_disk_count || !path || !path[0])
@@ -2029,22 +2032,46 @@ int storage_write_disk_image_file(int disk_index, const char *path) {
     return -1;
   }
 
-  for (uint64_t sector_index = 0; sector_index < image_sectors; sector_index++) {
-    ssize_t bytes_read = vfs_read(file, (char *)sector, STORAGE_SECTOR_SIZE);
-    if (bytes_read < 0) {
+  bytes_remaining = (uint64_t)file_size;
+  printk(KERN_INFO "STORAGE: writing disk image %s (%llu sectors) to %s\n",
+         path, (unsigned long long)image_sectors,
+         storage_disks[disk_index].location);
+
+  while (sectors_written < image_sectors) {
+    size_t wanted = bytes_remaining > IMAGE_IO_BUFFER_SIZE
+                        ? IMAGE_IO_BUFFER_SIZE
+                        : (size_t)bytes_remaining;
+    ssize_t bytes_read = vfs_read(file, (char *)image_buffer, wanted);
+    size_t buffered;
+
+    if (bytes_read <= 0) {
       vfs_close(file);
       return -1;
     }
-    if (bytes_read == 0) {
-      vfs_close(file);
-      return -1;
+
+    buffered = (size_t)bytes_read;
+    for (size_t offset = 0; offset < buffered; offset += STORAGE_SECTOR_SIZE) {
+      size_t chunk = buffered - offset;
+      if (chunk < STORAGE_SECTOR_SIZE) {
+        for (size_t i = offset + chunk;
+             i < offset + STORAGE_SECTOR_SIZE && i < IMAGE_IO_BUFFER_SIZE; i++)
+          image_buffer[i] = 0;
+      }
+      if (storage_disk_write_sector(disk_index, (uint32_t)sectors_written,
+                                    &image_buffer[offset]) != 0) {
+        vfs_close(file);
+        return -1;
+      }
+      sectors_written++;
+      if ((sectors_written & 0x3FFFULL) == 0 ||
+          sectors_written == image_sectors) {
+        printk(KERN_INFO "STORAGE: disk image write %llu/%llu sectors\n",
+               (unsigned long long)sectors_written,
+               (unsigned long long)image_sectors);
+      }
     }
-    for (size_t i = (size_t)bytes_read; i < STORAGE_SECTOR_SIZE; i++)
-      sector[i] = 0;
-    if (storage_disk_write_sector(disk_index, (uint32_t)sector_index, sector) != 0) {
-      vfs_close(file);
-      return -1;
-    }
+
+    bytes_remaining -= buffered;
   }
 
   vfs_close(file);

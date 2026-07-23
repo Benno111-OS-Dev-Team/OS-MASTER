@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fetch the latest OS-BOOT-MANAGER release assets into a build-local cache.
+# Fetch legacy BIOS boot assets into a build-local cache.
 
 set -euo pipefail
 
@@ -31,11 +31,6 @@ sync_from_archive() {
     local extract_dir="$2"
     local source_dir="$extract_dir/os-boot-manager-binary"
     local root_files=(
-        "BOOTAA64.EFI"
-        "BOOTIA32.EFI"
-        "BOOTLOONGARCH64.EFI"
-        "BOOTRISCV64.EFI"
-        "BOOTX64.EFI"
         "LICENSE"
         "Makefile"
         "limine-bios-cd.bin"
@@ -43,13 +38,10 @@ sync_from_archive() {
         "limine-bios-pxe.bin"
         "limine-bios.sys"
         "limine.c"
-        "limine-uefi-cd.bin"
     )
     local bin_files=(
-        "BOOTX64.EFI"
         "limine-bios-cd.bin"
         "limine-bios.sys"
-        "limine-uefi-cd.bin"
     )
 
     rm -rf "$OUTPUT_DIR"
@@ -85,10 +77,8 @@ if curl -fL --retry 3 --retry-delay 2 "$LATEST_URL" -o "$ARCHIVE"; then
     sync_from_archive "$ARCHIVE" "$EXTRACT_DIR"
     log "Updated boot assets"
 else
-    if [ -f "$OUTPUT_DIR/bin/BOOTX64.EFI" ] && \
-       [ -f "$OUTPUT_DIR/bin/limine-bios.sys" ] && \
+    if [ -f "$OUTPUT_DIR/bin/limine-bios.sys" ] && \
        [ -f "$OUTPUT_DIR/bin/limine-bios-cd.bin" ] && \
-       [ -f "$OUTPUT_DIR/bin/limine-uefi-cd.bin" ] && \
        [ -f "$OUTPUT_DIR/limine.c" ]; then
         warn "Failed to refresh upstream release; reusing cached boot assets in $OUTPUT_DIR"
         printf '%s\n' "$OUTPUT_DIR"

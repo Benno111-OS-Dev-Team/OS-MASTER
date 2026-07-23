@@ -5,9 +5,12 @@
 
 extern const unsigned char init_bin[];
 extern const unsigned int init_bin_len;
+extern const unsigned char init_bin_sha256[32];
 extern const unsigned char login_bin[];
 extern const unsigned int login_bin_len;
+extern const unsigned char login_bin_sha256[32];
 extern const unsigned char shell_bin[];
 extern const unsigned int shell_bin_len;
+extern const unsigned char shell_bin_sha256[32];
 
 #endif

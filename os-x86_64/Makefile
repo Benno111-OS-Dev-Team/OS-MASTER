@@ -1,5 +1,5 @@
 # UEFI Demo OS Makefile
-# Builds a bootable x86_64 kernel using Limine bootloader
+# Builds a bootable x86_64 kernel using the OS8 custom UEFI loader.
 
 # Toolchain - use cross compiler if available, otherwise try clang
 CC := clang
@@ -14,15 +14,19 @@ ifneq ($(CROSS_CC),)
 endif
 
 # Directories
+ROOT_DIR := $(shell cd .. && pwd)
 KERNEL_DIR := kernel
 BUILD_DIR := build
 ISO_ROOT := iso_root
+EFI_BOOT_IMAGE := $(ISO_ROOT)/EFI/efiboot.img
 
 # Output files
 KERNEL := $(BUILD_DIR)/main.sys
 ISO := uefi-demo.iso
 BOOT_MANAGER_DIR := $(BUILD_DIR)/boot-assets/os-boot-manager
 BOOT_MANAGER_SYNC := $(ROOT_DIR)/scripts/update-os-boot-manager.sh
+CUSTOM_UEFI_SCRIPT := $(ROOT_DIR)/scripts/build-custom-uefi.sh
+CUSTOM_UEFI_DIR := $(BUILD_DIR)/boot/custom-uefi
 
 # Compiler flags
 CFLAGS := -target x86_64-unknown-none-elf \
@@ -148,22 +152,33 @@ $(ISO): $(KERNEL) $(LIMINE_DIR)/limine
 	cp $(KERNEL) $(ISO_ROOT)/boot/bootloader.sys
 	cp $(KERNEL) $(ISO_ROOT)/boot/main.sys
 	
-	# Copy Limine config to ALL locations Limine searches
+	# Copy legacy BIOS config for the fallback BIOS path
 	cp limine.conf $(ISO_ROOT)/limine.conf
 	cp limine.conf $(ISO_ROOT)/boot/limine.conf
 	cp limine.conf $(ISO_ROOT)/limine/limine.conf
-	cp limine.conf $(ISO_ROOT)/EFI/BOOT/limine.conf
-	
-	# Copy Limine files
+
+	# Copy Limine BIOS files and the OS8 custom UEFI startup chain
+	bash $(CUSTOM_UEFI_SCRIPT) $(BUILD_DIR)
 	cp $(LIMINE_DIR)/bin/limine-bios.sys $(ISO_ROOT)/boot/ 2>/dev/null || true
 	cp $(LIMINE_DIR)/bin/limine-bios-cd.bin $(ISO_ROOT)/boot/ 2>/dev/null || true
-	cp $(LIMINE_DIR)/bin/limine-uefi-cd.bin $(ISO_ROOT)/boot/ 2>/dev/null || true
-	cp $(LIMINE_DIR)/bin/BOOTX64.EFI $(ISO_ROOT)/EFI/BOOT/
-	
+	mkdir -p $(ISO_ROOT)/EFI/OS8
+	cp $(CUSTOM_UEFI_DIR)/BOOTX64.EFI $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI
+	cp $(CUSTOM_UEFI_DIR)/STARTUPX64.EFI $(ISO_ROOT)/EFI/OS8/STARTUPX64.EFI
+	cp $(CUSTOM_UEFI_DIR)/os8boot.cfg $(ISO_ROOT)/EFI/OS8/os8boot.cfg
+	dd if=/dev/zero of=$(EFI_BOOT_IMAGE) bs=1M count=16 status=none
+	mformat -i $(EFI_BOOT_IMAGE) -v OS8EFI ::
+	mmd -i $(EFI_BOOT_IMAGE) ::/EFI ::/EFI/BOOT ::/EFI/OS8 ::/boot
+	mcopy -i $(EFI_BOOT_IMAGE) $(ISO_ROOT)/EFI/BOOT/BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
+	mcopy -i $(EFI_BOOT_IMAGE) $(ISO_ROOT)/EFI/OS8/STARTUPX64.EFI ::/EFI/OS8/STARTUPX64.EFI
+	mcopy -i $(EFI_BOOT_IMAGE) $(ISO_ROOT)/EFI/OS8/os8boot.cfg ::/EFI/OS8/os8boot.cfg
+	mcopy -i $(EFI_BOOT_IMAGE) $(ISO_ROOT)/boot/main.sys ::/boot/main.sys
+	mcopy -i $(EFI_BOOT_IMAGE) $(ISO_ROOT)/boot/bootloader.sys ::/boot/bootloader.sys
 	# Create ISO using xorriso
 	xorriso -as mkisofs -b boot/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
-		--efi-boot boot/limine-uefi-cd.bin \
+		-eltorito-alt-boot \
+		-e EFI/efiboot.img \
+		-no-emul-boot \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
 		$(ISO_ROOT) -o $(ISO)
 	

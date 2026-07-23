@@ -126,6 +126,7 @@ static void notepad_append_to_buf(char *dst, int max, const char *src);
 static int installer_selected_disk_index(void);
 static void installer_fail_background(const char *status, const char *log_line);
 static void installer_start_background_install(void);
+static void installer_process_autorun(void);
 static void installer_process_background_install(void);
 static void gui_flush_account_state_before_power_transition(void);
 static void str_copy_safe(char *dst, const char *src, int max);
@@ -678,6 +679,7 @@ static int gui_installer_text_mode(void) {
 static char installer_status[96] = "Ready to install the system image.";
 static int installer_has_run = 0;
 static int installer_active = 0;
+static int installer_autorun_attempted = 0;
 static int installer_show_restart_screen = 0;
 enum {
   INSTALLER_PAGE_WELCOME = 0,
@@ -10121,6 +10123,8 @@ static const char *installer_system_disk_image_path(void) {
     return "/install/system.img";
   if (installer_payload_file_exists("/setup/install/system.img"))
     return "/setup/install/system.img";
+  if (installer_payload_file_exists("/mnt/cd1/install/system.img"))
+    return "/mnt/cd1/install/system.img";
   return NULL;
 }
 
@@ -10136,6 +10140,10 @@ static const char *installer_system_image_root_path(void) {
     return "/install/system-image.zip";
   if (installer_payload_file_exists("/setup/install/system-image.zip"))
     return "/setup/install/system-image.zip";
+  if (installer_payload_file_exists("/mnt/cd1/install/system-image"))
+    return "/mnt/cd1/install/system-image";
+  if (installer_payload_file_exists("/mnt/cd1/install/system-image.zip"))
+    return "/mnt/cd1/install/system-image.zip";
   return "/setup/install/system-image";
 }
 
@@ -10156,6 +10164,8 @@ static const char *installer_boot_payload_root_path(void) {
     return "/install/boot-files.img";
   if (installer_payload_file_exists("/setup/bootimage.img"))
     return "/setup/bootimage.img";
+  if (installer_payload_file_exists("/mnt/cd1/install/boot-files.img"))
+    return "/mnt/cd1/install/boot-files.img";
   return installer_system_image_root_path();
 }
 
@@ -10174,10 +10184,11 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
       "/boot/bootloader.sys",
       "/boot/limine-bios.sys",
       "/boot/limine-bios-cd.bin",
-      "/boot/limine-uefi-cd.bin",
       "/BOOTABLE.CFG",
       "/boot/BOOTABLE.CFG",
       "/EFI/BOOT/BOOTX64.EFI",
+      "/EFI/OS8/STARTUPX64.EFI",
+      "/EFI/OS8/os8boot.cfg",
       "/EFI/BOOT/BOOTABLE.CFG",
       "/System/installer-state.txt",
       "/System/efi-boot.cfg",
@@ -10187,7 +10198,6 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
       "/limine.conf",
       "/boot/limine.conf",
       "/limine/limine.conf",
-      "/EFI/BOOT/limine.conf",
   };
   char full_path[192];
   char msg[320];
@@ -10215,7 +10225,7 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
         return 0;
     }
 
-    str_copy_safe(msg, "boot image unusable: no Limine config in ",
+    str_copy_safe(msg, "boot image unusable: no legacy BIOS config in ",
                   sizeof(msg));
     installer_append_to_buf(msg, sizeof(msg), payload_root);
     installer_log(msg);
@@ -10242,7 +10252,7 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
         return 0;
     }
 
-    str_copy_safe(msg, "install archive unusable: no Limine config in ",
+    str_copy_safe(msg, "install archive unusable: no legacy BIOS config in ",
                   sizeof(msg));
     installer_append_to_buf(msg, sizeof(msg), payload_root);
     installer_log(msg);
@@ -10272,7 +10282,7 @@ static int installer_validate_system_image_candidate(const char *payload_root) {
       return 0;
   }
 
-  str_copy_safe(msg, "install payload missing: no Limine config in ",
+  str_copy_safe(msg, "install payload missing: no legacy BIOS config in ",
                 sizeof(msg));
   installer_append_to_buf(msg, sizeof(msg), payload_root);
   installer_log(msg);
@@ -10285,6 +10295,8 @@ static int installer_validate_system_image_payload(void) {
       "/setup/install/system-image",
       "/install/system-image.zip",
       "/setup/install/system-image.zip",
+      "/mnt/cd1/install/system-image",
+      "/mnt/cd1/install/system-image.zip",
   };
 
   installer_select_system_image_payload(NULL);
@@ -10309,10 +10321,11 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
       "/boot/bootloader.sys",
       "/boot/limine-bios.sys",
       "/boot/limine-bios-cd.bin",
-      "/boot/limine-uefi-cd.bin",
       "/BOOTABLE.CFG",
       "/boot/BOOTABLE.CFG",
       "/EFI/BOOT/BOOTX64.EFI",
+      "/EFI/OS8/STARTUPX64.EFI",
+      "/EFI/OS8/os8boot.cfg",
       "/EFI/BOOT/BOOTABLE.CFG",
       "/System/installer-state.txt",
       "/System/efi-boot.cfg",
@@ -10322,7 +10335,6 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
       "/limine.conf",
       "/boot/limine.conf",
       "/limine/limine.conf",
-      "/EFI/BOOT/limine.conf",
   };
   char full_path[192];
   char msg[320];
@@ -10350,7 +10362,7 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
         return 0;
     }
 
-    str_copy_safe(msg, "boot image unusable: no Limine config in ",
+    str_copy_safe(msg, "boot image unusable: no legacy BIOS config in ",
                   sizeof(msg));
     installer_append_to_buf(msg, sizeof(msg), payload_root);
     installer_log(msg);
@@ -10377,7 +10389,7 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
         return 0;
     }
 
-    str_copy_safe(msg, "boot archive unusable: no Limine config in ",
+    str_copy_safe(msg, "boot archive unusable: no legacy BIOS config in ",
                   sizeof(msg));
     installer_append_to_buf(msg, sizeof(msg), payload_root);
     installer_log(msg);
@@ -10407,7 +10419,7 @@ static int installer_validate_boot_payload_candidate(const char *payload_root) {
       return 0;
   }
 
-  str_copy_safe(msg, "boot payload missing: no Limine config in ",
+  str_copy_safe(msg, "boot payload missing: no legacy BIOS config in ",
                 sizeof(msg));
   installer_append_to_buf(msg, sizeof(msg), payload_root);
   installer_log(msg);
@@ -10422,9 +10434,16 @@ static int installer_validate_boot_payload(void) {
       "/setup/install/system-image.zip",
       "/install/system-image",
       "/setup/install/system-image",
+      "/mnt/cd1/install/system-image",
+      "/mnt/cd1/install/boot-files.img",
+      "/mnt/cd1/install/system-image.zip",
   };
 
   installer_select_boot_payload(NULL);
+  if (installer_system_image_payload_path[0]) {
+    installer_select_boot_payload(installer_system_image_payload_path);
+    return 0;
+  }
   for (int i = 0;
        i < (int)(sizeof(payload_candidates) / sizeof(payload_candidates[0]));
        i++) {
@@ -10893,6 +10912,25 @@ static void installer_start_background_install(void) {
   installer_log("starting system image install");
 }
 
+static void installer_process_autorun(void) {
+  extern int boot_cmdline_has_token(const char *token);
+
+  if (!gui_is_installer_mode())
+    return;
+  if (!boot_cmdline_has_token("installer.autorun=1"))
+    return;
+  if (installer_autorun_attempted || installer_has_run || installer_active)
+    return;
+
+  installer_refresh_disk_inventory();
+  if (installer_disk_count <= 0)
+    return;
+
+  installer_autorun_attempted = 1;
+  installer_set_status("Autorun stress install started.");
+  installer_start_background_install();
+}
+
 static void installer_fail_background(const char *status, const char *log_line) {
   installer_active = 0;
   installer_phase = 0;
@@ -10921,6 +10959,7 @@ static void installer_process_background_install(void) {
 
   switch (installer_phase) {
   case 1:
+    printk(KERN_INFO "INSTALL: phase 1 scanning target disks\n");
     installer_refresh_disk_inventory();
     if (installer_disk_count <= 0) {
       installer_fail_background("Install blocked. No real target disk is available.",
@@ -10934,6 +10973,7 @@ static void installer_process_background_install(void) {
     return;
   case 2: {
     extern int storage_disk_supports_partition_writes(int disk_index);
+    printk(KERN_INFO "INSTALL: phase 2 validating target and payload\n");
     const char *raw_image_path = installer_system_disk_image_path();
     int selected_disk_index = installer_selected_disk_index();
     if (selected_disk_index < 0) {
@@ -10941,6 +10981,8 @@ static void installer_process_background_install(void) {
                                 "install blocked: selected target disk missing");
       return;
     }
+    printk(KERN_INFO "INSTALL: checking target disk write support index=%d\n",
+           selected_disk_index);
     if (!storage_disk_supports_partition_writes(selected_disk_index)) {
       installer_fail_background("Install blocked. Target disk is not writable.",
                                 "install blocked: target disk is not writable");
@@ -10966,17 +11008,27 @@ static void installer_process_background_install(void) {
           18, "Validating Payload", "Preparing raw system disk image...",
           "Bootable disk image found. The installer will write it directly to the target disk.");
     } else {
+      printk(KERN_INFO "INSTALL: validating extracted system payload candidates\n");
       if (installer_validate_system_image_payload() != 0) {
         installer_fail_background("Install blocked. Boot files are missing from the installer image.",
                                   "install blocked: boot payload incomplete");
         return;
       }
+      printk(KERN_INFO "INSTALL: selected system payload %s\n",
+             installer_system_image_root_path());
+      installer_select_boot_payload(installer_system_image_root_path());
       installer_progress_total_files =
           installer_count_tree_files(installer_system_image_root_path());
+      printk(KERN_INFO "INSTALL: system payload count=%d\n",
+             installer_progress_total_files);
       if (!installer_str_equal(installer_boot_payload_root_path(),
                                installer_system_image_root_path())) {
+        printk(KERN_INFO "INSTALL: selected boot payload %s\n",
+               installer_boot_payload_root_path());
         installer_progress_total_files +=
             installer_count_tree_files(installer_boot_payload_root_path());
+        printk(KERN_INFO "INSTALL: combined payload count=%d\n",
+               installer_progress_total_files);
       }
       installer_progress_total_files +=
           installer_boot_alias_copy_count(installer_target_root);
@@ -11021,6 +11073,13 @@ static void installer_process_background_install(void) {
     return;
   default:
     return;
+  }
+}
+
+void gui_installer_background_tick(void) {
+  if (!startup_setup_account_active()) {
+    installer_process_autorun();
+    installer_process_background_install();
   }
 }
 
@@ -19417,8 +19476,10 @@ void gui_compose(void) {
 
   g_frame_count++;
   startup_process_first_boot_completion();
-  if (!startup_setup_account_active())
+  if (!startup_setup_account_active()) {
+    installer_process_autorun();
     installer_process_background_install();
+  }
   update_main_menu_power_animation();
 
   /* Catch missed early-boot updates, then rely on explicit dirty regions. */
@@ -21889,6 +21950,7 @@ int gui_init(uint32_t *framebuffer, uint32_t width, uint32_t height,
   if (gui_is_installer_mode()) {
     installer_has_run = 0;
     installer_active = 0;
+    installer_autorun_attempted = 0;
     installer_show_restart_screen = 0;
     installer_page = INSTALLER_PAGE_WELCOME;
     installer_install_journal_ready = 0;

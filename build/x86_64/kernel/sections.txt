@@ -1,15 +1,15 @@
 
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/kernel/os-x86_64.elf:	file format elf64-x86-64
+/mnt/c/Users/Benno111/Documents/GitHub/os8/build/x86_64/kernel/os-x86_64.elf:	file format elf64-x86-64
 
 Sections:
 Idx Name             Size     VMA              LMA              Type
   0                  00000000 0000000000000000 0000000000000000 
   1 .limine_requests 00000110 ffffffff80000000 0000000000100000 DATA
-  2 .text            0009f162 ffffffff80001000 0000000000101000 TEXT
-  3 .rodata          00036b20 ffffffff800a1000 00000000001a1000 DATA
-  4 .data            0000a3e8 ffffffff800d8000 00000000001d8000 DATA
-  5 .bss             093f9000 ffffffff800e3000 00000000001e3000 BSS
-  6 .boot_stack      00010000 ffffffff894dc000 00000000095dc000 BSS
-  7 .symtab          0000b508 0000000000000000 0000000000000000 
+  2 .text            000c6822 ffffffff80001000 0000000000101000 TEXT
+  3 .rodata          000389c0 ffffffff800c8000 00000000001c8000 DATA
+  4 .data            0000a3e8 ffffffff80101000 0000000000201000 DATA
+  5 .bss             0940c000 ffffffff8010c000 000000000020c000 BSS
+  6 .boot_stack      00010000 ffffffff89518000 0000000009618000 BSS
+  7 .symtab          0000c030 0000000000000000 0000000000000000 
   8 .shstrtab        00000051 0000000000000000 0000000000000000 
-  9 .strtab          000089ab 0000000000000000 0000000000000000 
+  9 .strtab          00009499 0000000000000000 0000000000000000 

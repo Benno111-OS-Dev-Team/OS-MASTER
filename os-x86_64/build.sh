@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build script for UEFI Demo OS
-# Refreshes the latest OS-BOOT-MANAGER boot assets before each build.
+# Builds OS8's custom UEFI startup chain before creating media.
 
 set -e
 
@@ -11,6 +11,7 @@ ISO_ROOT="iso_root"
 ISO_NAME="uefi-demo.iso"
 BOOT_MANAGER_DIR="${BUILD_DIR}/boot-assets/os-boot-manager"
 BOOT_MANAGER_SYNC="${ROOT_DIR}/scripts/update-os-boot-manager.sh"
+CUSTOM_UEFI_SCRIPT="${ROOT_DIR}/scripts/build-custom-uefi.sh"
 
 echo "=== UEFI Demo OS Build Script ==="
 echo ""
@@ -84,13 +85,13 @@ BOOT_MANAGER_DIR="$("$BOOT_MANAGER_SYNC" "$BOOT_MANAGER_DIR")"
 LIMINE_BIN_DIR="${BOOT_MANAGER_DIR}/bin"
 LIMINE_SRC_DIR="${BOOT_MANAGER_DIR}"
 
-if [ ! -f "${LIMINE_BIN_DIR}/BOOTX64.EFI" ]; then
-    echo "   WARNING: Latest boot assets were not refreshed, falling back to the generated cache if available."
+if [ ! -f "${LIMINE_BIN_DIR}/limine-bios-cd.bin" ]; then
+    echo "   WARNING: Latest BIOS boot assets were not refreshed, falling back to the generated cache if available."
 fi
 
-if [ ! -f "${LIMINE_BIN_DIR}/BOOTX64.EFI" ]; then
+if [ ! -f "${LIMINE_BIN_DIR}/limine-bios-cd.bin" ]; then
     echo ""
-    echo "WARNING: Could not obtain a bootable OS-BOOT-MANAGER release."
+    echo "WARNING: Could not obtain legacy BIOS boot assets."
     echo "You may need network access or a cached boot asset directory."
     echo ""
     echo "For now, creating a QEMU-compatible disk image..."
@@ -107,13 +108,14 @@ if [ ! -f "${LIMINE_BIN_DIR}/BOOTX64.EFI" ]; then
     exit 0
 fi
 
-echo "   OS-BOOT-MANAGER boot assets ready!"
+echo "   Legacy BIOS boot assets ready!"
 
 # Create ISO structure
 echo "[4/5] Creating ISO structure..."
 rm -rf "$ISO_ROOT"
 mkdir -p "$ISO_ROOT"/boot
 mkdir -p "$ISO_ROOT"/EFI/BOOT
+EFI_BOOT_IMAGE="$ISO_ROOT/EFI/efiboot.img"
 
 # Copy kernel
 cp $BUILD_DIR/main.sys "$ISO_ROOT"/boot/bootloader.sys
@@ -125,29 +127,49 @@ cp limine.conf "$ISO_ROOT"/limine.conf
 mkdir -p "$ISO_ROOT"/limine
 cp limine.conf "$ISO_ROOT"/limine/limine.conf
 
-# Copy UEFI bootloader and config together (Limine looks here first!)
-cp "$LIMINE_BIN_DIR/BOOTX64.EFI" "$ISO_ROOT"/EFI/BOOT/BOOTX64.EFI
-cp limine.conf "$ISO_ROOT"/EFI/BOOT/limine.conf
+# Copy OS8 custom UEFI chain
+CUSTOM_UEFI_DIR="$(KERNEL_PATH="$BUILD_DIR/main.sys" bash "$CUSTOM_UEFI_SCRIPT" "$BUILD_DIR")"
+mkdir -p "$ISO_ROOT"/EFI/OS8
+cp "$CUSTOM_UEFI_DIR/BOOTX64.EFI" "$ISO_ROOT"/EFI/BOOT/BOOTX64.EFI
+cp "$CUSTOM_UEFI_DIR/STARTUPX64.EFI" "$ISO_ROOT"/EFI/OS8/STARTUPX64.EFI
+cp "$CUSTOM_UEFI_DIR/os8boot.cfg" "$ISO_ROOT"/EFI/OS8/os8boot.cfg
 
-# Copy CD boot files if available
+# Build a real FAT ESP image for UEFI El Torito boot.
+for tool in dd mformat mmd mcopy; do
+    command -v "$tool" >/dev/null 2>&1 || {
+        echo "error: required tool '$tool' not found" >&2
+        exit 1
+    }
+done
+rm -f "$EFI_BOOT_IMAGE"
+dd if=/dev/zero of="$EFI_BOOT_IMAGE" bs=1M count=16 status=none
+mformat -i "$EFI_BOOT_IMAGE" -v OS8EFI ::
+mmd -i "$EFI_BOOT_IMAGE" ::/EFI ::/EFI/BOOT ::/EFI/OS8 ::/boot
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/EFI/OS8/STARTUPX64.EFI" ::/EFI/OS8/STARTUPX64.EFI
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/EFI/OS8/os8boot.cfg" ::/EFI/OS8/os8boot.cfg
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/boot/main.sys" ::/boot/main.sys
+mcopy -i "$EFI_BOOT_IMAGE" "$ISO_ROOT/boot/bootloader.sys" ::/boot/bootloader.sys
+
+# Copy legacy BIOS CD boot file if available
 [ -f "$LIMINE_BIN_DIR/limine-bios-cd.bin" ] && cp "$LIMINE_BIN_DIR/limine-bios-cd.bin" "$ISO_ROOT"/boot/
-[ -f "$LIMINE_BIN_DIR/limine-uefi-cd.bin" ] && cp "$LIMINE_BIN_DIR/limine-uefi-cd.bin" "$ISO_ROOT"/boot/
 
 # Create ISO
 echo "[5/5] Creating bootable ISO..."
 
-# Try with full BIOS+UEFI support first
-if [ -f "$ISO_ROOT/boot/limine-bios-cd.bin" ] && [ -f "$ISO_ROOT/boot/limine-uefi-cd.bin" ]; then
+if [ -f "$ISO_ROOT/boot/limine-bios-cd.bin" ]; then
     xorriso -as mkisofs \
         -b boot/limine-bios-cd.bin \
         -no-emul-boot -boot-load-size 4 -boot-info-table \
-        --efi-boot boot/limine-uefi-cd.bin \
+        -eltorito-alt-boot \
+        -e EFI/efiboot.img \
+        -no-emul-boot \
         -efi-boot-part --efi-boot-image --protective-msdos-label \
         "$ISO_ROOT" -o "$ISO_NAME" 2>/dev/null
 else
     # UEFI-only ISO
     xorriso -as mkisofs \
-        -e EFI/BOOT/BOOTX64.EFI \
+        -e EFI/efiboot.img \
         -no-emul-boot \
         -isohybrid-gpt-basdat \
         "$ISO_ROOT" -o "$ISO_NAME" 2>/dev/null || \

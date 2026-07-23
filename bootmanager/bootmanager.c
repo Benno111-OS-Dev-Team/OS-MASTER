@@ -159,6 +159,10 @@ void boot_init(void) {
 
 struct boot_config *boot_get_config(void) { return &boot_cfg; }
 
+int boot_cmdline_has_token(const char *token) {
+  return str_contains_token(boot_cfg.kernel_cmdline, token) ? 1 : 0;
+}
+
 void boot_set_timeout(uint32_t seconds) { boot_cfg.timeout_seconds = seconds; }
 
 void boot_set_default(int target) {

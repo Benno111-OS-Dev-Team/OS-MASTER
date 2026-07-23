@@ -128,6 +128,10 @@ LDFLAGS_KERNEL := -nostdlib -static -T $(LINKER_SCRIPT) -e $(KERNEL_ENTRY)
 
 ARTIFACT_PREFIX := os
 X86_64_BOOT_ASSET_DIR := $(ROOT_DIR)/os-x86_64
+CUSTOM_UEFI_SCRIPT := $(ROOT_DIR)/scripts/build-custom-uefi.sh
+CUSTOM_UEFI_DIR := $(BUILD_DIR)/boot/custom-uefi
+CUSTOM_UEFI_SOURCES := $(wildcard $(BOOT_DIR)/custom/*)
+CUSTOM_UEFI_BINARIES := $(CUSTOM_UEFI_DIR)/BOOTX64.EFI $(CUSTOM_UEFI_DIR)/STARTUPX64.EFI
 
 KERNEL_BINARY := $(BUILD_DIR)/kernel/$(ARTIFACT_PREFIX)-$(ARCH).elf
 KERNEL_FLAT_BINARY := $(BUILD_DIR)/kernel/$(ARTIFACT_PREFIX)-$(ARCH).bin
@@ -418,6 +422,16 @@ $(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "[AS] $<"
 	@$(AS) $(ASFLAGS) -c $< -o $@ 
+
+ifeq ($(ARCH),x86_64)
+ifeq ($(EMBED_INSTALLER_PAYLOAD),1)
+$(CUSTOM_UEFI_BINARIES): $(CUSTOM_UEFI_SCRIPT) $(CUSTOM_UEFI_SOURCES) | $(BUILD_PREPARED_STAMP)
+	@echo "[UEFI] Building custom loader payloads"
+	@SKIP_BOOT_CONFIG=1 bash "$(CUSTOM_UEFI_SCRIPT)" "$(BUILD_DIR)" >/dev/null
+
+$(BUILD_DIR)/kernel/arch/x86_64/installer_payload.o: $(CUSTOM_UEFI_BINARIES)
+endif
+endif
 
 $(BUILD_DIR)/newwindows/%.o: $(NEWWINDOWS_DIR)/%.c $(BUILD_METADATA_HEADER)
 	@mkdir -p $(dir $@)

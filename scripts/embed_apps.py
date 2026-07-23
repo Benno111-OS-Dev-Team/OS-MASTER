@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import os
 import sys
 
@@ -20,9 +21,17 @@ def embed_file(name, path, out_c, out_h):
             
     out_c.write("\n};\n")
     out_c.write(f"const unsigned int {name}_len = {len(data)};\n\n")
+    digest = hashlib.sha256(data).digest()
+    out_c.write(f"const unsigned char {name}_sha256[32] = {{\n")
+    for i, byte in enumerate(digest):
+        out_c.write(f"0x{byte:02x},")
+        if (i + 1) % 16 == 0:
+            out_c.write("\n")
+    out_c.write("\n};\n\n")
     
     out_h.write(f"extern const unsigned char {name}[];\n")
     out_h.write(f"extern const unsigned int {name}_len;\n")
+    out_h.write(f"extern const unsigned char {name}_sha256[32];\n")
 
 def main():
     if len(sys.argv) < 3:
