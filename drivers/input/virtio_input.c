@@ -471,6 +471,57 @@ static int init_virtio_input_device(struct virtio_input_dev *dev) {
   return 0;
 }
 
+static int virtio_input_next_used_event(struct virtio_input_dev *dev,
+                                        uint16_t ring_idx,
+                                        virtio_input_event_t **event,
+                                        uint16_t *desc_idx) {
+  uint32_t used_desc;
+
+  if (!dev || !dev->used || !event || !desc_idx) {
+    return -1;
+  }
+
+  used_desc = dev->used->ring[ring_idx].id;
+  if (used_desc >= QUEUE_SIZE) {
+    printk(KERN_WARNING "VIRTIO-INPUT: invalid used descriptor %u\n",
+           used_desc);
+    return -1;
+  }
+
+  *desc_idx = (uint16_t)used_desc;
+  *event = &dev->events[used_desc];
+  return 0;
+}
+
+static void virtio_input_requeue_desc(struct virtio_input_dev *dev,
+                                      uint16_t desc_idx) {
+  uint16_t avail_idx;
+
+  if (!dev || !dev->avail || desc_idx >= QUEUE_SIZE) {
+    return;
+  }
+
+  avail_idx = dev->avail->idx % QUEUE_SIZE;
+  dev->avail->ring[avail_idx] = desc_idx;
+  dev->avail->idx++;
+}
+
+static void virtio_input_clamp_used_ring(struct virtio_input_dev *dev,
+                                         uint16_t current_used) {
+  uint16_t pending;
+
+  if (!dev) {
+    return;
+  }
+
+  pending = current_used - dev->last_used_idx;
+  if (pending > QUEUE_SIZE) {
+    printk(KERN_WARNING "VIRTIO-INPUT: used ring overrun (%u entries)\n",
+           pending);
+    dev->last_used_idx = current_used - QUEUE_SIZE;
+  }
+}
+
 /* ===================================================================== */
 /* Mouse Polling */
 /* ===================================================================== */
@@ -499,11 +550,17 @@ void mouse_poll(void) {
 
     mmio_barrier();
     current_used = dev->used->idx;
+    virtio_input_clamp_used_ring(dev, current_used);
 
     while (dev->last_used_idx != current_used) {
       uint16_t idx = dev->last_used_idx % QUEUE_SIZE;
-      uint32_t desc_idx = dev->used->ring[idx].id;
-      virtio_input_event_t *ev = &dev->events[desc_idx];
+      uint16_t desc_idx;
+      virtio_input_event_t *ev;
+
+      if (virtio_input_next_used_event(dev, idx, &ev, &desc_idx) != 0) {
+        dev->last_used_idx++;
+        continue;
+      }
 
       /* Process event */
       if (ev->type == EV_ABS) {
@@ -550,9 +607,7 @@ void mouse_poll(void) {
       }
 
       /* Re-add descriptor to available ring */
-      uint16_t avail_idx = dev->avail->idx % QUEUE_SIZE;
-      dev->avail->ring[avail_idx] = desc_idx;
-      dev->avail->idx++;
+      virtio_input_requeue_desc(dev, desc_idx);
 
       dev->last_used_idx++;
     }
@@ -746,11 +801,17 @@ static void keyboard_poll(void) {
 
     mmio_barrier();
     current_used = dev->used->idx;
+    virtio_input_clamp_used_ring(dev, current_used);
 
     while (dev->last_used_idx != current_used) {
       uint16_t idx = dev->last_used_idx % QUEUE_SIZE;
-      uint32_t desc_idx = dev->used->ring[idx].id;
-      virtio_input_event_t *ev = &dev->events[desc_idx];
+      uint16_t desc_idx;
+      virtio_input_event_t *ev;
+
+      if (virtio_input_next_used_event(dev, idx, &ev, &desc_idx) != 0) {
+        dev->last_used_idx++;
+        continue;
+      }
 
       /* Process keyboard event */
       if (ev->type == EV_KEY) {
@@ -844,9 +905,7 @@ static void keyboard_poll(void) {
       }
 
       /* Re-add descriptor to available ring */
-      uint16_t avail_idx = dev->avail->idx % QUEUE_SIZE;
-      dev->avail->ring[avail_idx] = desc_idx;
-      dev->avail->idx++;
+      virtio_input_requeue_desc(dev, desc_idx);
 
       dev->last_used_idx++;
     }
