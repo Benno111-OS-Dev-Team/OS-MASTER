@@ -203,6 +203,8 @@ static void ip_handle(struct net_interface *iface, struct ip_hdr *ip, size_t len
     size_t ip_hlen = (ip->version_ihl & 0xF) * 4;
     size_t total_len = ntohs(ip->total_len);
     
+    if (ip_hlen < sizeof(struct ip_hdr)) return;
+    if (total_len < ip_hlen) return;
     if (len < total_len) return;  /* Truncated packet */
     
     uint8_t *payload = (uint8_t *)ip + ip_hlen;
@@ -212,6 +214,7 @@ static void ip_handle(struct net_interface *iface, struct ip_hdr *ip, size_t len
         case IP_PROTO_ICMP:
             /* Handle ICMP - echo reply etc */
             {
+                if (payload_len < sizeof(struct icmp_hdr)) return;
                 struct icmp_hdr *icmp = (struct icmp_hdr *)payload;
                 if (icmp->type == 0) {
                     /* Echo reply */
@@ -226,6 +229,7 @@ static void ip_handle(struct net_interface *iface, struct ip_hdr *ip, size_t len
             
         case IP_PROTO_TCP:
             {
+                if (payload_len < sizeof(struct tcp_hdr)) return;
                 struct tcp_hdr *tcp = (struct tcp_hdr *)payload;
                 tcp_handle_segment(ip->src_ip, ip->dst_ip, tcp, payload_len);
             }
@@ -544,8 +548,12 @@ static int tcp_send_packet(struct tcp_connection *conn, uint8_t flags,
 {
     if (num_interfaces == 0) return -1;
     struct net_interface *iface = &interfaces[0];
+    if (data_len > 0xFFFFu - sizeof(struct ip_hdr) - sizeof(struct tcp_hdr))
+        return -1;
     
     size_t tcp_len = sizeof(struct tcp_hdr) + data_len;
+    if (tcp_len > ((size_t)-1) - ETH_HLEN - sizeof(struct ip_hdr))
+        return -1;
     size_t total_len = ETH_HLEN + sizeof(struct ip_hdr) + tcp_len;
     
     uint8_t *packet = kmalloc(total_len);
@@ -751,6 +759,8 @@ static struct tcp_connection *tcp_find_connection(uint32_t remote_ip, uint16_t r
 void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
                         struct tcp_hdr *tcp, size_t tcp_len)
 {
+    if (!tcp || tcp_len < sizeof(struct tcp_hdr)) return;
+
     uint16_t src_port = ntohs(tcp->src_port);
     uint16_t dst_port = ntohs(tcp->dst_port);
     uint32_t seq = ntohl(tcp->seq);
@@ -768,6 +778,7 @@ void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
     }
     
     size_t header_len = ((tcp->data_offset >> 4) & 0xF) * 4;
+    if (header_len < sizeof(struct tcp_hdr) || header_len > tcp_len) return;
     size_t data_len = tcp_len - header_len;
     uint8_t *data = (uint8_t *)tcp + header_len;
     
@@ -873,6 +884,8 @@ int udp_send(uint32_t dest_ip, uint16_t src_port, uint16_t dest_port,
              const void *data, size_t len)
 {
     if (num_interfaces == 0) return -1;
+    if (len > 0xFFFFu - sizeof(struct ip_hdr) - sizeof(struct udp_hdr))
+        return -1;
     
     size_t total_len = ETH_HLEN + sizeof(struct ip_hdr) + 
                        sizeof(struct udp_hdr) + len;
