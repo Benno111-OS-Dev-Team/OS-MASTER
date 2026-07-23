@@ -129,6 +129,23 @@ static LoadedSegment g_loaded_segments[16];
 static uint16_t g_loaded_segment_count;
 static uint64_t g_kernel_physical_base;
 
+static int u64_add_overflow(uint64_t a, uint64_t b, uint64_t *out) {
+  if (a > UINT64_MAX - b) return 1;
+  *out = a + b;
+  return 0;
+}
+
+static int u64_mul_overflow(uint64_t a, uint64_t b, uint64_t *out) {
+  if (a != 0 && b > UINT64_MAX / a) return 1;
+  *out = a * b;
+  return 0;
+}
+
+static int u64_range_exceeds(uint64_t offset, uint64_t length, uint64_t size) {
+  uint64_t end = 0;
+  return u64_add_overflow(offset, length, &end) || end > size;
+}
+
 static EFI_STATUS error(const char *code, const char *message, EFI_STATUS status) {
   efi_print(g_st, "\nOS8 startup error ");
   efi_print(g_st, code);
@@ -218,7 +235,13 @@ static EFI_STATUS map_range_4k(uint64_t *pml4, uint64_t virt, uint64_t phys,
   uint64_t virt_start = virt & ~0xfffULL;
   uint64_t phys_start = phys & ~0xfffULL;
   uint64_t delta = virt - virt_start;
-  uint64_t total = (size + delta + 0xfffULL) & ~0xfffULL;
+  uint64_t total = 0;
+  uint64_t rounded = 0;
+
+  if (u64_add_overflow(size, delta, &total) ||
+      u64_add_overflow(total, 0xfffULL, &rounded))
+    return EFI_LOAD_ERROR;
+  total = rounded & ~0xfffULL;
 
   for (uint64_t off = 0; off < total; off += 0x1000) {
     EFI_STATUS status = map_4k(pml4, virt_start + off, phys_start + off, flags);
@@ -278,20 +301,30 @@ static EFI_STATUS build_page_tables(const void *kernel,
 
 static int valid_elf64_kernel(const void *kernel, uint64_t size) {
   const Elf64_Ehdr *eh = (const Elf64_Ehdr *)kernel;
-  return size >= sizeof(*eh) && eh->ident[0] == 0x7f && eh->ident[1] == 'E' &&
-         eh->ident[2] == 'L' && eh->ident[3] == 'F' && eh->ident[4] == 2 &&
-         eh->ident[5] == 1 && eh->machine == 0x3e && eh->phentsize == sizeof(Elf64_Phdr) &&
-         eh->phoff + ((uint64_t)eh->phnum * sizeof(Elf64_Phdr)) <= size;
+  uint64_t ph_size = 0;
+
+  if (!kernel || size < sizeof(*eh)) return 0;
+  if (eh->ident[0] != 0x7f || eh->ident[1] != 'E' ||
+      eh->ident[2] != 'L' || eh->ident[3] != 'F' || eh->ident[4] != 2 ||
+      eh->ident[5] != 1 || eh->machine != 0x3e ||
+      eh->phentsize != sizeof(Elf64_Phdr) || eh->phnum == 0)
+    return 0;
+
+  if (u64_mul_overflow((uint64_t)eh->phnum, sizeof(Elf64_Phdr), &ph_size))
+    return 0;
+  return !u64_range_exceeds(eh->phoff, ph_size, size);
 }
 
 static int find_elf_symbol(const void *kernel, uint64_t size, const char *name,
                            uint64_t *value_out) {
   const Elf64_Ehdr *eh = (const Elf64_Ehdr *)kernel;
+  uint64_t sh_size = 0;
 
   if (!kernel || !name || !value_out || eh->shentsize != sizeof(Elf64_Shdr))
     return 0;
   if (eh->shoff == 0 ||
-      eh->shoff + (uint64_t)eh->shnum * sizeof(Elf64_Shdr) > size)
+      u64_mul_overflow((uint64_t)eh->shnum, sizeof(Elf64_Shdr), &sh_size) ||
+      u64_range_exceeds(eh->shoff, sh_size, size))
     return 0;
 
   const Elf64_Shdr *sh =
@@ -300,8 +333,8 @@ static int find_elf_symbol(const void *kernel, uint64_t size, const char *name,
     if (sh[i].type != 2 && sh[i].type != 11) continue;
     if (sh[i].entsize != sizeof(Elf64_Sym) || sh[i].link >= eh->shnum)
       continue;
-    if (sh[i].offset + sh[i].size > size ||
-        sh[sh[i].link].offset + sh[sh[i].link].size > size)
+    if (u64_range_exceeds(sh[i].offset, sh[i].size, size) ||
+        u64_range_exceeds(sh[sh[i].link].offset, sh[sh[i].link].size, size))
       continue;
 
     const Elf64_Sym *sym =
@@ -328,7 +361,8 @@ static EFI_STATUS load_elf_segments(const void *kernel, uint64_t size, uint64_t 
 
   for (uint16_t i = 0; i < eh->phnum; i++) {
     if (ph[i].type != 1 || ph[i].memsz == 0) continue;
-    if (ph[i].offset + ph[i].filesz > size || ph[i].filesz > ph[i].memsz) {
+    if (u64_range_exceeds(ph[i].offset, ph[i].filesz, size) ||
+        ph[i].filesz > ph[i].memsz) {
       return EFI_LOAD_ERROR;
     }
     if (g_loaded_segment_count >= sizeof(g_loaded_segments) / sizeof(g_loaded_segments[0]))
@@ -336,8 +370,15 @@ static EFI_STATUS load_elf_segments(const void *kernel, uint64_t size, uint64_t 
 
     uint64_t virt_start = ph[i].vaddr & ~0xfffULL;
     uint64_t delta = ph[i].vaddr - virt_start;
-    uint64_t total = (ph[i].memsz + delta + 0xfffULL) & ~0xfffULL;
+    uint64_t total = 0;
+    uint64_t rounded = 0;
     uint64_t phys_start = 0;
+
+    if (u64_add_overflow(ph[i].memsz, delta, &total) ||
+        u64_add_overflow(total, 0xfffULL, &rounded))
+      return EFI_LOAD_ERROR;
+    total = rounded & ~0xfffULL;
+
     EFI_STATUS status = alloc_zero_pages(total / 4096, &phys_start);
     if (EFI_ERROR(status)) return status;
 
@@ -385,7 +426,17 @@ static EFI_STATUS allocate_limine_responses(EFI_GRAPHICS_OUTPUT_PROTOCOL *gop,
                                             uint64_t *boot_context_size_out) {
   void *pool = NULL;
   const uint64_t pool_size = 1024;
-  EFI_STATUS status = g_st->BootServices->AllocatePool(EfiLoaderData, pool_size, &pool);
+  const uint64_t required_size =
+      sizeof(struct limine_framebuffer) +
+      sizeof(struct limine_framebuffer *) +
+      sizeof(struct limine_framebuffer_response) +
+      sizeof(struct limine_hhdm_response) +
+      sizeof(struct limine_kernel_address_response) +
+      sizeof(struct limine_rsdp_response);
+  EFI_STATUS status;
+
+  if (required_size > pool_size) return EFI_OUT_OF_RESOURCES;
+  status = g_st->BootServices->AllocatePool(EfiLoaderData, pool_size, &pool);
   if (EFI_ERROR(status)) return status;
   efi_memset(pool, 0, pool_size);
 
@@ -509,7 +560,10 @@ static EFI_STATUS exit_boot_services_with_map(void) {
       status = g_st->BootServices->GetMemoryMap(&map_size, NULL, &map_key,
                                                 &desc_size, &desc_version);
       if (EFI_STATUS_CODE(status) != EFI_BUFFER_TOO_SMALL) return status;
-      map_capacity = map_size + desc_size * 32;
+      if (desc_size == 0) return EFI_LOAD_ERROR;
+      if (u64_mul_overflow(desc_size, 32, &map_capacity) ||
+          u64_add_overflow(map_size, map_capacity, &map_capacity))
+        return EFI_OUT_OF_RESOURCES;
       status = g_st->BootServices->AllocatePool(EfiLoaderData, map_capacity,
                                                 &map);
       if (EFI_ERROR(status)) return status;
@@ -519,7 +573,12 @@ static EFI_STATUS exit_boot_services_with_map(void) {
     status = g_st->BootServices->GetMemoryMap(&map_size, map, &map_key,
                                               &desc_size, &desc_version);
     if (EFI_STATUS_CODE(status) == EFI_BUFFER_TOO_SMALL) {
-      map_capacity = map_size + desc_size * 32;
+      uint64_t extra = 0;
+      if (desc_size == 0) return EFI_LOAD_ERROR;
+      if (u64_mul_overflow(desc_size, 32, &extra) ||
+          u64_add_overflow(map_size, extra, &map_capacity))
+        return EFI_OUT_OF_RESOURCES;
+      g_st->BootServices->FreePool(map);
       map = NULL;
       continue;
     }
