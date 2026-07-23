@@ -18,6 +18,7 @@
 #define XHCI_MAX_SLOTS 256
 #define XHCI_MAX_PORTS 127
 #define XHCI_MAX_INTERRUPTERS 1024
+#define XHCI_PAGE_SIZE 4096
 
 /* Capability Register offsets */
 #define XHCI_CAPLENGTH 0x00
@@ -383,7 +384,7 @@ static int xhci_setup_rings(void) {
   xhci.dcbaa = (uint64_t *)xhci_phys_to_cpu_virt(xhci.dcbaa_phys);
   if (!xhci.dcbaa)
     return -1;
-  for (uint32_t i = 0; i <= xhci.max_slots; i++) {
+  for (uint32_t i = 0; i < XHCI_PAGE_SIZE / sizeof(uint64_t); i++) {
     xhci.dcbaa[i] = 0;
   }
 
@@ -397,6 +398,11 @@ static int xhci_setup_rings(void) {
   xhci.cmd_ring = (struct xhci_trb *)xhci_phys_to_cpu_virt(xhci.cmd_ring_phys);
   if (!xhci.cmd_ring)
     return -1;
+  for (uint32_t i = 0; i < XHCI_PAGE_SIZE / sizeof(struct xhci_trb); i++) {
+    xhci.cmd_ring[i].param = 0;
+    xhci.cmd_ring[i].status = 0;
+    xhci.cmd_ring[i].control = 0;
+  }
   xhci.cmd_ring_enqueue = 0;
   xhci.cmd_ring_cycle = true;
 
@@ -411,6 +417,11 @@ static int xhci_setup_rings(void) {
       (struct xhci_trb *)xhci_phys_to_cpu_virt(xhci.event_ring_phys);
   if (!xhci.event_ring)
     return -1;
+  for (uint32_t i = 0; i < XHCI_PAGE_SIZE / sizeof(struct xhci_trb); i++) {
+    xhci.event_ring[i].param = 0;
+    xhci.event_ring[i].status = 0;
+    xhci.event_ring[i].control = 0;
+  }
   xhci.event_ring_dequeue = 0;
   xhci.event_ring_cycle = true;
 
@@ -644,8 +655,13 @@ int xhci_init(phys_addr_t mmio_base) {
     return -1;
   }
 
-  /* Get page size */
-  xhci.page_size = xhci_op_read32(XHCI_PAGESIZE) << 12;
+  /* The current ring allocator supplies 4K pages, so require that support. */
+  if ((xhci_op_read32(XHCI_PAGESIZE) & 1U) == 0) {
+    printk(KERN_ERR "XHCI: Controller does not support 4K pages\n");
+    xhci_init_failed = 1;
+    return -1;
+  }
+  xhci.page_size = XHCI_PAGE_SIZE;
 
   /* Reset controller */
   if (xhci_reset() < 0) {
