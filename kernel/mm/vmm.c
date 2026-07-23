@@ -90,6 +90,37 @@ static uint64_t vm_flags_to_pte(uint32_t flags)
     return pte_flags;
 }
 
+static bool page_align_overflows(size_t size, size_t *aligned_out)
+{
+    if (size > (size_t)-1 - (PAGE_SIZE - 1)) {
+        return true;
+    }
+    *aligned_out = PAGE_ALIGN(size);
+    return false;
+}
+
+static bool align_range(virt_addr_t addr, size_t size, virt_addr_t *start_out,
+                        size_t *aligned_size_out)
+{
+    virt_addr_t start = PAGE_ALIGN_DOWN(addr);
+    size_t delta = (size_t)(addr - start);
+    size_t total = 0;
+
+    if (size == 0 || size > (size_t)-1 - delta) {
+        return true;
+    }
+    total = size + delta;
+    if (page_align_overflows(total, aligned_size_out)) {
+        return true;
+    }
+    if (addr > (virt_addr_t)-1 - *aligned_size_out) {
+        return true;
+    }
+
+    *start_out = start;
+    return false;
+}
+
 static uint64_t *alloc_page_table(void)
 {
     /* Use early tables if available */
@@ -338,9 +369,18 @@ int vmm_unmap_page(virt_addr_t vaddr)
 
 int vmm_map_range(virt_addr_t vaddr, phys_addr_t paddr, size_t size, uint32_t flags)
 {
-    vaddr = PAGE_ALIGN_DOWN(vaddr);
+    virt_addr_t aligned_vaddr = 0;
+    size_t aligned_size = 0;
+    if (align_range(vaddr, size, &aligned_vaddr, &aligned_size)) {
+        return -1;
+    }
+    if (paddr > (phys_addr_t)-1 - aligned_size) {
+        return -1;
+    }
+
+    vaddr = aligned_vaddr;
     paddr = PAGE_ALIGN_DOWN(paddr);
-    size = PAGE_ALIGN(size);
+    size = aligned_size;
     
     for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
         int ret = vmm_map_page(vaddr + offset, paddr + offset, flags);
@@ -356,8 +396,14 @@ int vmm_map_range(virt_addr_t vaddr, phys_addr_t paddr, size_t size, uint32_t fl
 
 int vmm_unmap_range(virt_addr_t vaddr, size_t size)
 {
-    vaddr = PAGE_ALIGN_DOWN(vaddr);
-    size = PAGE_ALIGN(size);
+    virt_addr_t aligned_vaddr = 0;
+    size_t aligned_size = 0;
+    if (align_range(vaddr, size, &aligned_vaddr, &aligned_size)) {
+        return -1;
+    }
+
+    vaddr = aligned_vaddr;
+    size = aligned_size;
     
     for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
         vmm_unmap_page(vaddr + offset);
@@ -509,6 +555,11 @@ int vmm_map_user_page(struct mm_struct *mm, virt_addr_t vaddr, phys_addr_t paddr
 int vmm_add_vma(struct mm_struct *mm, virt_addr_t start, virt_addr_t end, uint32_t flags)
 {
     if (!mm) return -1;
+    if (start >= end) return -1;
+    if ((uint64_t)(end - start) > (uint64_t)((size_t)-1) ||
+        mm->total_vm > (size_t)-1 - (size_t)(end - start)) {
+        return -1;
+    }
     
     /* Allocate VMA from static pool (should use kmalloc) */
     static struct vm_area vma_pool[256];
@@ -547,12 +598,17 @@ struct vm_area *vmm_find_vma(struct mm_struct *mm, virt_addr_t addr)
 int vmm_map_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size, uint32_t flags)
 {
     if (!mm) return -1;
+    if (size == 0 || size > (size_t)-1 - (PAGE_SIZE - 1)) return -1;
     
+    virt_addr_t start = vaddr & ~(PAGE_SIZE - 1);
+    if (vaddr > (virt_addr_t)-1 - size - (PAGE_SIZE - 1)) return -1;
+
     virt_addr_t end = (vaddr + size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-    vaddr = vaddr & ~(PAGE_SIZE - 1);
+    vaddr = start;
+    if (end <= vaddr || end > USER_VMA_END) return -1;
     
     /* Add VMA */
-    vmm_add_vma(mm, vaddr, end, flags);
+    if (vmm_add_vma(mm, vaddr, end, flags) != 0) return -1;
     
     /* Allocate and map pages */
     for (virt_addr_t addr = vaddr; addr < end; addr += PAGE_SIZE) {

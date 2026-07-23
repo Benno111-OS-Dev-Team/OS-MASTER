@@ -89,11 +89,28 @@ static void early_mark_free(phys_addr_t addr)
 
 static bool early_is_free(phys_addr_t addr)
 {
+    if (addr < memory_start || addr >= memory_end) {
+        return false;
+    }
     size_t pfn = PHYS_TO_PFN(addr - memory_start);
     if (pfn >= EARLY_BITMAP_SIZE * 8) {
         return false;
     }
     return !(early_bitmap[pfn / 8] & (1 << (pfn % 8)));
+}
+
+static bool pmm_range_valid(phys_addr_t addr, size_t count)
+{
+    if (count == 0 || addr < memory_start || addr >= memory_end) {
+        return false;
+    }
+    if ((addr & (PAGE_SIZE - 1)) != 0) {
+        return false;
+    }
+    if (count > (memory_end - addr) / PAGE_SIZE) {
+        return false;
+    }
+    return true;
 }
 
 static phys_addr_t early_alloc_page(void)
@@ -274,9 +291,17 @@ void pmm_free_pages(phys_addr_t addr, unsigned int order)
     if (!addr || order > MAX_ORDER) {
         return;
     }
+    size_t count = order_to_pages(order);
+    if (!pmm_range_valid(addr, count)) {
+        return;
+    }
     
     if (early_mode) {
-        size_t count = order_to_pages(order);
+        for (size_t i = 0; i < count; i++) {
+            if (early_is_free(addr + i * PAGE_SIZE)) {
+                return;
+            }
+        }
         for (size_t i = 0; i < count; i++) {
             early_mark_free(addr + i * PAGE_SIZE);
         }
@@ -306,7 +331,7 @@ void pmm_free_pages(phys_addr_t addr, unsigned int order)
     }
     
     buddy_add_to_list(addr, order);
-    free_pages_count += order_to_pages(order);
+    free_pages_count += count;
 }
 
 size_t pmm_get_free_memory(void)
@@ -330,7 +355,8 @@ phys_addr_t pmm_page_to_phys(struct page *page)
 
 struct page *pmm_phys_to_page(phys_addr_t addr)
 {
-    if (!page_array || addr < memory_start || addr >= memory_end) {
+    if (!page_array || addr < memory_start || addr >= memory_end ||
+        (addr & (PAGE_SIZE - 1)) != 0) {
         return NULL;
     }
     size_t index = PHYS_TO_PFN(addr - memory_start);
