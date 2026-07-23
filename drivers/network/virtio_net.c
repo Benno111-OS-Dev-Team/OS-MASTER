@@ -151,6 +151,7 @@ int virtio_net_send(struct net_interface *iface, const void *data, size_t len)
 {
     (void)iface;
     if (!net_base || !data) return -1;
+    if (!tx_q.avail || !tx_q.desc) return -1;
     if (len > PACKET_SIZE - sizeof(struct virtio_net_hdr)) return -1;
     
     /* Find free descriptor in TX queue */
@@ -158,6 +159,7 @@ int virtio_net_send(struct net_interface *iface, const void *data, size_t len)
     
     uint16_t idx = tx_q.avail->idx % VIRT_QUEUE_SIZE;
     uint16_t desc_idx = idx; /* Simple mapping 1:1 */
+    if (!tx_q.bufs[desc_idx]) return -1;
     
     /* Fill buffer */
     /* Note: In real driver we should use shared buffers not copy */
@@ -186,6 +188,7 @@ int virtio_net_send(struct net_interface *iface, const void *data, size_t len)
 void virtio_net_poll(void)
 {
     if (!net_base || !net_iface) return;
+    if (!rx_q.avail || !rx_q.used || !rx_q.desc) return;
     
     /* Check RX Queue Used Ring */
     while (rx_q.last_used_idx != rx_q.used->idx) {
@@ -194,6 +197,11 @@ void virtio_net_poll(void)
         uint32_t len = rx_q.used->ring[idx].len;
 
         if (id >= VIRT_QUEUE_SIZE) {
+            rx_q.last_used_idx++;
+            continue;
+        }
+
+        if (!rx_q.bufs[id]) {
             rx_q.last_used_idx++;
             continue;
         }
@@ -236,19 +244,27 @@ static volatile uint32_t *find_virtio_net(void) {
     return 0;
 }
 
-static void setup_queue(int qidx, struct virt_queue *q) {
+static int setup_queue(int qidx, struct virt_queue *q) {
+    uint32_t num_max;
+    uintptr_t base;
+
+    if (!q) return -1;
+
     /* Select Queue */
     mmio_write32(net_base + VIRTIO_MMIO_QUEUE_SEL/4, qidx);
     
     /* Check max size */
-    // uint32_t num_max = mmio_read32(net_base + VIRTIO_MMIO_QUEUE_NUM_MAX/4);
+    num_max = mmio_read32(net_base + VIRTIO_MMIO_QUEUE_NUM_MAX/4);
+    if (num_max < VIRT_QUEUE_SIZE) return -1;
     
     mmio_write32(net_base + VIRTIO_MMIO_QUEUE_NUM/4, VIRT_QUEUE_SIZE);
     
     /* Allocate Memory */
     /* 4096 alignment required for queue structs roughly */
     q->mem = kmalloc(4096 * 2); /* Plenty */
-    uintptr_t base = (uintptr_t)q->mem;
+    if (!q->mem) return -1;
+    memset(q->mem, 0, 4096 * 2);
+    base = (uintptr_t)q->mem;
     base = (base + 4095) & ~4095;
     
     q->desc = (virtq_desc_t *)base;
@@ -268,6 +284,7 @@ static void setup_queue(int qidx, struct virt_queue *q) {
     q->last_used_idx = 0;
     q->avail->idx = 0;
     q->avail->flags = 0;
+    return 0;
 }
 
 int virtio_net_init(void) {
@@ -308,12 +325,19 @@ int virtio_net_init(void) {
                  VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
                  
     /* Setup Queues */
-    setup_queue(VQ_RX, &rx_q);
-    setup_queue(VQ_TX, &tx_q);
+    if (setup_queue(VQ_RX, &rx_q) != 0 || setup_queue(VQ_TX, &tx_q) != 0) {
+        printk(KERN_ERR "NET: Failed to setup virtio-net queues\n");
+        return -1;
+    }
     
     /* Fill RX Queue */
     for(int i=0; i<VIRT_QUEUE_SIZE; i++) {
         rx_q.bufs[i] = kmalloc(PACKET_SIZE);
+        if (!rx_q.bufs[i]) {
+            printk(KERN_ERR "NET: Failed to allocate RX buffer %d\n", i);
+            return -1;
+        }
+        memset(rx_q.bufs[i], 0, PACKET_SIZE);
         rx_q.desc[i].addr = (uint64_t)rx_q.bufs[i];
         rx_q.desc[i].len = PACKET_SIZE;
         rx_q.desc[i].flags = DESC_F_WRITE; /* Device writes to it */
@@ -326,6 +350,11 @@ int virtio_net_init(void) {
     /* Fill TX Queue Headers */
     for(int i=0; i<VIRT_QUEUE_SIZE; i++) {
         tx_q.bufs[i] = kmalloc(PACKET_SIZE);
+        if (!tx_q.bufs[i]) {
+            printk(KERN_ERR "NET: Failed to allocate TX buffer %d\n", i);
+            return -1;
+        }
+        memset(tx_q.bufs[i], 0, PACKET_SIZE);
         tx_q.desc[i].addr = (uint64_t)tx_q.bufs[i];
         // tx_q.desc[i].len set on send
         // tx_q.desc[i].flags set on send
