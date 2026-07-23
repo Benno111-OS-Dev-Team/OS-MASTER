@@ -2161,6 +2161,8 @@ static int storage_read_sectors(int disk_index, uint32_t lba, uint32_t count,
 
   if (!dst || count == 0)
     return -1;
+  if ((uint64_t)lba + (uint64_t)count - 1ULL > UINT32_MAX)
+    return -1;
   for (uint32_t i = 0; i < count; i++) {
     if (storage_disk_read_sector(disk_index, lba + i,
                                  &dst[i * STORAGE_SECTOR_SIZE]) != 0)
@@ -2175,6 +2177,8 @@ static int storage_write_sectors(int disk_index, uint32_t lba, uint32_t count,
 
   if (!src || count == 0)
     return -1;
+  if ((uint64_t)lba + (uint64_t)count - 1ULL > UINT32_MAX)
+    return -1;
   for (uint32_t i = 0; i < count; i++) {
     if (storage_disk_write_sector(disk_index, lba + i,
                                   &src[i * STORAGE_SECTOR_SIZE]) != 0)
@@ -2183,17 +2187,32 @@ static int storage_write_sectors(int disk_index, uint32_t lba, uint32_t count,
   return 0;
 }
 
+static int storage_partition_lba_range(const storage_partition_t *part,
+                                       uint32_t relative_lba, uint32_t count,
+                                       uint32_t *absolute_lba) {
+  if (!part || !part->present || !absolute_lba || count == 0)
+    return -1;
+  if (relative_lba >= part->sector_count)
+    return -1;
+  if (count > part->sector_count - relative_lba)
+    return -1;
+  if (relative_lba > UINT32_MAX - part->start_lba)
+    return -1;
+  *absolute_lba = part->start_lba + relative_lba;
+  if ((uint64_t)*absolute_lba + (uint64_t)count - 1ULL > UINT32_MAX)
+    return -1;
+  return 0;
+}
+
 static int storage_partition_read_sectors(int disk_index,
                                           const storage_partition_t *part,
                                           uint32_t relative_lba,
                                           uint32_t count, void *buffer) {
-  if (!part || !part->present)
+  uint32_t absolute_lba;
+
+  if (storage_partition_lba_range(part, relative_lba, count, &absolute_lba) != 0)
     return -1;
-  if (relative_lba > part->sector_count || count > part->sector_count ||
-      relative_lba + count > part->sector_count)
-    return -1;
-  return storage_read_sectors(disk_index, part->start_lba + relative_lba, count,
-                              buffer);
+  return storage_read_sectors(disk_index, absolute_lba, count, buffer);
 }
 
 static int storage_partition_write_sectors(int disk_index,
@@ -2201,13 +2220,11 @@ static int storage_partition_write_sectors(int disk_index,
                                            uint32_t relative_lba,
                                            uint32_t count,
                                            const void *buffer) {
-  if (!part || !part->present)
+  uint32_t absolute_lba;
+
+  if (storage_partition_lba_range(part, relative_lba, count, &absolute_lba) != 0)
     return -1;
-  if (relative_lba > part->sector_count || count > part->sector_count ||
-      relative_lba + count > part->sector_count)
-    return -1;
-  return storage_write_sectors(disk_index, part->start_lba + relative_lba, count,
-                               buffer);
+  return storage_write_sectors(disk_index, absolute_lba, count, buffer);
 }
 
 static int storage_detect_fat32(int disk_index, const storage_partition_t *part,
