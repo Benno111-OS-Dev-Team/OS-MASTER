@@ -143,6 +143,15 @@ static void mmio_write32(volatile uint32_t *addr, uint32_t val) {
     mmio_barrier();
 }
 
+static int mac_is_zero(const uint8_t *mac) {
+    if (!mac) return 1;
+    for (int i = 0; i < 6; i++) {
+        if (mac[i] != 0)
+            return 0;
+    }
+    return 1;
+}
+
 /* ===================================================================== */
 /* Packet Handling */
 /* ===================================================================== */
@@ -288,6 +297,11 @@ static int setup_queue(int qidx, struct virt_queue *q) {
 }
 
 int virtio_net_init(void) {
+    static const uint8_t fallback_mac[6] = {0x52, 0x54, 0x00, 0x12, 0x34, 0x57};
+    uint32_t offered_features;
+    uint32_t driver_features = 0;
+    uint8_t mac[6];
+
     printk(KERN_INFO "NET: Initializing virtio-net...\n");
 
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
@@ -306,16 +320,22 @@ int virtio_net_init(void) {
     
     /* ACK + DRIVER */
     mmio_write32(net_base + VIRTIO_MMIO_STATUS/4, VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER);
-    
-    /* Read MAC (Config offset 0) */
-    uint8_t mac[6];
-    
-    /* Note: MMIO config is after 0x100 */
-    /* VIRTIO_MMIO_CONFIG is 0x100 */
-    /* Need byte access to config area */
-    volatile uint8_t *config_bytes = (volatile uint8_t *)((uintptr_t)net_base + VIRTIO_MMIO_CONFIG);
-    
-    for(int i=0; i<6; i++) mac[i] = config_bytes[i];
+
+    offered_features = mmio_read32(net_base + VIRTIO_MMIO_DEVICE_FEATURES/4);
+    if (offered_features & VIRTIO_NET_F_MAC)
+        driver_features |= VIRTIO_NET_F_MAC;
+    mmio_write32(net_base + VIRTIO_MMIO_DRIVER_FEATURES/4, driver_features);
+
+    memcpy(mac, fallback_mac, sizeof(mac));
+    if (driver_features & VIRTIO_NET_F_MAC) {
+        /* Need byte access to config area after 0x100. */
+        volatile uint8_t *config_bytes =
+            (volatile uint8_t *)((uintptr_t)net_base + VIRTIO_MMIO_CONFIG);
+
+        for(int i=0; i<6; i++) mac[i] = config_bytes[i];
+        if (mac_is_zero(mac))
+            memcpy(mac, fallback_mac, sizeof(mac));
+    }
     
     printk(KERN_INFO "NET: MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
