@@ -22,8 +22,31 @@ static void *elf_memset(void *s, int c, size_t n) {
   return s;
 }
 
+static int elf_u64_add_overflow(uint64_t a, uint64_t b, uint64_t *out) {
+  if (a > (uint64_t)-1 - b)
+    return 1;
+  *out = a + b;
+  return 0;
+}
+
+static int elf_range_exceeds(uint64_t offset, uint64_t length, size_t size) {
+  uint64_t end = 0;
+  return elf_u64_add_overflow(offset, length, &end) || end > (uint64_t)size;
+}
+
+static int elf_program_headers_in_bounds(const Elf64_Ehdr *ehdr,
+                                         size_t size) {
+  uint64_t ph_size = 0;
+
+  if (!ehdr || ehdr->e_ehsize != sizeof(Elf64_Ehdr) ||
+      ehdr->e_phentsize != sizeof(Elf64_Phdr) || ehdr->e_phnum == 0)
+    return 0;
+  ph_size = (uint64_t)ehdr->e_phnum * sizeof(Elf64_Phdr);
+  return !elf_range_exceeds(ehdr->e_phoff, ph_size, size);
+}
+
 int elf_validate(const void *data, size_t size) {
-  if (size < sizeof(Elf64_Ehdr)) {
+  if (!data || size < sizeof(Elf64_Ehdr)) {
     return -1;
   }
 
@@ -53,6 +76,9 @@ int elf_validate(const void *data, size_t size) {
   /* Check type (executable or PIE) */
   if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) {
     return -6;
+  }
+  if (!elf_program_headers_in_bounds(ehdr, size)) {
+    return -7;
   }
 
   return 0;
@@ -84,7 +110,9 @@ uint64_t elf_calc_size(const void *data, size_t size) {
     if (phdr->p_vaddr < min_addr) {
       min_addr = phdr->p_vaddr;
     }
-    uint64_t end = phdr->p_vaddr + phdr->p_memsz;
+    uint64_t end = 0;
+    if (elf_u64_add_overflow(phdr->p_vaddr, phdr->p_memsz, &end))
+      return 0;
     if (end > max_addr) {
       max_addr = end;
     }
@@ -160,14 +188,15 @@ int elf_load_at(const void *data, size_t size, uint64_t load_base,
 
   /* Process program headers */
   for (int i = 0; i < ehdr->e_phnum; i++) {
-    /* Validate program header offset is within file */
-    if (ehdr->e_phoff + (i + 1) * ehdr->e_phentsize > size) {
+    uint64_t ph_offset = 0;
+    if (elf_u64_add_overflow(ehdr->e_phoff,
+                             (uint64_t)i * ehdr->e_phentsize, &ph_offset) ||
+        elf_range_exceeds(ph_offset, sizeof(Elf64_Phdr), size)) {
       printk(KERN_ERR "[ELF] Program header %d beyond file bounds\n", i);
       return -1;
     }
 
-    const Elf64_Phdr *phdr =
-        (const Elf64_Phdr *)(base + ehdr->e_phoff + i * ehdr->e_phentsize);
+    const Elf64_Phdr *phdr = (const Elf64_Phdr *)(base + ph_offset);
 
     /* Remember DYNAMIC segment for relocations */
     if (phdr->p_type == PT_DYNAMIC) {
@@ -178,14 +207,28 @@ int elf_load_at(const void *data, size_t size, uint64_t load_base,
     if (phdr->p_type != PT_LOAD)
       continue;
 
+    if (phdr->p_filesz > phdr->p_memsz) {
+      printk(KERN_ERR "[ELF] Segment %d: file size exceeds memory size\n", i);
+      return -1;
+    }
+
     /* Validate segment file data is within bounds */
-    if (phdr->p_offset > size || phdr->p_filesz > size - phdr->p_offset) {
+    if (elf_range_exceeds(phdr->p_offset, phdr->p_filesz, size)) {
       printk(KERN_ERR "[ELF] Segment %d: offset/size exceeds file bounds\n", i);
       return -1;
     }
 
     /* For PIE, add load_base to vaddr */
-    uint64_t dest_addr = is_pie ? (load_base + phdr->p_vaddr) : phdr->p_vaddr;
+    uint64_t dest_addr = phdr->p_vaddr;
+    if (is_pie && elf_u64_add_overflow(load_base, phdr->p_vaddr, &dest_addr)) {
+      printk(KERN_ERR "[ELF] Segment %d: destination address overflow\n", i);
+      return -1;
+    }
+    uint64_t dest_end = 0;
+    if (elf_u64_add_overflow(dest_addr, phdr->p_memsz, &dest_end)) {
+      printk(KERN_ERR "[ELF] Segment %d: destination range overflow\n", i);
+      return -1;
+    }
 
     void *dest = (void *)dest_addr;
     const void *src = base + phdr->p_offset;
@@ -201,7 +244,9 @@ int elf_load_at(const void *data, size_t size, uint64_t load_base,
       elf_memset((uint8_t *)dest + phdr->p_filesz, 0, bss_size);
     }
 
-    uint64_t seg_end = phdr->p_vaddr + phdr->p_memsz;
+    uint64_t seg_end = 0;
+    if (elf_u64_add_overflow(phdr->p_vaddr, phdr->p_memsz, &seg_end))
+      return -1;
     if (seg_end > total_size)
       total_size = seg_end;
   }
@@ -212,7 +257,11 @@ int elf_load_at(const void *data, size_t size, uint64_t load_base,
   }
 
   /* Calculate entry point */
-  uint64_t entry = is_pie ? (load_base + ehdr->e_entry) : ehdr->e_entry;
+  uint64_t entry = ehdr->e_entry;
+  if (is_pie && elf_u64_add_overflow(load_base, ehdr->e_entry, &entry)) {
+    printk(KERN_ERR "[ELF] Entry point overflow\n");
+    return -1;
+  }
 
   printk(KERN_INFO "[ELF] Entry point: 0x%llx\n", (unsigned long long)entry);
 
