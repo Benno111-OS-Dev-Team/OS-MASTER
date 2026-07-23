@@ -389,6 +389,20 @@ static int find_elf_symbol(const void *kernel, uint64_t size, const char *name,
   return 0;
 }
 
+static int loaded_segments_contain_addr(uint64_t addr) {
+  for (uint16_t i = 0; i < g_loaded_segment_count; i++) {
+    uint64_t end = 0;
+
+    if (u64_add_overflow(g_loaded_segments[i].virt, g_loaded_segments[i].size,
+                         &end))
+      continue;
+    if (addr >= g_loaded_segments[i].virt && addr < end)
+      return 1;
+  }
+
+  return 0;
+}
+
 static EFI_STATUS load_elf_segments(const void *kernel, uint64_t size, uint64_t *entry_out) {
   const Elf64_Ehdr *eh = (const Elf64_Ehdr *)kernel;
   const Elf64_Phdr *ph = (const Elf64_Phdr *)((const uint8_t *)kernel + eh->phoff);
@@ -437,6 +451,8 @@ static EFI_STATUS load_elf_segments(const void *kernel, uint64_t size, uint64_t 
     return EFI_LOAD_ERROR;
   if (*entry_out == 0)
     *entry_out = eh->entry;
+  if (!loaded_segments_contain_addr(*entry_out))
+    return EFI_LOAD_ERROR;
   return EFI_SUCCESS;
 }
 
