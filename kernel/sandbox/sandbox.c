@@ -60,7 +60,7 @@ static inline int sandbox_setjmp(sandbox_jmpbuf_t *buf) {
                "mov x2, sp\n"
                "str x2, [%1, #88]\n"
                "str x30, [%1, #96]\n"
-               "mov %0, #0\n"
+               "mov %w0, #0\n"
                : "=r"(result)
                : "r"(buf)
                : "x2", "memory");
@@ -82,7 +82,7 @@ sandbox_longjmp(sandbox_jmpbuf_t *buf, int val) {
                "ldr x2, [%0, #88]\n"
                "mov sp, x2\n"
                "ldr x30, [%0, #96]\n"
-               "mov x0, %1\n"
+               "mov w0, %w1\n"
                "ret\n"
                :
                : "r"(buf), "r"(val)

@@ -249,7 +249,9 @@ typedef struct {
 
 static storage_ahci_port_ctx_t storage_ahci_ports[STORAGE_MAX_DISKS];
 static storage_nvme_ctx_t storage_nvme_contexts[STORAGE_MAX_DISKS];
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
 static storage_ide_atapi_ctx_t storage_ide_atapi_contexts[4];
+#endif
 
 #if defined(ARCH_X86_64)
 #define STORAGE_X86_64_KERNEL_VIRT_BASE 0xFFFFFFFF80000000ULL
@@ -258,15 +260,14 @@ extern uint64_t limine_get_hhdm_offset(void);
 #endif
 
 static phys_addr_t storage_dma_addr(const void *ptr) {
-  uintptr_t addr;
   phys_addr_t paddr;
 
   if (!ptr)
     return 0;
 
-  addr = (uintptr_t)ptr;
-
 #if defined(ARCH_X86_64)
+  uintptr_t addr = (uintptr_t)ptr;
+
   if (addr >= STORAGE_X86_64_KERNEL_VIRT_BASE)
     return STORAGE_X86_64_KERNEL_PHYS_BASE +
            (phys_addr_t)(addr - STORAGE_X86_64_KERNEL_VIRT_BASE);

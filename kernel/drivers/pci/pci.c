@@ -56,6 +56,8 @@ static void pci_try_init_xhci_controller(pci_device_t *pci_dev,
     printk("PCI: xHCI deferred on x86 bring-up path\n");
     return;
   }
+#else
+  (void)allow_on_x86;
 #endif
 
   pci_enable_device(pci_dev);

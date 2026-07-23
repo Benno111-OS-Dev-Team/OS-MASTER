@@ -138,7 +138,7 @@ static void usb_hid_process_keypress(uint8_t modifiers, uint8_t usage) {
     return;
   }
 
-  if (usage < 256) {
+  {
     char ascii;
 
     if (ctrl) {
