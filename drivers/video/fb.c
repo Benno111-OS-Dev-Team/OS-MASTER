@@ -65,6 +65,7 @@
 #define SIMPLE_FB_WIDTH     1024
 #define SIMPLE_FB_HEIGHT    768
 #define SIMPLE_FB_BPP       32
+#define FB_MAX_DIMENSION    16384U
 
 static struct {
     uint32_t *buffer;
@@ -89,6 +90,25 @@ static uint32_t fb_blend_rgb(uint32_t dst, uint32_t src, uint8_t alpha) {
     return (r << 16) | (g << 8) | b;
 }
 
+static bool fb_info_is_sane(uint32_t *buffer, uint32_t width, uint32_t height,
+                            uint32_t pitch)
+{
+    uint32_t min_pitch;
+
+    if (!buffer || !width || !height)
+        return false;
+    if (width > FB_MAX_DIMENSION || height > FB_MAX_DIMENSION)
+        return false;
+
+    min_pitch = width * sizeof(uint32_t);
+    if (pitch < min_pitch)
+        return false;
+    if (pitch > min_pitch * 8U)
+        return false;
+
+    return true;
+}
+
 /* ===================================================================== */
 /* Framebuffer Operations */
 /* ===================================================================== */
@@ -98,6 +118,7 @@ void fb_clear(uint32_t color)
     uint32_t stride;
 
     if (!framebuffer.initialized) return;
+    if (!framebuffer.buffer) return;
 
     stride = framebuffer.pitch ? (framebuffer.pitch / 4) : framebuffer.width;
     
@@ -113,6 +134,7 @@ void fb_put_pixel(int x, int y, uint32_t color)
     uint32_t stride;
 
     if (!framebuffer.initialized) return;
+    if (!framebuffer.buffer) return;
     if (x < 0 || x >= (int)framebuffer.width) return;
     if (y < 0 || y >= (int)framebuffer.height) return;
 
@@ -160,6 +182,8 @@ static void fb_draw_image_scaled(int x, int y, int w, int h,
 
     if (!image || !image->pixels || image->width == 0 || image->height == 0 ||
         w <= 0 || h <= 0)
+        return;
+    if (!framebuffer.initialized || !framebuffer.buffer)
         return;
 
     stride = framebuffer.pitch ? (framebuffer.pitch / 4) : framebuffer.width;
@@ -324,21 +348,30 @@ int fb_init(void)
     uint32_t limine_width = 0;
     uint32_t limine_height = 0;
     uint32_t limine_pitch = 0;
+    uint32_t effective_pitch = 0;
 
     if (limine_get_framebuffer(&limine_buffer, &limine_width, &limine_height,
                                &limine_pitch) == 0 &&
         limine_buffer && limine_width && limine_height) {
-        framebuffer.buffer = limine_buffer;
-        framebuffer.width = limine_width;
-        framebuffer.height = limine_height;
-        framebuffer.pitch = limine_pitch ? limine_pitch : (limine_width * 4);
-        framebuffer.initialized = true;
+        effective_pitch = limine_pitch ? limine_pitch : (limine_width * 4);
+        if (fb_info_is_sane(limine_buffer, limine_width, limine_height,
+                            effective_pitch)) {
+            framebuffer.buffer = limine_buffer;
+            framebuffer.width = limine_width;
+            framebuffer.height = limine_height;
+            framebuffer.pitch = effective_pitch;
+            framebuffer.initialized = true;
 
-        printk(KERN_INFO "FB: Using Limine framebuffer %ux%u at 0x%lx\n",
-               framebuffer.width, framebuffer.height,
-               (unsigned long)framebuffer.buffer);
-        fb_show_boot_log();
-        return 0;
+            printk(KERN_INFO "FB: Using Limine framebuffer %ux%u at 0x%lx\n",
+                   framebuffer.width, framebuffer.height,
+                   (unsigned long)framebuffer.buffer);
+            fb_show_boot_log();
+            return 0;
+        }
+
+        printk(KERN_WARNING
+               "FB: Ignoring invalid Limine framebuffer %ux%u pitch=%u\n",
+               limine_width, limine_height, effective_pitch);
     }
 
     printk(KERN_WARNING "FB: Limine framebuffer unavailable, using fallback buffer\n");
@@ -391,9 +424,20 @@ uint32_t fb_get_pitch(void)
 void fb_set_info(uint32_t *buffer, uint32_t width, uint32_t height,
                  uint32_t pitch)
 {
+    uint32_t effective_pitch = pitch ? pitch : (width * sizeof(uint32_t));
+
+    if (!fb_info_is_sane(buffer, width, height, effective_pitch)) {
+        framebuffer.buffer = NULL;
+        framebuffer.width = 0;
+        framebuffer.height = 0;
+        framebuffer.pitch = 0;
+        framebuffer.initialized = false;
+        return;
+    }
+
     framebuffer.buffer = buffer;
     framebuffer.width = width;
     framebuffer.height = height;
-    framebuffer.pitch = pitch ? pitch : (width * 4);
-    framebuffer.initialized = (buffer != NULL && width != 0 && height != 0);
+    framebuffer.pitch = effective_pitch;
+    framebuffer.initialized = true;
 }
