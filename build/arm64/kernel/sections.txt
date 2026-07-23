@@ -1,13 +1,13 @@
 
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/arm64/kernel/os-arm64.elf:	file format elf64-littleaarch64
+/mnt/c/Users/Benno111/Documents/GitHub/os8/build/arm64/kernel/os-arm64.elf:	file format elf64-littleaarch64
 
 Sections:
 Idx Name          Size     VMA              Type
   0               00000000 0000000000000000 
-  1 .text         0009d594 0000000040000000 TEXT
-  2 .rodata       00030fb0 000000004009e000 DATA
-  3 .data         0000a4d8 00000000400cf000 DATA
-  4 .bss          01415000 00000000400da000 BSS
-  5 .symtab       0000b820 0000000000000000 
+  1 .text         000c14c4 0000000040000000 TEXT
+  2 .rodata       00034370 00000000400c2000 DATA
+  3 .data         0000a390 00000000400f7000 DATA
+  4 .bss          0142a000 0000000040102000 BSS
+  5 .symtab       0000cf90 0000000000000000 
   6 .shstrtab     00000034 0000000000000000 
-  7 .strtab       00007a71 0000000000000000 
+  7 .strtab       00009200 0000000000000000 

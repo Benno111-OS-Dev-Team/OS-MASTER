@@ -11,6 +11,7 @@
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/printk.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/sched/sched.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/vmm.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/string.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/intel_hda.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/pci.h
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/syscall/syscall.h:
@@ -24,5 +25,6 @@
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/printk.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/sched/sched.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/vmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/string.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/intel_hda.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/pci.h:
