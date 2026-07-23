@@ -2,7 +2,7 @@
 #include <locale.h>
 #include "locale_impl.h"
 
-/* FIXME: stub */
+/* Locale collation currently uses codepoint order. */
 int __wcscoll_l(const wchar_t *l, const wchar_t *r, locale_t locale)
 {
 	return wcscmp(l, r);

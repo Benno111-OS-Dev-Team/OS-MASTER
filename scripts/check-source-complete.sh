@@ -20,15 +20,17 @@ scan_dirs=(
   boot
   drivers
   kernel
+  libc/src
   os-x86_64
   scripts
   .github
 )
 
-exclude_re='(^|/)(build|image|diagnostics|libc|os-x86_64/limine|os-x86_64/limine-bin|os-x86_64/limine-src|scripts/\.lf-run)(/|$)'
+exclude_re='(^|/)(build|image|diagnostics|os-x86_64/limine|os-x86_64/limine-bin|os-x86_64/limine-src|scripts/\.lf-run)(/|$)'
 ext_re='\.(c|h|S|asm|sh|ps1|py|md|yml|yaml|cfg|conf|mk|txt)$'
 
-found=0
+combined_pattern="$(IFS='|'; echo "${bad_patterns[*]}")"
+files=()
 while IFS= read -r -d '' file; do
   rel="${file#./}"
   if [[ "$rel" =~ $exclude_re ]]; then
@@ -37,19 +39,15 @@ while IFS= read -r -d '' file; do
   if [[ "$rel" != "AGENTS.md" && "$rel" != "Makefile.multiarch" && ! "$rel" =~ $ext_re ]]; then
     continue
   fi
-  for pattern in "${bad_patterns[@]}"; do
-    if LC_ALL=C grep -nEI "$pattern" "$rel" >/tmp/os8-source-hits.$$ 2>/dev/null; then
-      while IFS= read -r hit; do
-        printf '%s:%s\n' "$rel" "$hit"
-      done </tmp/os8-source-hits.$$
-      found=1
-    fi
-  done
+  files+=("$rel")
 done < <(git ls-files -z -- "${scan_dirs[@]}")
 
-rm -f /tmp/os8-source-hits.$$
-
-if [ "$found" -ne 0 ]; then
+if [ "${#files[@]}" -ne 0 ] &&
+   LC_ALL=C grep -nEI "$combined_pattern" "${files[@]}" >/tmp/os8-source-hits.$$ 2>/dev/null; then
+  cat /tmp/os8-source-hits.$$
+  rm -f /tmp/os8-source-hits.$$
   echo "error: project-owned source contains prohibited incomplete implementation markers" >&2
   exit 1
 fi
+
+rm -f /tmp/os8-source-hits.$$
