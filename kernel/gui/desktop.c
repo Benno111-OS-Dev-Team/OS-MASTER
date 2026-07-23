@@ -691,11 +691,61 @@ static int ctx_menu_item_at(int mx, int my) {
 
 static void str_copy(char *dst, const char *src, int max) {
   int i = 0;
+  if (!dst || max <= 0)
+    return;
+  if (!src) {
+    dst[0] = '\0';
+    return;
+  }
   while (src[i] && i < max - 1) {
     dst[i] = src[i];
     i++;
   }
   dst[i] = '\0';
+}
+
+static int desktop_valid_child_name(const char *name) {
+  if (!name || !name[0])
+    return 0;
+  if (name[0] == '.' && (!name[1] || (name[1] == '.' && !name[2])))
+    return 0;
+  for (int i = 0; name[i]; i++) {
+    if (name[i] == '/')
+      return 0;
+  }
+  return 1;
+}
+
+static int desktop_build_child_path(char *dst, int max, const char *parent,
+                                    const char *name) {
+  int out = 0;
+
+  if (!dst || max <= 0)
+    return -1;
+  dst[0] = '\0';
+  if (!parent || !name)
+    return -1;
+  if (!desktop_valid_child_name(name))
+    return -1;
+
+  while (parent[out] && out < max - 1) {
+    dst[out] = parent[out];
+    out++;
+  }
+  if (parent[out])
+    return -1;
+  if (out > 0 && dst[out - 1] != '/') {
+    if (out >= max - 1)
+      return -1;
+    dst[out++] = '/';
+  }
+  for (int i = 0; name[i]; i++) {
+    if (out >= max - 1)
+      return -1;
+    dst[out++] = name[i];
+  }
+  dst[out] = '\0';
+  return 0;
 }
 
 static int str_ends_with(const char *str, const char *suffix) {
@@ -1859,6 +1909,11 @@ static int dir_scan_callback(void *ctx, const char *name, int len,
   (void)offset;
   (void)ino;
 
+  if (!name || len <= 0)
+    return 0;
+  if (len >= (int)sizeof(desktop_icons[0].name))
+    return 0;
+
   /* Skip . and .. */
   if (name[0] == '.' && (len == 1 || (len == 2 && name[1] == '.'))) {
     return 0;
@@ -1884,16 +1939,10 @@ static int dir_scan_callback(void *ctx, const char *name, int len,
   icon->name[i] = '\0';
 
   /* Build full path */
-  str_copy(icon->path, DESKTOP_PATH, 256);
-  int plen = 0;
-  while (icon->path[plen])
-    plen++;
-  icon->path[plen++] = '/';
-  i = 0;
-  while (i < len && plen < 255) {
-    icon->path[plen++] = name[i++];
+  if (desktop_build_child_path(icon->path, sizeof(icon->path), DESKTOP_PATH,
+                               icon->name) != 0) {
+    return 0;
   }
-  icon->path[plen] = '\0';
 
   /* Determine type */
   int is_dir = (type == 4); /* DT_DIR */
@@ -2078,16 +2127,8 @@ static void menu_action_new_folder(void *ctx) {
     name[i] = '\0';
 
     /* Build path */
-    str_copy(path, DESKTOP_PATH, 256);
-    int plen = 0;
-    while (path[plen])
-      plen++;
-    path[plen++] = '/';
-    i = 0;
-    while (name[i] && plen < 255) {
-      path[plen++] = name[i++];
-    }
-    path[plen] = '\0';
+    if (desktop_build_child_path(path, sizeof(path), DESKTOP_PATH, name) != 0)
+      return;
 
     /* Check if exists */
     struct file *f = vfs_open(path, O_RDONLY, 0);
@@ -2141,16 +2182,8 @@ static void menu_action_new_file(void *ctx) {
     name[i++] = 't';
     name[i] = '\0';
 
-    str_copy(path, DESKTOP_PATH, 256);
-    int plen = 0;
-    while (path[plen])
-      plen++;
-    path[plen++] = '/';
-    i = 0;
-    while (name[i] && plen < 255) {
-      path[plen++] = name[i++];
-    }
-    path[plen] = '\0';
+    if (desktop_build_child_path(path, sizeof(path), DESKTOP_PATH, name) != 0)
+      return;
 
     struct file *f = vfs_open(path, O_RDONLY, 0);
     if (!f)
@@ -2243,16 +2276,10 @@ static void menu_action_paste(void *ctx) {
 
   /* Build destination path */
   char dest[256];
-  str_copy(dest, DESKTOP_PATH, 256);
-  int plen = 0;
-  while (dest[plen])
-    plen++;
-  dest[plen++] = '/';
-  int i = 0;
-  while (filename[i] && plen < 255) {
-    dest[plen++] = filename[i++];
+  if (!desktop_valid_child_name(filename) ||
+      desktop_build_child_path(dest, sizeof(dest), DESKTOP_PATH, filename) != 0) {
+    return;
   }
-  dest[plen] = '\0';
 
   printk(KERN_INFO "DESKTOP: Paste %s -> %s\n", clipboard_path, dest);
 
@@ -2513,14 +2540,19 @@ static void desktop_commit_rename(void) {
 
   /* Only rename if name actually changed and is non-empty */
   if (rename_buffer[0] && str_cmp(icon->name, rename_buffer) != 0) {
+    if (!desktop_valid_child_name(rename_buffer)) {
+      printk(KERN_WARNING "DESKTOP: Invalid rename target '%s'\n", rename_buffer);
+      goto done;
+    }
+
     /* Build new path */
     char new_path[256];
-    str_copy(new_path, DESKTOP_PATH, 256);
-    int len = 0;
-    while (new_path[len])
-      len++;
-    new_path[len++] = '/';
-    str_copy(new_path + len, rename_buffer, 256 - len);
+    if (desktop_build_child_path(new_path, sizeof(new_path), DESKTOP_PATH,
+                                 rename_buffer) != 0) {
+      printk(KERN_WARNING "DESKTOP: Rename path too long for '%s'\n",
+             rename_buffer);
+      goto done;
+    }
 
     /* Perform rename via VFS */
     extern int vfs_rename(const char *oldpath, const char *newpath);
@@ -2536,6 +2568,7 @@ static void desktop_commit_rename(void) {
     }
   }
 
+done:
   /* Mark dirty and reset state */
   desktop_mark_dirty(icon->x - 10, icon->y + DESKTOP_ICON_SIZE,
                      DESKTOP_ICON_SIZE + 60, DESKTOP_LABEL_HEIGHT + 10);
