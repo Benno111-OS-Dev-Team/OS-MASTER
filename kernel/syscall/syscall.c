@@ -660,10 +660,23 @@ static long sys_sound_play(uint64_t data, uint64_t samples, uint64_t channels,
                            uint64_t rate, uint64_t a4, uint64_t a5) {
   (void)a4;
   (void)a5;
+  uint64_t frame_bytes;
+  uint64_t byte_count;
 
-  /* Check pointer validity (basic) */
-  if (data < 0x10000000)
-    return -EFAULT; /* Below userspace heap? Adjust check as needed */
+  if (!samples || !channels || !rate)
+    return -EINVAL;
+  if (samples > UINT32_MAX || channels > UINT8_MAX || rate > UINT32_MAX)
+    return -EINVAL;
+  if (channels > 16)
+    return -EINVAL;
+  if (channels > UINT64_MAX / 2)
+    return -EINVAL;
+  frame_bytes = channels * 2;
+  if (samples > UINT64_MAX / frame_bytes)
+    return -EINVAL;
+  byte_count = samples * frame_bytes;
+  if (!is_valid_user_ptr(data, (size_t)byte_count))
+    return -EFAULT;
 
   /* Call HDA driver */
   /* Note: data is a user virtual address. HDA DMA needs physical.
