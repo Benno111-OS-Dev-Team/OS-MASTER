@@ -10,6 +10,7 @@
 #include "mm/kmalloc.h"
 #include "printk.h"
 #include "sched/sched.h"
+#include "string.h"
 
 /* ===================================================================== */
 /* File Descriptor Table */
@@ -108,6 +109,24 @@ static int is_valid_user_ptr(uint64_t ptr, size_t len) {
   return 1;
 }
 
+static int copy_user_string(uint64_t user_ptr, char *dst, size_t dst_size) {
+  const char *src = (const char *)(uintptr_t)user_ptr;
+
+  if (!dst || dst_size == 0 || !is_valid_user_ptr(user_ptr, 1))
+    return -EFAULT;
+
+  for (size_t i = 0; i < dst_size; i++) {
+    if (!is_valid_user_ptr(user_ptr + i, 1))
+      return -EFAULT;
+    dst[i] = src[i];
+    if (dst[i] == '\0')
+      return 0;
+  }
+
+  dst[dst_size - 1] = '\0';
+  return -ENAMETOOLONG;
+}
+
 /* ===================================================================== */
 /* System call table */
 /* ===================================================================== */
@@ -187,6 +206,10 @@ static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
 
   init_fd_table();
 
+  if (count > 0 && !is_valid_user_ptr(buf, count)) {
+    return -EFAULT;
+  }
+
   /* Special case: stdout/stderr (fd 1 and 2) go to console */
   if (fd == 1 || fd == 2) {
     const char *str = (const char *)buf;
@@ -212,7 +235,11 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
 
   init_fd_table();
 
-  const char *path = (const char *)pathname;
+  char path[256];
+  long ret = copy_user_string(pathname, path, sizeof(path));
+  if (ret < 0) {
+    return ret;
+  }
 
   /* Allocate file descriptor */
   int fd = alloc_fd();
@@ -407,11 +434,14 @@ static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
     return -ENOSYS;
   }
 
+  if (len == 0 || len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+
 /* Align len to page size */
   len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
   /* Check bounds */
-  if (user_mmap_current + len > USER_HEAP_START + USER_HEAP_SIZE) {
+  if (len > (USER_HEAP_START + USER_HEAP_SIZE) - user_mmap_current) {
     printk(KERN_WARNING "sys_mmap: out of memory\n");
     return -ENOMEM;
   }
@@ -467,7 +497,11 @@ static long sys_execve(uint64_t filename, uint64_t argv, uint64_t envp,
   (void)a4;
   (void)a5;
 
-  const char *path = (const char *)filename;
+  char path[256];
+  long path_ret = copy_user_string(filename, path, sizeof(path));
+  if (path_ret < 0)
+    return path_ret;
+
   printk(KERN_INFO "sys_execve: loading '%s'\n", path);
 
   /* Open the file */
@@ -558,6 +592,11 @@ static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
   };
 
   struct utsname *uts = (struct utsname *)buf;
+  if (!is_valid_user_ptr(buf, sizeof(*uts))) {
+    return -EFAULT;
+  }
+
+  memset(uts, 0, sizeof(*uts));
 
   /* Copy strings (simple implementation) */
   const char *sysname = "OS8";
@@ -567,24 +606,12 @@ static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
   const char *machine = "aarch64";
   const char *domain = "";
 
-  for (int i = 0; i < 64 && sysname[i]; i++)
-    uts->sysname[i] = sysname[i];
-  uts->sysname[64] = 0;
-  for (int i = 0; i < 64 && nodename[i]; i++)
-    uts->nodename[i] = nodename[i];
-  uts->nodename[64] = 0;
-  for (int i = 0; i < 64 && release[i]; i++)
-    uts->release[i] = release[i];
-  uts->release[64] = 0;
-  for (int i = 0; i < 64 && version[i]; i++)
-    uts->version[i] = version[i];
-  uts->version[64] = 0;
-  for (int i = 0; i < 64 && machine[i]; i++)
-    uts->machine[i] = machine[i];
-  uts->machine[64] = 0;
-  for (int i = 0; i < 64 && domain[i]; i++)
-    uts->domainname[i] = domain[i];
-  uts->domainname[64] = 0;
+  strlcpy(uts->sysname, sysname, sizeof(uts->sysname));
+  strlcpy(uts->nodename, nodename, sizeof(uts->nodename));
+  strlcpy(uts->release, release, sizeof(uts->release));
+  strlcpy(uts->version, version, sizeof(uts->version));
+  strlcpy(uts->machine, machine, sizeof(uts->machine));
+  strlcpy(uts->domainname, domain, sizeof(uts->domainname));
 
   return 0;
 }
