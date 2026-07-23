@@ -50,6 +50,8 @@
 #define VBE_DISPI_ID4           0xB0C4
 #define VBE_DISPI_ID5           0xB0C5
 
+#define BOCHS_MAX_DIMENSION     16384U
+
 /* ===================================================================== */
 /* Global State */
 /* ===================================================================== */
@@ -98,6 +100,15 @@ static void bochs_resolve_mappings(void) {
         (volatile uint32_t *)bochs_phys_to_virt(framebuffer_phys);
 }
 
+static bool bochs_mode_is_sane(uint32_t width, uint32_t height)
+{
+    if (!width || !height)
+        return false;
+    if (width > BOCHS_MAX_DIMENSION || height > BOCHS_MAX_DIMENSION)
+        return false;
+    return true;
+}
+
 /* ===================================================================== */
 /* Register Access */
 /* ===================================================================== */
@@ -141,6 +152,7 @@ static uint16_t vbe_read(uint16_t index)
 void bochs_clear(uint32_t color)
 {
     if (!bochs_display.initialized) return;
+    if (!bochs_display.framebuffer) return;
     
     uint32_t *fb = (uint32_t *)bochs_display.framebuffer;
     uint32_t pixels = bochs_display.width * bochs_display.height;
@@ -153,6 +165,7 @@ void bochs_clear(uint32_t color)
 void bochs_put_pixel(int x, int y, uint32_t color)
 {
     if (!bochs_display.initialized) return;
+    if (!bochs_display.framebuffer) return;
     if (x < 0 || x >= (int)bochs_display.width) return;
     if (y < 0 || y >= (int)bochs_display.height) return;
     
@@ -166,6 +179,11 @@ void bochs_put_pixel(int x, int y, uint32_t color)
 int bochs_init(uint32_t width, uint32_t height)
 {
     printk(KERN_INFO "BOCHS: Initializing display %ux%u\n", width, height);
+
+    if (!bochs_mode_is_sane(width, height)) {
+        printk(KERN_ERR "BOCHS: Invalid display mode %ux%u\n", width, height);
+        return -1;
+    }
     
     /* Set up register and framebuffer pointers */
     bochs_resolve_mappings();
@@ -174,6 +192,11 @@ int bochs_init(uint32_t width, uint32_t height)
            (const void *)bochs_display.vbe_regs,
            (unsigned long long)bochs_display.framebuffer_phys,
            (const void *)bochs_display.framebuffer);
+
+    if (!bochs_display.framebuffer) {
+        printk(KERN_ERR "BOCHS: Framebuffer mapping unavailable\n");
+        return -1;
+    }
     
     /* Check for Bochs VBE */
     uint16_t vbe_id = vbe_read(VBE_DISPI_INDEX_ID);
