@@ -7,6 +7,7 @@
 #define PAGE_HUGE 0x080ULL
 #define OS8_BOOT_HANDOFF_MAGIC 0x4F5338424F4F5448ULL
 #define OS8_BOOT_HANDOFF_VERSION 1
+#define OS8_MAX_FRAMEBUFFER_DIMENSION 16384ULL
 
 typedef struct {
   uint8_t ident[16];
@@ -144,6 +145,42 @@ static int u64_mul_overflow(uint64_t a, uint64_t b, uint64_t *out) {
 static int u64_range_exceeds(uint64_t offset, uint64_t length, uint64_t size) {
   uint64_t end = 0;
   return u64_add_overflow(offset, length, &end) || end > size;
+}
+
+static int gop_framebuffer_is_sane(EFI_GRAPHICS_OUTPUT_PROTOCOL *gop) {
+  uint64_t width;
+  uint64_t height;
+  uint64_t pixels_per_scanline;
+  uint64_t min_pitch;
+  uint64_t pitch;
+  uint64_t framebuffer_bytes;
+
+  if (!gop || !gop->Mode || !gop->Mode->Info)
+    return 0;
+  if (!gop->Mode->FrameBufferBase || !gop->Mode->FrameBufferSize)
+    return 0;
+
+  width = gop->Mode->Info->HorizontalResolution;
+  height = gop->Mode->Info->VerticalResolution;
+  pixels_per_scanline = gop->Mode->Info->PixelsPerScanLine;
+  if (!width || !height || !pixels_per_scanline)
+    return 0;
+  if (width > OS8_MAX_FRAMEBUFFER_DIMENSION ||
+      height > OS8_MAX_FRAMEBUFFER_DIMENSION)
+    return 0;
+  if (pixels_per_scanline < width)
+    return 0;
+  if (u64_mul_overflow(width, 4ULL, &min_pitch) ||
+      u64_mul_overflow(pixels_per_scanline, 4ULL, &pitch))
+    return 0;
+  if (pitch > min_pitch * 8ULL)
+    return 0;
+  if (u64_mul_overflow(pitch, height, &framebuffer_bytes))
+    return 0;
+  if (gop->Mode->FrameBufferSize < framebuffer_bytes)
+    return 0;
+
+  return 1;
 }
 
 static EFI_STATUS error(const char *code, const char *message, EFI_STATUS status) {
@@ -640,6 +677,8 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
 
   status = st->BootServices->LocateProtocol(&gop_guid, NULL, (void **)&gop);
   if (EFI_ERROR(status)) return error("KERNEL-0004", "Graphics output protocol is unavailable.", status);
+  if (!gop_framebuffer_is_sane(gop))
+    return error("KERNEL-0004", "Graphics output mode is invalid.", EFI_UNSUPPORTED);
 
   if (!find_elf_symbol(kernel, kernel_size, "_start_from_loader", &entry)) {
     return error("KERNEL-0005", "The custom kernel entry point is missing.", EFI_LOAD_ERROR);
