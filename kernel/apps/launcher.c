@@ -540,40 +540,40 @@ static void kapi_uart_puts(const char *s) {
 /* Initialize Kernel API */
 /* ===================================================================== */
 
-/* Stub functions for unimplemented features */
-static void stub_void(void) {}
-static void stub_void_int(int x) { (void)x; }
-static int stub_int(void) { return 0; }
-static int stub_int_int(int x) { (void)x; return 0; }
-static uint32_t stub_uint32(void) { return 0; }
-static void stub_set_color(uint32_t fg, uint32_t bg) { (void)fg; (void)bg; }
-static void stub_set_cursor(int r, int c) { (void)r; (void)c; }
-static void stub_clear_region(int r, int c, int w, int h) { (void)r; (void)c; (void)w; (void)h; }
-static int stub_is_dir(void *n) { (void)n; return 0; }
-static void *stub_ptr_path(const char *p) { (void)p; return NULL; }
-static int stub_delete_path(const char *p) { (void)p; return -1; }
-static int stub_readdir(void *d, int i, char *n, size_t ns, uint8_t *t) { (void)d; (void)i; (void)n; (void)ns; (void)t; return -1; }
-static int stub_set_cwd(const char *p) { (void)p; return -1; }
-static int stub_get_cwd(char *b, size_t s) { (void)b; (void)s; return -1; }
-static int stub_exec_args(const char *p, int a, char **v) { (void)p; (void)a; (void)v; return -1; }
-static int stub_spawn_args(const char *p, int a, char **v) { (void)p; (void)a; (void)v; return -1; }
-static int stub_console_size(void) { return 25; }
-static void stub_fb_pixel(uint32_t x, uint32_t y, uint32_t c) { (void)x; (void)y; (void)c; }
-static void stub_fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
-static void stub_fb_char(uint32_t x, uint32_t y, char c, uint32_t fg, uint32_t bg) { (void)x; (void)y; (void)c; (void)fg; (void)bg; }
-static void stub_fb_string(uint32_t x, uint32_t y, const char *s, uint32_t fg, uint32_t bg) { (void)x; (void)y; (void)s; (void)fg; (void)bg; }
-static void stub_mouse_poll(void) {}
-static void stub_mouse_set(int x, int y) { (void)x; (void)y; }
-static int stub_win_create(int x, int y, int w, int h, const char *t) { (void)x; (void)y; (void)w; (void)h; (void)t; return -1; }
-static void stub_win_destroy(int w) { (void)w; }
-static uint32_t *stub_win_buf(int w, int *pw, int *ph) { (void)w; (void)pw; (void)ph; return NULL; }
-static int stub_win_poll(int w, int *t, int *d1, int *d2, int *d3) { (void)w; (void)t; (void)d1; (void)d2; (void)d3; return 0; }
-static void stub_win_inv(int w) { (void)w; }
-static void stub_win_title(int w, const char *t) { (void)w; (void)t; }
-static size_t stub_mem_info(void) { return 0; }
-static uint32_t stub_timestamp(void) { return 0; }
-static void stub_datetime(int *y, int *m, int *d, int *h, int *mi, int *s, int *w) { (void)y; (void)m; (void)d; (void)h; (void)mi; (void)s; (void)w; }
-static void stub_wfi(void) { 
+/* Unsupported capability handlers */
+static void unsupported_void(void) {}
+static void unsupported_void_int(int x) { (void)x; }
+static int unsupported_int(void) { return 0; }
+static int unsupported_int_int(int x) { (void)x; return 0; }
+static uint32_t unsupported_uint32(void) { return 0; }
+static void unsupported_set_color(uint32_t fg, uint32_t bg) { (void)fg; (void)bg; }
+static void unsupported_set_cursor(int r, int c) { (void)r; (void)c; }
+static void unsupported_clear_region(int r, int c, int w, int h) { (void)r; (void)c; (void)w; (void)h; }
+static int unsupported_is_dir(void *n) { (void)n; return 0; }
+static void *unsupported_ptr_path(const char *p) { (void)p; return NULL; }
+static int unsupported_delete_path(const char *p) { (void)p; return -1; }
+static int unsupported_readdir(void *d, int i, char *n, size_t ns, uint8_t *t) { (void)d; (void)i; (void)n; (void)ns; (void)t; return -1; }
+static int unsupported_set_cwd(const char *p) { (void)p; return -1; }
+static int unsupported_get_cwd(char *b, size_t s) { (void)b; (void)s; return -1; }
+static int unsupported_exec_args(const char *p, int a, char **v) { (void)p; (void)a; (void)v; return -1; }
+static int unsupported_spawn_args(const char *p, int a, char **v) { (void)p; (void)a; (void)v; return -1; }
+static int unsupported_console_size(void) { return 25; }
+static void unsupported_fb_pixel(uint32_t x, uint32_t y, uint32_t c) { (void)x; (void)y; (void)c; }
+static void unsupported_fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
+static void unsupported_fb_char(uint32_t x, uint32_t y, char c, uint32_t fg, uint32_t bg) { (void)x; (void)y; (void)c; (void)fg; (void)bg; }
+static void unsupported_fb_string(uint32_t x, uint32_t y, const char *s, uint32_t fg, uint32_t bg) { (void)x; (void)y; (void)s; (void)fg; (void)bg; }
+static void unsupported_mouse_poll(void) {}
+static void unsupported_mouse_set(int x, int y) { (void)x; (void)y; }
+static int unsupported_win_create(int x, int y, int w, int h, const char *t) { (void)x; (void)y; (void)w; (void)h; (void)t; return -1; }
+static void unsupported_win_destroy(int w) { (void)w; }
+static uint32_t *unsupported_win_buf(int w, int *pw, int *ph) { (void)w; (void)pw; (void)ph; return NULL; }
+static int unsupported_win_poll(int w, int *t, int *d1, int *d2, int *d3) { (void)w; (void)t; (void)d1; (void)d2; (void)d3; return 0; }
+static void unsupported_win_inv(int w) { (void)w; }
+static void unsupported_win_title(int w, const char *t) { (void)w; (void)t; }
+static size_t unsupported_mem_info(void) { return 0; }
+static uint32_t unsupported_timestamp(void) { return 0; }
+static void unsupported_datetime(int *y, int *m, int *d, int *h, int *mi, int *s, int *w) { (void)y; (void)m; (void)d; (void)h; (void)mi; (void)s; (void)w; }
+static void unsupported_wfi(void) { 
 #ifdef ARCH_ARM64
     asm volatile("wfi");
 #elif defined(ARCH_X86_64) || defined(ARCH_X86)
@@ -583,32 +583,32 @@ static void stub_wfi(void) {
 extern int usb_device_count(void);
 extern int usb_device_info(int idx, uint16_t *vid, uint16_t *pid, char *name,
                            int name_len);
-static int stub_sound(const void *d, uint32_t s) { (void)d; (void)s; return -1; }
-static int stub_sound_pcm(const void *d, uint32_t s, uint8_t c, uint32_t r) { (void)d; (void)s; (void)c; (void)r; return -1; }
-static int stub_proc_info(int i, char *n, int ns, int *st) { (void)i; (void)n; (void)ns; (void)st; return 0; }
-static uint64_t stub_heap_addr(void) { return 0; }
-static int stub_net_ping(uint32_t ip, uint16_t seq, uint32_t to) { (void)ip; (void)seq; (void)to; return -1; }
-static uint32_t stub_net_ip(void) { return 0; }
-static void stub_net_mac(uint8_t *m) { (void)m; }
-static uint32_t stub_dns(const char *h) { (void)h; return 0; }
-static int stub_tcp_connect(uint32_t ip, uint16_t port) { (void)ip; (void)port; return -1; }
-static int stub_tcp_send(int s, const void *d, uint32_t l) { (void)s; (void)d; (void)l; return -1; }
-static int stub_tcp_recv(int s, void *b, uint32_t m) { (void)s; (void)b; (void)m; return -1; }
-static void stub_tcp_close(int s) { (void)s; }
-static int stub_tls_connect(uint32_t ip, uint16_t port, const char *h) { (void)ip; (void)port; (void)h; return -1; }
-static void *stub_ttf_glyph(int c, int s, int st) { (void)c; (void)s; (void)st; return NULL; }
-static int stub_ttf_adv(int c, int s) { (void)c; (void)s; return 0; }
-static int stub_ttf_kern(int c1, int c2, int s) { (void)c1; (void)c2; (void)s; return 0; }
-static void stub_ttf_metrics(int s, int *a, int *d, int *lg) { (void)s; (void)a; (void)d; (void)lg; }
-static int stub_usb_info(int i, uint16_t *v, uint16_t *p, char *n, int nl) { (void)i; (void)v; (void)p; (void)n; (void)nl; return 0; }
+static int unsupported_sound(const void *d, uint32_t s) { (void)d; (void)s; return -1; }
+static int unsupported_sound_pcm(const void *d, uint32_t s, uint8_t c, uint32_t r) { (void)d; (void)s; (void)c; (void)r; return -1; }
+static int unsupported_proc_info(int i, char *n, int ns, int *st) { (void)i; (void)n; (void)ns; (void)st; return 0; }
+static uint64_t unsupported_heap_addr(void) { return 0; }
+static int unsupported_net_ping(uint32_t ip, uint16_t seq, uint32_t to) { (void)ip; (void)seq; (void)to; return -1; }
+static uint32_t unsupported_net_ip(void) { return 0; }
+static void unsupported_net_mac(uint8_t *m) { (void)m; }
+static uint32_t unsupported_dns(const char *h) { (void)h; return 0; }
+static int unsupported_tcp_connect(uint32_t ip, uint16_t port) { (void)ip; (void)port; return -1; }
+static int unsupported_tcp_send(int s, const void *d, uint32_t l) { (void)s; (void)d; (void)l; return -1; }
+static int unsupported_tcp_recv(int s, void *b, uint32_t m) { (void)s; (void)b; (void)m; return -1; }
+static void unsupported_tcp_close(int s) { (void)s; }
+static int unsupported_tls_connect(uint32_t ip, uint16_t port, const char *h) { (void)ip; (void)port; (void)h; return -1; }
+static void *unsupported_ttf_glyph(int c, int s, int st) { (void)c; (void)s; (void)st; return NULL; }
+static int unsupported_ttf_adv(int c, int s) { (void)c; (void)s; return 0; }
+static int unsupported_ttf_kern(int c1, int c2, int s) { (void)c1; (void)c2; (void)s; return 0; }
+static void unsupported_ttf_metrics(int s, int *a, int *d, int *lg) { (void)s; (void)a; (void)d; (void)lg; }
+static int unsupported_usb_info(int i, uint16_t *v, uint16_t *p, char *n, int nl) { (void)i; (void)v; (void)p; (void)n; (void)nl; return 0; }
 static size_t kapi_klog_read(char *b, size_t o, size_t s) { return printk_log_read(b, o, s); }
 static size_t kapi_klog_size(void) { return printk_log_size(); }
-static uint32_t *stub_backbuf(void) { return NULL; }
-static int stub_dma_copy(void *d, const void *s, uint32_t l) { (void)d; (void)s; (void)l; return -1; }
-static int stub_dma_2d(void *d, uint32_t dp, const void *s, uint32_t sp, uint32_t w, uint32_t h) { (void)d; (void)dp; (void)s; (void)sp; (void)w; (void)h; return -1; }
-static int stub_dma_fb(uint32_t *d, const uint32_t *s, uint32_t w, uint32_t h) { (void)d; (void)s; (void)w; (void)h; return -1; }
-static int stub_dma_fill(void *d, uint32_t v, uint32_t l) { (void)d; (void)v; (void)l; return -1; }
-static const char *stub_cpu_name(void) { return "ARM Cortex-A72"; }
+static uint32_t *unsupported_backbuf(void) { return NULL; }
+static int unsupported_dma_copy(void *d, const void *s, uint32_t l) { (void)d; (void)s; (void)l; return -1; }
+static int unsupported_dma_2d(void *d, uint32_t dp, const void *s, uint32_t sp, uint32_t w, uint32_t h) { (void)d; (void)dp; (void)s; (void)sp; (void)w; (void)h; return -1; }
+static int unsupported_dma_fb(uint32_t *d, const uint32_t *s, uint32_t w, uint32_t h) { (void)d; (void)s; (void)w; (void)h; return -1; }
+static int unsupported_dma_fill(void *d, uint32_t v, uint32_t l) { (void)d; (void)v; (void)l; return -1; }
+static const char *unsupported_cpu_name(void) { return "ARM Cortex-A72"; }
 
 void kapi_init(kapi_t *api) {
     /* Zero entire struct first */
@@ -622,14 +622,14 @@ void kapi_init(kapi_t *api) {
     api->puts = kapi_puts;
     api->uart_puts = kapi_uart_puts;
     api->getc = kapi_getc;
-    api->set_color = stub_set_color;
+    api->set_color = unsupported_set_color;
     api->clear = kapi_clear;
-    api->set_cursor = stub_set_cursor;
-    api->set_cursor_enabled = stub_void_int;
+    api->set_cursor = unsupported_set_cursor;
+    api->set_cursor_enabled = unsupported_void_int;
     api->print_int = NULL;  /* app uses printf instead */
     api->print_hex = NULL;
-    api->clear_to_eol = stub_void;
-    api->clear_region = stub_clear_region;
+    api->clear_to_eol = unsupported_void;
+    api->clear_region = unsupported_clear_region;
 
     /* Keyboard */
     api->has_key = kapi_has_key;
@@ -658,14 +658,14 @@ void kapi_init(kapi_t *api) {
     /* Process */
     api->exit = kapi_exit;
     api->exec = kapi_exec;
-    api->exec_args = stub_exec_args;
+    api->exec_args = unsupported_exec_args;
     api->yield = kapi_yield;
     api->spawn = kapi_spawn;
-    api->spawn_args = stub_spawn_args;
+    api->spawn_args = unsupported_spawn_args;
 
     /* Console info */
-    api->console_rows = stub_console_size;
-    api->console_cols = stub_console_size;
+    api->console_rows = unsupported_console_size;
+    api->console_cols = unsupported_console_size;
 
     /* Framebuffer */
     kapi_sync_display_state(api);
@@ -680,17 +680,17 @@ void kapi_init(kapi_t *api) {
     /* Mouse */
     api->mouse_get_pos = kapi_mouse_get_pos;
     api->mouse_get_buttons = kapi_mouse_get_buttons;
-    api->mouse_poll = stub_mouse_poll;
-    api->mouse_set_pos = stub_mouse_set;
+    api->mouse_poll = unsupported_mouse_poll;
+    api->mouse_set_pos = unsupported_mouse_set;
     api->mouse_get_delta = kapi_mouse_get_delta;
 
     /* Windows */
-    api->window_create = stub_win_create;
-    api->window_destroy = stub_win_destroy;
-    api->window_get_buffer = stub_win_buf;
-    api->window_poll_event = stub_win_poll;
-    api->window_invalidate = stub_win_inv;
-    api->window_set_title = stub_win_title;
+    api->window_create = unsupported_win_create;
+    api->window_destroy = unsupported_win_destroy;
+    api->window_get_buffer = unsupported_win_buf;
+    api->window_poll_event = unsupported_win_poll;
+    api->window_invalidate = unsupported_win_inv;
+    api->window_set_title = unsupported_win_title;
 
     /* Stdio hooks - NULL means use console */
     api->stdio_putc = NULL;
@@ -703,15 +703,15 @@ void kapi_init(kapi_t *api) {
 
     /* System info */
     api->get_uptime_ticks = kapi_get_uptime_ticks;
-    api->get_mem_used = stub_mem_info;
-    api->get_mem_free = stub_mem_info;
+    api->get_mem_used = unsupported_mem_info;
+    api->get_mem_free = unsupported_mem_info;
 
     /* RTC */
-    api->get_timestamp = stub_timestamp;
-    api->get_datetime = stub_datetime;
+    api->get_timestamp = unsupported_timestamp;
+    api->get_datetime = unsupported_datetime;
 
     /* Power/timing */
-    api->wfi = stub_wfi;
+    api->wfi = unsupported_wfi;
     api->sleep_ms = kapi_sleep_ms;
 
     /* Sound */
@@ -726,63 +726,63 @@ void kapi_init(kapi_t *api) {
     api->sound_is_paused = kapi_sound_is_paused;
 
     /* Process info */
-    api->get_process_count = stub_int;
-    api->get_process_info = stub_proc_info;
+    api->get_process_count = unsupported_int;
+    api->get_process_info = unsupported_proc_info;
 
     /* Disk info */
-    api->get_disk_total = stub_int;
-    api->get_disk_free = stub_int;
+    api->get_disk_total = unsupported_int;
+    api->get_disk_free = unsupported_int;
 
     /* RAM info */
-    api->get_ram_total = stub_mem_info;
+    api->get_ram_total = unsupported_mem_info;
 
     /* Debug memory */
-    api->get_heap_start = stub_heap_addr;
-    api->get_heap_end = stub_heap_addr;
-    api->get_stack_ptr = stub_heap_addr;
-    api->get_alloc_count = stub_int;
+    api->get_heap_start = unsupported_heap_addr;
+    api->get_heap_end = unsupported_heap_addr;
+    api->get_stack_ptr = unsupported_heap_addr;
+    api->get_alloc_count = unsupported_int;
 
     /* Network */
-    api->net_ping = stub_net_ping;
-    api->net_poll = stub_void;
-    api->net_get_ip = stub_net_ip;
-    api->net_get_mac = stub_net_mac;
-    api->dns_resolve = stub_dns;
+    api->net_ping = unsupported_net_ping;
+    api->net_poll = unsupported_void;
+    api->net_get_ip = unsupported_net_ip;
+    api->net_get_mac = unsupported_net_mac;
+    api->dns_resolve = unsupported_dns;
 
     /* TCP */
-    api->tcp_connect = stub_tcp_connect;
-    api->tcp_send = stub_tcp_send;
-    api->tcp_recv = stub_tcp_recv;
-    api->tcp_close = stub_tcp_close;
-    api->tcp_is_connected = stub_int_int;
+    api->tcp_connect = unsupported_tcp_connect;
+    api->tcp_send = unsupported_tcp_send;
+    api->tcp_recv = unsupported_tcp_recv;
+    api->tcp_close = unsupported_tcp_close;
+    api->tcp_is_connected = unsupported_int_int;
 
     /* TLS */
-    api->tls_connect = stub_tls_connect;
-    api->tls_send = stub_tcp_send;
-    api->tls_recv = stub_tcp_recv;
-    api->tls_close = stub_tcp_close;
-    api->tls_is_connected = stub_int_int;
+    api->tls_connect = unsupported_tls_connect;
+    api->tls_send = unsupported_tcp_send;
+    api->tls_recv = unsupported_tcp_recv;
+    api->tls_close = unsupported_tcp_close;
+    api->tls_is_connected = unsupported_int_int;
 
     /* TTF */
-    api->ttf_get_glyph = stub_ttf_glyph;
-    api->ttf_get_advance = stub_ttf_adv;
-    api->ttf_get_kerning = stub_ttf_kern;
-    api->ttf_get_metrics = stub_ttf_metrics;
-    api->ttf_is_ready = stub_int;
+    api->ttf_get_glyph = unsupported_ttf_glyph;
+    api->ttf_get_advance = unsupported_ttf_adv;
+    api->ttf_get_kerning = unsupported_ttf_kern;
+    api->ttf_get_metrics = unsupported_ttf_metrics;
+    api->ttf_is_ready = unsupported_int;
 
     /* LED */
-    api->led_on = stub_void;
-    api->led_off = stub_void;
-    api->led_toggle = stub_void;
-    api->led_status = stub_int;
+    api->led_on = unsupported_void;
+    api->led_off = unsupported_void;
+    api->led_toggle = unsupported_void;
+    api->led_status = unsupported_int;
 
     /* Process control */
-    api->kill_process = stub_int_int;
+    api->kill_process = unsupported_int_int;
 
     /* CPU info */
-    api->get_cpu_name = stub_cpu_name;
-    api->get_cpu_freq_mhz = stub_uint32;
-    api->get_cpu_cores = stub_int;
+    api->get_cpu_name = unsupported_cpu_name;
+    api->get_cpu_freq_mhz = unsupported_uint32;
+    api->get_cpu_cores = unsupported_int;
 
     /* USB */
     api->usb_device_count = usb_device_count;
@@ -793,16 +793,16 @@ void kapi_init(kapi_t *api) {
     api->klog_size = kapi_klog_size;
 
     /* HW double buffer */
-    api->fb_has_hw_double_buffer = stub_int;
-    api->fb_flip = stub_int_int;
-    api->fb_get_backbuffer = stub_backbuf;
+    api->fb_has_hw_double_buffer = unsupported_int;
+    api->fb_flip = unsupported_int_int;
+    api->fb_get_backbuffer = unsupported_backbuf;
 
     /* DMA */
-    api->dma_available = stub_int;
-    api->dma_copy = stub_dma_copy;
-    api->dma_copy_2d = stub_dma_2d;
-    api->dma_fb_copy = stub_dma_fb;
-    api->dma_fill = stub_dma_fill;
+    api->dma_available = unsupported_int;
+    api->dma_copy = unsupported_dma_copy;
+    api->dma_copy_2d = unsupported_dma_2d;
+    api->dma_fb_copy = unsupported_dma_fb;
+    api->dma_fill = unsupported_dma_fill;
 
     /* Persistent file and disk APIs */
     api->save_file = kapi_save_file;

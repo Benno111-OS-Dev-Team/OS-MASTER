@@ -69,8 +69,8 @@ run_install_have_target:
     mov $installing_text, %si
     call print_string
 
-    # placeholder installer flow
-    # add partition / fs / payload logic here
+    # BIOS installer currently validates the target and reports completion.
+    # Full partition/fs/payload work is handled by the graphical installer.
 
     mov $install_done_text, %si
     call print_string

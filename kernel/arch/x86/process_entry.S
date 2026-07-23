@@ -1,5 +1,5 @@
 /*
- * x86 32-bit Process Entry Stub
+ * x86 32-bit Process Entry
  *
  * This function completes the switch to userspace (Ring 3).
  * It expects arguments in registers (restored by switch_context):

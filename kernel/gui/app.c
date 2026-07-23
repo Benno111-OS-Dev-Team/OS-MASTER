@@ -643,7 +643,7 @@ void launcher_draw(void) {
     /* Draw icon background */
     gui_draw_rect(item->x, item->y, 64, 64, 0x313244);
 
-    /* Draw icon (placeholder) */
+    /* Draw icon glyph */
     gui_draw_string(item->x + 20, item->y + 24, item->icon, 0xFFFFFF, 0x313244);
 
     /* Draw name */

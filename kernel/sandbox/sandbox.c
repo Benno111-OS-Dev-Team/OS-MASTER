@@ -26,7 +26,7 @@ typedef struct sandbox_jmpbuf {
   uint64_t rsp;
   uint64_t rip;
 #else
-  uint64_t placeholder[16];
+  uint64_t reserved_context[16];
 #endif
 } sandbox_jmpbuf_t;
 

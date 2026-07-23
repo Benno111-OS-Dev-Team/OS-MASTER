@@ -32,6 +32,7 @@ Repository guidance for coding agents working in this repo.
 - Do not amend existing commits unless the user explicitly asks.
 - If credentials, branch protections, or remote permissions block the push, report the blocker clearly.
 - The legacy fixed-length string copy helper is banned. Use `strlcpy` or an explicit bounded copy pattern instead.
+- Placeholder or no-op implementations are banned in project-owned code. Implement real behavior or return an explicit unsupported error, and keep `make -f Makefile.multiarch check-source-complete` passing.
 
 ## Communication
 

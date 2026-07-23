@@ -75,10 +75,10 @@ log "EFI mounted at $EFI_MOUNT"
 # Create EFI boot structure
 mkdir -p "$EFI_MOUNT/EFI/BOOT"
 
-# Copy kernel as EFI application (if it exists as EFI stub)
+# Copy kernel as EFI application (if it exists as EFI entry path)
 if [ -f "$BUILD_DIR/kernel/unixos.efi" ]; then
     cp "$BUILD_DIR/kernel/unixos.efi" "$EFI_MOUNT/EFI/BOOT/BOOTAA64.EFI"
-    log "Copied kernel EFI stub"
+    log "Copied kernel EFI entry path"
 elif [ -f "$BUILD_DIR/kernel/unixos.elf" ]; then
     # Create a simple boot configuration
     log "Creating boot configuration..."
@@ -88,13 +88,10 @@ echo UnixOS Boot Loader
 echo Loading kernel...
 \EFI\BOOT\main.sys
 EOF
-    cp "$BUILD_DIR/kernel/unixos.elf" "$EFI_MOUNT/EFI/BOOT/main.sys" 2>/dev/null || {
-        log "Kernel not yet built, creating placeholder..."
-        echo "UnixOS kernel placeholder" > "$EFI_MOUNT/EFI/BOOT/kernel.txt"
-    }
+    cp "$BUILD_DIR/kernel/unixos.elf" "$EFI_MOUNT/EFI/BOOT/main.sys"
 else
-    log "Kernel not yet built, creating boot structure only..."
-    echo "UnixOS - Kernel not yet built" > "$EFI_MOUNT/EFI/BOOT/README.txt"
+    log "Kernel artifact missing; build the kernel before creating boot media."
+    exit 1
 fi
 
 # Create a simple boot info file

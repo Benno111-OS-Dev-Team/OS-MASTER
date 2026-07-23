@@ -225,9 +225,9 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 
-all: kernel image
+all: check-source-complete kernel image
 	@echo "=========================================="
 	@echo "OS8 $(ARCH) build complete!"
 	@echo "=========================================="
@@ -271,6 +271,9 @@ help:
 	@echo "  make ARCH=arm64 all"
 	@echo "  make ARCH=x86_64 qemu"
 	@echo "  make ARCH=x86 kernel"
+
+check-source-complete:
+	@$(ROOT_DIR)/scripts/check-source-complete.sh
 
 # ============================================================================
 # Directory Setup
@@ -372,7 +375,7 @@ sdk: $(BUILD_PREPARED_STAMP)
 # Kernel Build
 # ============================================================================
 
-kernel: $(BUILD_PREPARED_STAMP) $(BUILD_METADATA_HEADER) assets $(KERNEL_BINARY) $(if $(filter x86,$(ARCH)),$(KERNEL_FLAT_BINARY),)
+kernel: check-source-complete $(BUILD_PREPARED_STAMP) $(BUILD_METADATA_HEADER) assets $(KERNEL_BINARY) $(if $(filter x86,$(ARCH)),$(KERNEL_FLAT_BINARY),)
 	@echo "[KERNEL] $(ARCH) build complete: $(KERNEL_BINARY)"
 
 $(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS) | $(BUILD_PREPARED_STAMP)

@@ -437,7 +437,7 @@ static long sys_munmap(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  /* For now, just no-op munmap - memory is not reclaimed */
+  /* Current heap allocator does not reclaim individual mappings yet. */
   return 0;
 }
 
@@ -450,7 +450,6 @@ static long sys_clone(uint64_t flags, uint64_t stack, uint64_t ptid,
   (void)ctid;
   (void)a5;
 
-  /* Stub - not implemented */
   return -ENOSYS;
 }
 
@@ -537,24 +536,8 @@ static long sys_execve(uint64_t filename, uint64_t argv, uint64_t envp,
   printk(KERN_INFO "sys_execve: loaded at 0x%llx, entry 0x%llx\n",
          (unsigned long long)info.load_base, (unsigned long long)info.entry);
 
-  /* Get current task and set up for userspace execution */
-  struct task_struct *current = get_current();
-  if (current) {
-    current->flags |= PF_USER;
-    current->flags &= ~PF_KTHREAD;
-
-    /* Update task name */
-    int i = 0;
-    while (path[i] && i < TASK_COMM_LEN - 1) {
-      current->comm[i] = path[i];
-      i++;
-    }
-    current->comm[i] = '\0';
-  }
-
-  /* Stub - userspace execution not implemented */
-  /* For now, return entry point - caller would need to jump there */
-  return info.entry;
+  printk(KERN_ERR "sys_execve: userspace transfer is unsupported\n");
+  return -ENOSYS;
 }
 
 static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -627,7 +610,6 @@ static long sys_nanosleep(uint64_t req, uint64_t rem, uint64_t a2, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  /* Stub - sleep not implemented */
   (void)req;
 
   return 0;

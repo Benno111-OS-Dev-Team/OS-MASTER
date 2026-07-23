@@ -23,6 +23,9 @@
 #ifndef ENOTCONN
 #define ENOTCONN 107
 #endif
+#ifndef ECONNREFUSED
+#define ECONNREFUSED 111
+#endif
 
 /* ===================================================================== */
 /* Socket table */
@@ -188,7 +191,6 @@ int socket_accept(int sockfd, struct sockaddr *addr, unsigned int *addrlen) {
   (void)addr;
   (void)addrlen;
 
-  /* Stub - not implemented */
   return -EAGAIN;
 }
 
@@ -211,12 +213,13 @@ int socket_connect(int sockfd, const struct sockaddr *addr,
     dst[i] = src[i];
   }
 
+  if (sock->type != SOCK_STREAM) {
+    return -EOPNOTSUPP;
+  }
+
   sock->state = SS_CONNECTING;
-
-  /* Stub - immediate "connection" */
-  sock->state = SS_CONNECTED;
-
-  return 0;
+  sock->state = SS_UNCONNECTED;
+  return -ECONNREFUSED;
 }
 
 ssize_t socket_send(int sockfd, const void *buf, size_t len, int flags) {
@@ -228,6 +231,7 @@ ssize_t socket_send(int sockfd, const void *buf, size_t len, int flags) {
     return -EINVAL;
   }
 
+  (void)len;
   (void)flags;
 
   struct socket *sock = socket_table[sockfd];
@@ -236,8 +240,7 @@ ssize_t socket_send(int sockfd, const void *buf, size_t len, int flags) {
     return -ENOTCONN;
   }
 
-  /* Stub - pretend we sent all data */
-  return len;
+  return -ENOTCONN;
 }
 
 ssize_t socket_recv(int sockfd, void *buf, size_t len, int flags) {
@@ -249,6 +252,7 @@ ssize_t socket_recv(int sockfd, void *buf, size_t len, int flags) {
     return -EINVAL;
   }
 
+  (void)len;
   (void)flags;
 
   struct socket *sock = socket_table[sockfd];
@@ -257,7 +261,6 @@ ssize_t socket_recv(int sockfd, void *buf, size_t len, int flags) {
     return -ENOTCONN;
   }
 
-  /* Stub - no data available */
   return 0;
 }
 

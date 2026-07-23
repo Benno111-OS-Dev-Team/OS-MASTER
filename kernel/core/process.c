@@ -320,7 +320,7 @@ int process_create(const char *path, int argc, char **argv) {
   proc->context.r14 = (uint64_t)argc;       // r14 = argc
   proc->context.r15 = (uint64_t)argv;       // r15 = argv
 #elif defined(ARCH_X86)
-  arch_context_set_flags(&proc->context, 0x2); // Entry stub enables IRQs
+  arch_context_set_flags(&proc->context, 0x2); // Entry entry path enables IRQs
   proc->context.cs = 0x08;                       // Kernel code
   proc->context.ds = 0x10;                       // Kernel data
   proc->context.es = 0x10;

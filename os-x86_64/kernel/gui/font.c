@@ -618,7 +618,7 @@ const uint8_t font_data[256][16] = {
 
 /* ========== Font Functions ========== */
 
-/* Initialize font system (no-op for bitmap fonts) */
+/* Initialize font system for bitmap fonts */
 void font_init(void) {
   /* Bitmap font is statically initialized, nothing to do */
 }

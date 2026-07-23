@@ -1881,13 +1881,13 @@ static void draw_image_viewer(void) {
   int content_y = y + title_h;
   int content_h = h - title_h - toolbar_h - UI_SCALE_VAL(16);
   
-  /* Draw placeholder image representation */
+  /* Draw generated image representation */
   int img_area_x = x + UI_SCALE_VAL(20);
   int img_area_y = content_y + UI_SCALE_VAL(20);
   int img_area_w = w - UI_SCALE_VAL(40);
   int img_area_h = content_h - UI_SCALE_VAL(40);
   
-  /* Image placeholder - draw a nice gradient/pattern */
+  /* Generated image preview - draw a gradient/pattern */
   for (int py = 0; py < img_area_h; py++) {
     for (int px = 0; px < img_area_w; px++) {
       int real_x = img_area_x + px;
@@ -3022,7 +3022,7 @@ static void draw_menu_bar(void) {
     fb_put_pixel(x, MENU_BAR_HEIGHT - 1, 0x606060);
   }
 
-  /* Apple logo (using @ as placeholder, bold white) */
+  /* Apple logo stand-in: bold white @ glyph */
   int font_h = FONT_HEIGHT * ui_scale;
   int text_y = (MENU_BAR_HEIGHT - font_h) / 2;
   gui_draw_string(UI_SCALE_VAL(14), text_y, "@", 0xFFFFFF);

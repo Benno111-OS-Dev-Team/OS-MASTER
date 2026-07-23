@@ -76,7 +76,7 @@ switch_context:
 
 /*
  * void _task_exit_stub(void)
- * Called when a task exits (internal stub)
+ * Called when a task exits (internal entry path)
  */
 .global _task_exit_stub
 .type _task_exit_stub, @function

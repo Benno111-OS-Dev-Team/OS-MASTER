@@ -1434,10 +1434,6 @@ void term_execute_command(struct terminal *term, const char *cmd) {
       term_puts(term, ": No such file\n");
     }
     /* touch command handled later with better implementation */
-  } else if (str_starts_with(cmd, "mkdir_placeholder")) {
-    /* placeholder removed - mkdir implemented below */
-  } else if (str_starts_with(cmd, "rm_placeholder")) {
-    /* placeholder removed - rm implemented below */
   } else if (str_starts_with(cmd, "man ")) {
     const char *topic = cmd + 4;
     while (*topic == ' ')

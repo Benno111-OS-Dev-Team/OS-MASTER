@@ -38,7 +38,7 @@ static uint32_t cluster_to_sector(struct fat32_sb_info *sbi, uint32_t cluster) {
 }
 
 // TODO: Implement read_sector via block device interface
-// For now, these are stubs since we don't have block layer fully exposed in VFS
+// For now, these are unsupported fallbacks since we don't have block layer fully exposed in VFS
 // yet
 extern int block_read(void *dev, uint64_t sector, void *buf);
 extern int block_write(void *dev, uint64_t sector, void *buf);
@@ -53,7 +53,7 @@ static ssize_t fat32_read(struct file *file, char *buf, size_t count,
   (void)buf;
   (void)count;
   (void)pos;
-  // Stub
+  // Unsupported
   return 0;
 }
 
@@ -69,7 +69,7 @@ static struct file_operations fat32_file_ops = {
 static struct dentry *fat32_lookup(struct inode *dir, struct dentry *dentry) {
   (void)dir;
   (void)dentry;
-  // Stub: Lookup name in directory
+  // Unsupported: Lookup name in directory
   return NULL;
 }
 

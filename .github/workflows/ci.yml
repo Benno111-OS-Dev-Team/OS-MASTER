@@ -45,6 +45,11 @@ jobs:
             nasm
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
+      - name: Check source quality gates
+        run: |
+          set -euxo pipefail
+          make -f Makefile.multiarch check-source-complete
+
       - name: Build x86_64 release and installer media
         run: |
           set -euxo pipefail

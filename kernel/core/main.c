@@ -1809,7 +1809,6 @@ static void init_subsystems(void *dtb) {
       }
     }
 
-    //gui_create_file_manager(200, 100); unwanted for now since it's just a placeholder with no real functionality
   }
   gui_refresh_hardware_acceleration_policy();
 

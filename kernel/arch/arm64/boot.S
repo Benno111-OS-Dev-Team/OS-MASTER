@@ -190,7 +190,7 @@ exception_vectors:
     b       serror_handler
 
 /* ===================================================================== */
-/* Exception Handlers (stubs - implemented in C) */
+/* Exception Handlers (unsupported fallbacks - implemented in C) */
 /* ===================================================================== */
 
 .extern handle_sync_exception

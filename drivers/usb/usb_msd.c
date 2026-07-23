@@ -39,13 +39,7 @@ struct bot_csw {
   uint8_t status;
 } __attribute__((packed));
 
-/* State */
-static uint32_t usb_msd_tag = 1;
-
 /* Functions */
-
-// Defines stubs for now to link
-// Real implementation would interact with xhci to send bulk transfers
 
 int usb_msd_init(struct usb_device *dev) {
   (void)dev;
@@ -58,16 +52,17 @@ int usb_msd_init(struct usb_device *dev) {
 }
 
 int usb_msd_read_sector(struct usb_device *dev, uint32_t lba, void *buf) {
+  (void)dev;
+  (void)buf;
   printk(KERN_DEBUG "USB-MSD: Read LBA %d\n", lba);
-  /*
-   * 1. Send CBW with SCSI READ(10)
-   * 2. Bulk IN data
-   * 3. Read CSW
-   */
-  return 0;
+  printk(KERN_WARNING "USB-MSD: Sector read requires BOT bulk transfer support\n");
+  return -1;
 }
 
 int usb_msd_write_sector(struct usb_device *dev, uint32_t lba, void *buf) {
+  (void)dev;
+  (void)buf;
   printk(KERN_DEBUG "USB-MSD: Write LBA %d\n", lba);
-  return 0;
+  printk(KERN_WARNING "USB-MSD: Sector write requires BOT bulk transfer support\n");
+  return -1;
 }
