@@ -190,6 +190,45 @@ struct ext4_fs {
 /* ext4 Functions */
 /* ===================================================================== */
 
+static int ext4_u64_add_overflow(uint64_t a, uint64_t b, uint64_t *out)
+{
+    if (a > ~0ULL - b) return 1;
+    *out = a + b;
+    return 0;
+}
+
+static int ext4_u64_mul_overflow(uint64_t a, uint64_t b, uint64_t *out)
+{
+    if (a != 0 && b > ~0ULL / a) return 1;
+    *out = a * b;
+    return 0;
+}
+
+static int ext4_valid_dir_entry(struct ext4_fs *fs,
+                                struct ext4_dir_entry *de,
+                                uint32_t offset)
+{
+    uint32_t min_size;
+    uint32_t actual_size;
+
+    if (!fs || !de) return 0;
+    if (offset > fs->block_size || fs->block_size - offset < 8) return 0;
+    if (de->rec_len < 8 || (de->rec_len & 3) != 0) return 0;
+    if (de->rec_len > fs->block_size - offset) return 0;
+
+    min_size = 8U + de->name_len;
+    actual_size = (min_size + 3U) & ~3U;
+    if (actual_size < min_size) return 0;
+    if (de->rec_len < actual_size) return 0;
+
+    return 1;
+}
+
+static uint16_t ext4_dir_entry_size(uint8_t name_len)
+{
+    return (uint16_t)((8U + name_len + 3U) & ~3U);
+}
+
 /* ===================================================================== */
 /* Block I/O */
 /* ===================================================================== */
@@ -447,8 +486,19 @@ static int ext4_read_inode(struct ext4_fs *fs, uint32_t ino, struct ext4_inode *
         inode_table |= ((uint64_t)gd->bg_inode_table_hi << 32);
     }
     
-    uint64_t block_offset = (index * fs->inode_size) / fs->block_size;
-    uint64_t offset_in_block = (index * fs->inode_size) % fs->block_size;
+    uint64_t inode_offset;
+    uint64_t block_offset;
+    uint64_t offset_in_block;
+
+    if (fs->inode_size < sizeof(struct ext4_inode)) return -1;
+    if (ext4_u64_mul_overflow(index, fs->inode_size, &inode_offset)) return -1;
+
+    block_offset = inode_offset / fs->block_size;
+    offset_in_block = inode_offset % fs->block_size;
+    if (offset_in_block > fs->block_size ||
+        fs->block_size - offset_in_block < sizeof(struct ext4_inode)) {
+        return -1;
+    }
     
     uint8_t *buf = kmalloc(fs->block_size);
     if (!buf) return -1;
@@ -484,8 +534,19 @@ static int ext4_write_inode(struct ext4_fs *fs, uint32_t ino, struct ext4_inode 
         inode_table |= ((uint64_t)gd->bg_inode_table_hi << 32);
     }
     
-    uint64_t block_offset = (index * fs->inode_size) / fs->block_size;
-    uint64_t offset_in_block = (index * fs->inode_size) % fs->block_size;
+    uint64_t inode_offset;
+    uint64_t block_offset;
+    uint64_t offset_in_block;
+
+    if (fs->inode_size < sizeof(struct ext4_inode)) return -1;
+    if (ext4_u64_mul_overflow(index, fs->inode_size, &inode_offset)) return -1;
+
+    block_offset = inode_offset / fs->block_size;
+    offset_in_block = inode_offset % fs->block_size;
+    if (offset_in_block > fs->block_size ||
+        fs->block_size - offset_in_block < sizeof(struct ext4_inode)) {
+        return -1;
+    }
     
     uint8_t *buf = kmalloc(fs->block_size);
     if (!buf) return -1;
@@ -644,14 +705,16 @@ static int ext4_add_dir_entry(struct ext4_fs *fs, uint32_t dir_ino,
                                const char *name, uint32_t ino, uint8_t file_type)
 {
     struct ext4_inode dir_inode;
+    if (!name || !name[0]) return -1;
     if (ext4_read_inode(fs, dir_ino, &dir_inode) < 0) return -1;
     
     uint8_t name_len = 0;
     while (name[name_len] && name_len < 255) name_len++;
+    if (name[name_len]) return -1;
     
     /* Entry size: inode(4) + rec_len(2) + name_len(1) + file_type(1) + name */
-    uint16_t entry_size = 8 + name_len;
-    entry_size = (entry_size + 3) & ~3; /* 4-byte align */
+    uint16_t entry_size = ext4_dir_entry_size(name_len);
+    if (entry_size > fs->block_size) return -1;
     
     uint8_t *block_buf = kmalloc(fs->block_size);
     if (!block_buf) return -1;
@@ -671,11 +734,14 @@ static int ext4_add_dir_entry(struct ext4_fs *fs, uint32_t dir_ino,
         while (offset < fs->block_size) {
             struct ext4_dir_entry *de = (struct ext4_dir_entry *)(block_buf + offset);
             
-            if (de->rec_len == 0) break;
+            if (!ext4_valid_dir_entry(fs, de, offset)) {
+                printk(KERN_WARNING
+                       "EXT4: invalid directory entry at offset %u\n", offset);
+                break;
+            }
             
             /* Calculate actual entry size */
-            uint16_t actual_size = 8 + de->name_len;
-            actual_size = (actual_size + 3) & ~3;
+            uint16_t actual_size = ext4_dir_entry_size(de->name_len);
             
             /* Check if there's slack space after this entry */
             if (de->rec_len > actual_size) {
@@ -738,7 +804,13 @@ static int ext4_add_dir_entry(struct ext4_fs *fs, uint32_t dir_ino,
         return -1;
     }
     
-    dir_inode.i_size_lo += fs->block_size;
+    if (ext4_u64_add_overflow(dir_inode.i_size_lo, fs->block_size, &new_file_block) ||
+        new_file_block > (uint64_t)~0U) {
+        ext4_free_block(fs, new_block);
+        kfree(block_buf);
+        return -1;
+    }
+    dir_inode.i_size_lo = (uint32_t)new_file_block;
     dir_inode.i_blocks_lo += fs->block_size / 512;
     
     int ret = ext4_write_inode(fs, dir_ino, &dir_inode);
@@ -996,27 +1068,84 @@ int ext4_mount(void *device,
     }
     
     /* Calculate parameters */
-    fs->block_size = 1024 << fs->sb.s_log_block_size;
+    if (fs->sb.s_log_block_size > 6) {
+        printk(KERN_ERR "EXT4: Invalid block size shift %u\n",
+               fs->sb.s_log_block_size);
+        kfree(fs);
+        return -1;
+    }
+    fs->block_size = 1024U << fs->sb.s_log_block_size;
+    if (fs->block_size < EXT4_BLOCK_SIZE_MIN ||
+        fs->block_size > EXT4_BLOCK_SIZE_MAX) {
+        printk(KERN_ERR "EXT4: Unsupported block size %u\n", fs->block_size);
+        kfree(fs);
+        return -1;
+    }
+
     fs->blocks_per_group = fs->sb.s_blocks_per_group;
     fs->inodes_per_group = fs->sb.s_inodes_per_group;
     fs->inode_size = (fs->sb.s_rev_level >= EXT4_DYNAMIC_REV) 
                      ? fs->sb.s_inode_size : 128;
+    if (fs->blocks_per_group == 0 || fs->inodes_per_group == 0 ||
+        fs->inode_size < sizeof(struct ext4_inode) ||
+        fs->inode_size > fs->block_size) {
+        printk(KERN_ERR "EXT4: Invalid filesystem geometry\n");
+        kfree(fs);
+        return -1;
+    }
     
     uint64_t total_blocks = fs->sb.s_blocks_count_lo;
     if (fs->sb.s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT) {
         total_blocks |= ((uint64_t)fs->sb.s_blocks_count_hi << 32);
     }
+    if (total_blocks == 0) {
+        printk(KERN_ERR "EXT4: Empty filesystem\n");
+        kfree(fs);
+        return -1;
+    }
     
-    fs->group_count = (total_blocks + fs->blocks_per_group - 1) / fs->blocks_per_group;
+    uint64_t group_round;
+    if (ext4_u64_add_overflow(total_blocks, fs->blocks_per_group - 1,
+                              &group_round)) {
+        printk(KERN_ERR "EXT4: Block count overflow\n");
+        kfree(fs);
+        return -1;
+    }
+    group_round /= fs->blocks_per_group;
+    if (group_round > (uint64_t)~0U) {
+        printk(KERN_ERR "EXT4: Too many block groups\n");
+        kfree(fs);
+        return -1;
+    }
+    fs->group_count = (uint32_t)group_round;
     fs->desc_size = (fs->sb.s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT) 
                     ? fs->sb.s_desc_size : 32;
+    if (fs->group_count == 0 || fs->desc_size == 0 ||
+        fs->desc_size > fs->block_size ||
+        fs->desc_size > sizeof(struct ext4_group_desc)) {
+        printk(KERN_ERR "EXT4: Invalid descriptor geometry\n");
+        kfree(fs);
+        return -1;
+    }
     
     printk(KERN_INFO "EXT4: Block size: %u\n", fs->block_size);
     printk(KERN_INFO "EXT4: Groups: %u\n", fs->group_count);
-    printk(KERN_INFO "EXT4: Volume: %s\n", fs->sb.s_volume_name);
+    char volume_name[17];
+    for (int i = 0; i < 16; i++) {
+        volume_name[i] = fs->sb.s_volume_name[i];
+    }
+    volume_name[16] = '\0';
+    printk(KERN_INFO "EXT4: Volume: %s\n", volume_name);
     
     /* Read group descriptors */
-    size_t gd_size = fs->group_count * fs->desc_size;
+    uint64_t gd_size64;
+    if (ext4_u64_mul_overflow(fs->group_count, fs->desc_size, &gd_size64) ||
+        gd_size64 > (uint64_t)(size_t)-1) {
+        printk(KERN_ERR "EXT4: Group descriptor table is too large\n");
+        kfree(fs);
+        return -1;
+    }
+    size_t gd_size = (size_t)gd_size64;
     fs->group_descs = kmalloc(gd_size);
     if (!fs->group_descs) {
         kfree(fs);
