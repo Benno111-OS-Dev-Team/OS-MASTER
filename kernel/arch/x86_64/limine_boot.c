@@ -8,6 +8,8 @@
 #include "arch/x86_64/boot_handoff.h"
 #include "types.h"
 
+#define BOOT_FB_MAX_DIMENSION 16384ULL
+
 /* ========== Limine Structures ========== */
 
 struct limine_framebuffer {
@@ -384,6 +386,26 @@ uint64_t limine_get_kernel_file_size(void) { return g_kernel_file_size; }
 
 /* ========== Direct Screen Test ========== */
 
+static int boot_framebuffer_is_sane(const struct limine_framebuffer *fb) {
+    uint64_t min_pitch;
+
+    if (!fb || !fb->address || !fb->width || !fb->height)
+        return 0;
+    if (fb->bpp != 32)
+        return 0;
+    if (fb->width > BOOT_FB_MAX_DIMENSION ||
+        fb->height > BOOT_FB_MAX_DIMENSION)
+        return 0;
+
+    min_pitch = fb->width * 4ULL;
+    if (fb->pitch < min_pitch)
+        return 0;
+    if (fb->pitch > min_pitch * 8ULL)
+        return 0;
+
+    return 1;
+}
+
 static void draw_test_pattern(void *fb_addr, uint64_t width, uint64_t height, uint64_t pitch) {
     volatile uint8_t *fb = (volatile uint8_t *)fb_addr;
 
@@ -547,6 +569,11 @@ static int limine_seed_loader_handoff(const os8_boot_handoff_t *handoff) {
         serial_puts("ERROR: Invalid loader handoff\n");
         return -1;
     }
+    if (!handoff->kernel_file_addr || !handoff->kernel_file_size ||
+        !handoff->bootstrap_file_addr || !handoff->bootstrap_file_size) {
+        serial_puts("ERROR: Invalid loader payload handoff\n");
+        return -1;
+    }
 
     static struct limine_framebuffer loader_fb;
     loader_fb.address = (void *)(uintptr_t)handoff->framebuffer_addr;
@@ -554,6 +581,11 @@ static int limine_seed_loader_handoff(const os8_boot_handoff_t *handoff) {
     loader_fb.height = handoff->framebuffer_height;
     loader_fb.pitch = handoff->framebuffer_pitch;
     loader_fb.bpp = 32;
+    if (!boot_framebuffer_is_sane(&loader_fb)) {
+        serial_puts("ERROR: Invalid loader framebuffer handoff\n");
+        return -1;
+    }
+
     g_fb = &loader_fb;
     g_rsdp = (void *)(uintptr_t)handoff->rsdp_addr;
     g_hhdm_offset = handoff->hhdm_offset;
@@ -592,12 +624,17 @@ void limine_entry_main(void) {
         halt();
     }
 
-    if (framebuffer_request.response->framebuffer_count < 1) {
+    if (framebuffer_request.response->framebuffer_count < 1 ||
+        !framebuffer_request.response->framebuffers) {
         serial_puts("ERROR: No framebuffers available!\n");
         halt();
     }
 
     g_fb = framebuffer_request.response->framebuffers[0];
+    if (!boot_framebuffer_is_sane(g_fb)) {
+        serial_puts("ERROR: Invalid framebuffer response!\n");
+        halt();
+    }
     limine_capture_direct_boot_state();
 
     serial_puts("Framebuffer acquired:\n");
