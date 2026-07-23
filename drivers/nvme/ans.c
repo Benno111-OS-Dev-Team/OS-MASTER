@@ -120,12 +120,16 @@ static inline void ans_write32(uint32_t offset, uint32_t val) {
 static volatile uint32_t *ans_nvme_db_reg(uint16_t qid, int is_cq) {
   uintptr_t base;
   uintptr_t stride;
+  uintptr_t offset;
 
   if (!ans_ctx.regs)
     return NULL;
   base = (uintptr_t)ans_ctx.regs + 0x1000;
   stride = 4U << ((ans_ctx.regs[0] >> 20) & 0xF);
-  return (volatile uint32_t *)(base + ((qid * 2U + (is_cq ? 1U : 0U)) * stride));
+  offset = 0x1000 + ((uintptr_t)(qid * 2U + (is_cq ? 1U : 0U)) * stride);
+  if (offset > ANS_SIZE - sizeof(uint32_t))
+    return NULL;
+  return (volatile uint32_t *)(base + ((uintptr_t)(qid * 2U + (is_cq ? 1U : 0U)) * stride));
 }
 
 static uint64_t ans_deadline_ms(void) { return arch_timer_get_ms() + ANS_IO_TIMEOUT_MS; }
@@ -154,6 +158,25 @@ static uint64_t ans_read_le64(const uint8_t *src) {
          ((uint64_t)src[6] << 48) | ((uint64_t)src[7] << 56);
 }
 
+static int ans_ring_doorbell(uint16_t qid, int is_cq, uint32_t value) {
+  volatile uint32_t *db = ans_nvme_db_reg(qid, is_cq);
+  if (!db)
+    return -1;
+  *db = value;
+  return 0;
+}
+
+static int ans_lba_range_valid(ans_nvme_ctx_t *ctx, uint64_t lba,
+                               uint32_t count) {
+  if (!ctx || count == 0)
+    return 0;
+  if (ctx->sector_count == 0)
+    return 1;
+  if (lba >= ctx->sector_count)
+    return 0;
+  return (uint64_t)count <= ctx->sector_count - lba;
+}
+
 static int ans_submit_admin(nvme_sqe_t *cmd) {
   nvme_sqe_t *sq;
   nvme_cqe_t *cq;
@@ -169,7 +192,8 @@ static int ans_submit_admin(nvme_sqe_t *cmd) {
   cmd->cdw0 = (cmd->cdw0 & 0x0000FFFFU) | ((uint32_t)cid << 16);
   sq[ans_ctx.admin_sq_tail] = *cmd;
   ans_ctx.admin_sq_tail = (uint16_t)((ans_ctx.admin_sq_tail + 1) % ANS_ADMIN_Q_DEPTH);
-  *ans_nvme_db_reg(0, 0) = ans_ctx.admin_sq_tail;
+  if (ans_ring_doorbell(0, 0, ans_ctx.admin_sq_tail) != 0)
+    return -1;
 
   deadline = ans_deadline_ms();
   while (arch_timer_get_ms() <= deadline) {
@@ -181,7 +205,8 @@ static int ans_submit_admin(nvme_sqe_t *cmd) {
           (uint16_t)((ans_ctx.admin_cq_head + 1) % ANS_ADMIN_Q_DEPTH);
       if (ans_ctx.admin_cq_head == 0)
         ans_ctx.admin_phase ^= 1U;
-      *ans_nvme_db_reg(0, 1) = ans_ctx.admin_cq_head;
+      if (ans_ring_doorbell(0, 1, ans_ctx.admin_cq_head) != 0)
+        return -1;
       return 0;
     }
   }
@@ -203,7 +228,8 @@ static int ans_submit_io(nvme_sqe_t *cmd) {
   cmd->cdw0 = (cmd->cdw0 & 0x0000FFFFU) | ((uint32_t)cid << 16);
   sq[ans_ctx.io_sq_tail] = *cmd;
   ans_ctx.io_sq_tail = (uint16_t)((ans_ctx.io_sq_tail + 1) % ANS_IO_Q_DEPTH);
-  *ans_nvme_db_reg(1, 0) = ans_ctx.io_sq_tail;
+  if (ans_ring_doorbell(1, 0, ans_ctx.io_sq_tail) != 0)
+    return -1;
 
   deadline = ans_deadline_ms();
   while (arch_timer_get_ms() <= deadline) {
@@ -214,7 +240,8 @@ static int ans_submit_io(nvme_sqe_t *cmd) {
       ans_ctx.io_cq_head = (uint16_t)((ans_ctx.io_cq_head + 1) % ANS_IO_Q_DEPTH);
       if (ans_ctx.io_cq_head == 0)
         ans_ctx.io_phase ^= 1U;
-      *ans_nvme_db_reg(1, 1) = ans_ctx.io_cq_head;
+      if (ans_ring_doorbell(1, 1, ans_ctx.io_cq_head) != 0)
+        return -1;
       return 0;
     }
   }
@@ -407,7 +434,7 @@ int ans_read_blocks(uint64_t lba, uint32_t count, void *buffer, void *ctx) {
     use_ctx = &ans_ctx;
   if (!ans_initialized || !use_ctx->active || !buffer || count == 0)
     return -1;
-  if (use_ctx->sector_count > 0 && lba + (uint64_t)count > use_ctx->sector_count)
+  if (!ans_lba_range_valid(use_ctx, lba, count))
     return -1;
 
   for (uint32_t i = 0; i < count; i++) {
@@ -425,7 +452,7 @@ int ans_write_blocks(uint64_t lba, uint32_t count, const void *buffer, void *ctx
     use_ctx = &ans_ctx;
   if (!ans_initialized || !use_ctx->active || !buffer || count == 0)
     return -1;
-  if (use_ctx->sector_count > 0 && lba + (uint64_t)count > use_ctx->sector_count)
+  if (!ans_lba_range_valid(use_ctx, lba, count))
     return -1;
 
   for (uint32_t i = 0; i < count; i++) {
