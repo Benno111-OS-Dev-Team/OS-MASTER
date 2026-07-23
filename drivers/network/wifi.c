@@ -156,7 +156,7 @@ static int wifi_clamp_signal(int signal) {
 }
 
 static int wifi_parse_int(const char *text, int fallback) {
-  int value = 0;
+  uint32_t value = 0;
   int i = 0;
   int parsed = 0;
 
@@ -164,7 +164,10 @@ static int wifi_parse_int(const char *text, int fallback) {
     return fallback;
 
   while (text[i] >= '0' && text[i] <= '9') {
-    value = value * 10 + (text[i] - '0');
+    uint32_t digit = (uint32_t)(text[i] - '0');
+    if (value > (uint32_t)(INT32_MAX - digit) / 10U)
+      return INT32_MAX;
+    value = value * 10U + digit;
     parsed = 1;
     i++;
   }
@@ -172,7 +175,7 @@ static int wifi_parse_int(const char *text, int fallback) {
   if (!parsed)
     return fallback;
 
-  return value;
+  return (int)value;
 }
 
 static const char *wifi_find_cmdline_value(const char *cmdline, const char *key) {
