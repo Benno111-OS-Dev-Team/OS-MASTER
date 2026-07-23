@@ -27,7 +27,7 @@ static char *itoa(char *p, unsigned x) {
 
 static void mkptr4(char *s, const unsigned char *ip)
 {
-	sprintf(s, "%d.%d.%d.%d.in-addr.arpa",
+	snprintf(s, PTR_MAX, "%d.%d.%d.%d.in-addr.arpa",
 		ip[3], ip[2], ip[1], ip[0]);
 }
 
@@ -39,7 +39,7 @@ static void mkptr6(char *s, const unsigned char *ip)
 		*s++ = xdigits[ip[i]&15]; *s++ = '.';
 		*s++ = xdigits[ip[i]>>4]; *s++ = '.';
 	}
-	strcpy(s, "ip6.arpa");
+	memcpy(s, "ip6.arpa", sizeof "ip6.arpa");
 }
 
 static void reverse_hosts(char *buf, const unsigned char *a, unsigned scopeid, int family)
@@ -174,14 +174,20 @@ int getnameinfo(const struct sockaddr *restrict sa, socklen_t sl,
 				    (IN6_IS_ADDR_LINKLOCAL(a) ||
 				     IN6_IS_ADDR_MC_LINKLOCAL(a)))
 					p = if_indextoname(scopeid, tmp+1);
-				if (!p)
-					p = itoa(num, scopeid);
-				*--p = '%';
-				strcat(buf, p);
+					if (!p)
+						p = itoa(num, scopeid);
+					*--p = '%';
+					{
+						size_t buf_len = strlen(buf);
+						size_t suffix_len = strlen(p);
+						if (suffix_len >= sizeof buf - buf_len)
+							return EAI_OVERFLOW;
+						memcpy(buf + buf_len, p, suffix_len + 1);
+					}
+				}
 			}
-		}
 		if (strlen(buf) >= nodelen) return EAI_OVERFLOW;
-		strcpy(node, buf);
+		memcpy(node, buf, strlen(buf)+1);
 	}
 
 	if (serv && servlen) {
@@ -194,7 +200,7 @@ int getnameinfo(const struct sockaddr *restrict sa, socklen_t sl,
 			p = itoa(num, port);
 		if (strlen(p) >= servlen)
 			return EAI_OVERFLOW;
-		strcpy(serv, p);
+		memcpy(serv, p, strlen(p)+1);
 	}
 
 	return 0;

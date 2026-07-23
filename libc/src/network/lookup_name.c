@@ -101,6 +101,7 @@ static int name_from_hosts(struct address buf[static MAXADDRS], char canon[stati
 struct dpc_ctx {
 	struct address *addrs;
 	char *canon;
+	size_t canon_len;
 	int cnt;
 	int rrtype;
 };
@@ -118,8 +119,13 @@ static int dns_parse_callback(void *c, int rr, const void *data, int len, const 
 	struct dpc_ctx *ctx = c;
 	if (rr == RR_CNAME) {
 		if (__dn_expand(packet, (const unsigned char *)packet + plen,
-		    data, tmp, sizeof tmp) > 0 && is_valid_hostname(tmp))
-			strcpy(ctx->canon, tmp);
+		    data, tmp, sizeof tmp) > 0 && is_valid_hostname(tmp)) {
+			size_t len = strlen(tmp);
+			if (len >= ctx->canon_len)
+				len = ctx->canon_len - 1;
+			memcpy(ctx->canon, tmp, len);
+			ctx->canon[len] = 0;
+		}
 		return 0;
 	}
 	if (ctx->cnt >= MAXADDRS) return 0;
@@ -147,7 +153,7 @@ static int name_from_dns(struct address buf[static MAXADDRS], char canon[static 
 	unsigned char *ap[2] = { abuf[0], abuf[1] };
 	int qlens[2], alens[2], qtypes[2];
 	int i, nq = 0;
-	struct dpc_ctx ctx = { .addrs = buf, .canon = canon };
+	struct dpc_ctx ctx = { .addrs = buf, .canon = canon, .canon_len = 256 };
 	static const struct { int af; int rr; } afrr[2] = {
 		{ .af = AF_INET6, .rr = RR_A },
 		{ .af = AF_INET, .rr = RR_AAAA },

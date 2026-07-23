@@ -29,12 +29,11 @@ struct ether_addr *ether_aton (const char *x)
 }
 
 char *ether_ntoa_r (const struct ether_addr *p_a, char *x) {
-	char *y;
-	y = x;
-	for (int ii = 0; ii < 6; ii++) {
-		x += sprintf (x, ii == 0 ? "%.2X" : ":%.2X", p_a->ether_addr_octet[ii]);
-	}
-	return y;
+	snprintf(x, 18, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X",
+		p_a->ether_addr_octet[0], p_a->ether_addr_octet[1],
+		p_a->ether_addr_octet[2], p_a->ether_addr_octet[3],
+		p_a->ether_addr_octet[4], p_a->ether_addr_octet[5]);
+	return x;
 }
 
 char *ether_ntoa (const struct ether_addr *p_a) {

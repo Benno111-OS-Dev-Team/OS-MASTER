@@ -41,7 +41,7 @@ const char *inet_ntop(int af, const void *restrict a0, char *restrict s, socklen
 			memmove(buf+best+2, buf+best+max, i-best-max+1);
 		}
 		if (strlen(buf) < l) {
-			strcpy(s, buf);
+			memcpy(s, buf, strlen(buf)+1);
 			return s;
 		}
 		break;

@@ -66,13 +66,13 @@ int gethostbyname2_r(const char *name, int af,
 	h->h_addr_list[i] = 0;
 
 	h->h_name = h->h_aliases[0] = buf;
-	strcpy(h->h_name, canon);
-	buf += strlen(h->h_name)+1;
+	memcpy(h->h_name, canon, strlen(canon)+1);
+	buf += strlen(canon)+1;
 
 	if (strcmp(h->h_name, name)) {
 		h->h_aliases[1] = buf;
-		strcpy(h->h_aliases[1], name);
-		buf += strlen(h->h_aliases[1])+1;
+		memcpy(h->h_aliases[1], name, strlen(name)+1);
+		buf += strlen(name)+1;
 	} else h->h_aliases[1] = 0;
 
 	h->h_aliases[2] = 0;
