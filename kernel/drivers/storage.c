@@ -658,6 +658,49 @@ static void storage_clear_partitions(int disk_index) {
   }
 }
 
+static uint64_t storage_disk_sector_count64(int disk_index) {
+  if (disk_index < 0 || disk_index >= storage_disk_count)
+    return 0;
+  return (uint64_t)storage_disks[disk_index].capacity_mib * 2048ULL;
+}
+
+static int storage_partition_range_valid(uint64_t disk_sectors,
+                                         uint64_t first_lba,
+                                         uint64_t last_lba,
+                                         uint64_t min_lba,
+                                         uint64_t max_lba) {
+  if (disk_sectors == 0)
+    return 0;
+  if (first_lba < min_lba || last_lba < first_lba)
+    return 0;
+  if (last_lba > max_lba || last_lba >= disk_sectors)
+    return 0;
+  if (first_lba > UINT32_MAX || last_lba - first_lba + 1ULL > UINT32_MAX)
+    return 0;
+  return 1;
+}
+
+static int storage_partition_range_overlaps(int disk_index, int part_count,
+                                            uint64_t first_lba,
+                                            uint64_t last_lba) {
+  if (disk_index < 0 || disk_index >= storage_disk_count)
+    return 1;
+
+  for (int i = 0; i < part_count && i < STORAGE_MAX_PARTITIONS; i++) {
+    storage_partition_t *part = &storage_partitions[disk_index][i];
+    uint64_t existing_first;
+    uint64_t existing_last;
+
+    if (!part->present || part->sector_count == 0)
+      continue;
+    existing_first = part->start_lba;
+    existing_last = existing_first + part->sector_count - 1ULL;
+    if (first_lba <= existing_last && last_lba >= existing_first)
+      return 1;
+  }
+  return 0;
+}
+
 static void storage_zero_bytes(void *dst, size_t size) {
   uint8_t *p = (uint8_t *)dst;
 
@@ -2679,12 +2722,18 @@ static int storage_commit_mbr_partitions(int disk_index) {
 static int storage_load_gpt_partitions(int disk_index) {
   uint8_t sector[STORAGE_SECTOR_SIZE];
   storage_gpt_header_t header;
-  uint32_t cached_entry_sector = 0xFFFFFFFFU;
-  uint8_t entry_sector[STORAGE_SECTOR_SIZE];
+  uint8_t header_crc_sector[STORAGE_SECTOR_SIZE];
+  static uint8_t partition_entries[STORAGE_GPT_ENTRY_SECTOR_COUNT *
+                                   STORAGE_SECTOR_SIZE];
+  uint64_t disk_sectors;
+  uint64_t entry_bytes;
+  uint32_t stored_header_crc;
+  uint32_t entry_sectors;
   int part_slot = 0;
 
   if (disk_index < 0 || disk_index >= storage_disk_count)
     return -1;
+  disk_sectors = storage_disk_sector_count64(disk_index);
   if (storage_disk_read_sector(disk_index, STORAGE_GPT_HEADER_LBA, sector) != 0)
     return -1;
 
@@ -2695,8 +2744,44 @@ static int storage_load_gpt_partitions(int disk_index) {
       header.signature[4] != 'P' || header.signature[5] != 'A' ||
       header.signature[6] != 'R' || header.signature[7] != 'T')
     return -1;
-  if (header.size_of_partition_entry < sizeof(storage_gpt_entry_t) ||
-      header.number_of_partition_entries == 0)
+  if (header.header_size < sizeof(storage_gpt_header_t) ||
+      header.header_size > STORAGE_SECTOR_SIZE ||
+      header.current_lba != STORAGE_GPT_HEADER_LBA ||
+      header.backup_lba >= disk_sectors ||
+      header.first_usable_lba < 2048 ||
+      header.last_usable_lba < header.first_usable_lba ||
+      header.last_usable_lba >= disk_sectors)
+    return -1;
+
+  for (int i = 0; i < STORAGE_SECTOR_SIZE; i++)
+    header_crc_sector[i] = sector[i];
+  stored_header_crc = header.header_crc32;
+  storage_write_le32(&header_crc_sector[16], 0);
+  if (storage_crc32(header_crc_sector, header.header_size) != stored_header_crc)
+    return -1;
+
+  if (header.size_of_partition_entry != STORAGE_GPT_ENTRY_SIZE ||
+      header.number_of_partition_entries == 0 ||
+      header.number_of_partition_entries > STORAGE_GPT_ENTRY_COUNT)
+    return -1;
+  entry_bytes = (uint64_t)header.number_of_partition_entries *
+                (uint64_t)header.size_of_partition_entry;
+  if (entry_bytes == 0 || entry_bytes > sizeof(partition_entries))
+    return -1;
+  entry_sectors = (uint32_t)((entry_bytes + STORAGE_SECTOR_SIZE - 1) /
+                             STORAGE_SECTOR_SIZE);
+  if (header.partition_entry_lba >= disk_sectors ||
+      (uint64_t)entry_sectors > disk_sectors - header.partition_entry_lba)
+    return -1;
+
+  for (uint32_t i = 0; i < entry_sectors; i++) {
+    if (storage_disk_read_sector(disk_index,
+                                 (uint32_t)(header.partition_entry_lba + i),
+                                 &partition_entries[i * STORAGE_SECTOR_SIZE]) != 0)
+      return -1;
+  }
+  if (storage_crc32(partition_entries, (size_t)entry_bytes) !=
+      header.partition_entry_array_crc32)
     return -1;
 
   storage_clear_partitions(disk_index);
@@ -2706,9 +2791,6 @@ static int storage_load_gpt_partitions(int disk_index) {
        part_slot < STORAGE_MAX_PARTITIONS;
        entry_index++) {
     uint64_t entry_offset = (uint64_t)entry_index * header.size_of_partition_entry;
-    uint64_t entry_lba = header.partition_entry_lba +
-                         (entry_offset / STORAGE_SECTOR_SIZE);
-    uint32_t entry_in_sector = (uint32_t)(entry_offset % STORAGE_SECTOR_SIZE);
     storage_gpt_entry_t entry;
     storage_partition_kind_t kind;
     uint64_t first_lba;
@@ -2716,24 +2798,21 @@ static int storage_load_gpt_partitions(int disk_index) {
     uint64_t sector_count;
     char label[32];
 
-    if (entry_in_sector + sizeof(storage_gpt_entry_t) > STORAGE_SECTOR_SIZE)
-      return 0;
-    if ((uint32_t)entry_lba != cached_entry_sector) {
-      if (storage_disk_read_sector(disk_index, (uint32_t)entry_lba, entry_sector) !=
-          0)
-        return part_slot > 0 ? 0 : -1;
-      cached_entry_sector = (uint32_t)entry_lba;
-    }
-
     for (int i = 0; i < (int)sizeof(entry); i++)
-      ((uint8_t *)&entry)[i] = entry_sector[entry_in_sector + i];
+      ((uint8_t *)&entry)[i] = partition_entries[entry_offset + i];
     if (storage_guid_is_zero(entry.type_guid))
       continue;
 
     first_lba = entry.first_lba;
     last_lba = entry.last_lba;
-    if (last_lba < first_lba)
-      continue;
+    if (!storage_partition_range_valid(disk_sectors, first_lba, last_lba,
+                                       header.first_usable_lba,
+                                       header.last_usable_lba) ||
+        storage_partition_range_overlaps(disk_index, part_slot, first_lba,
+                                         last_lba)) {
+      storage_clear_partitions(disk_index);
+      return -1;
+    }
 
     kind = STORAGE_PARTITION_DATA;
     if (storage_guid_equal(entry.type_guid,
@@ -2781,6 +2860,7 @@ static int storage_load_gpt_partitions(int disk_index) {
 
 static void storage_load_mbr_partitions(int disk_index) {
   uint8_t sector[STORAGE_SECTOR_SIZE];
+  uint64_t disk_sectors;
   int part_slot = 0;
 
   if (storage_disk_read_sector(disk_index, 0, sector) != 0)
@@ -2788,6 +2868,7 @@ static void storage_load_mbr_partitions(int disk_index) {
   if (sector[STORAGE_MBR_SIGNATURE_OFFSET] != 0x55 ||
       sector[STORAGE_MBR_SIGNATURE_OFFSET + 1] != 0xAA)
     return;
+  disk_sectors = storage_disk_sector_count64(disk_index);
 
   storage_clear_partitions(disk_index);
 
@@ -2801,6 +2882,17 @@ static void storage_load_mbr_partitions(int disk_index) {
 
     if (type == 0 || sector_count == 0)
       continue;
+    if (type == 0xEE)
+      continue;
+    if (!storage_partition_range_valid(disk_sectors, start_lba,
+                                       (uint64_t)start_lba + sector_count - 1ULL,
+                                       2048, disk_sectors - 1ULL) ||
+        storage_partition_range_overlaps(disk_index, part_slot, start_lba,
+                                         (uint64_t)start_lba + sector_count -
+                                             1ULL)) {
+      storage_clear_partitions(disk_index);
+      return;
+    }
     if (type == 0xEF)
       kind = STORAGE_PARTITION_EFI;
     else if (type == 0x0B || type == 0x0C || type == 0x0E)
@@ -2829,10 +2921,26 @@ static void storage_load_mbr_partitions(int disk_index) {
   }
 }
 
+static int storage_has_protective_mbr(int disk_index) {
+  uint8_t sector[STORAGE_SECTOR_SIZE];
+
+  if (storage_disk_read_sector(disk_index, 0, sector) != 0)
+    return 0;
+  if (sector[STORAGE_MBR_SIGNATURE_OFFSET] != 0x55 ||
+      sector[STORAGE_MBR_SIGNATURE_OFFSET + 1] != 0xAA)
+    return 0;
+  return sector[STORAGE_MBR_PARTITION_OFFSET + 4] == 0xEE;
+}
+
 static void storage_load_partitions(int disk_index) {
   if (storage_load_gpt_partitions(disk_index) == 0)
     storage_refresh_partition_filesystems(disk_index);
   else {
+    if (storage_has_protective_mbr(disk_index)) {
+      storage_clear_partitions(disk_index);
+      storage_refresh_partition_filesystems(disk_index);
+      return;
+    }
     storage_load_mbr_partitions(disk_index);
     storage_refresh_partition_filesystems(disk_index);
   }
