@@ -273,7 +273,7 @@ help:
 	@echo "  make ARCH=x86 kernel"
 
 check-source-complete:
-	@$(ROOT_DIR)/scripts/check-source-complete.sh
+	@bash "$(ROOT_DIR)/scripts/check-source-complete.sh"
 
 custom-uefi-chain: check-source-complete
 ifeq ($(ARCH),x86_64)
