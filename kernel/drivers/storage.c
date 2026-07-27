@@ -60,7 +60,12 @@ static inline void storage_io_wait(void) {
 #endif
 }
 
+static uint64_t storage_get_deadline_ms(uint32_t timeout_ms) {
+  return arch_timer_get_ms() + timeout_ms;
+}
+
 #define STORAGE_IO_TIMEOUT_MS 1000
+#define STORAGE_ATAPI_TIMEOUT_MS 10000
 #define AHCI_SECTOR_SIZE 512
 #define NVME_ADMIN_Q_DEPTH 16
 #define NVME_IO_Q_DEPTH 16
@@ -891,6 +896,31 @@ static int storage_ide_wait(uint16_t io_base, uint8_t mask, uint8_t value,
   return -1;
 }
 
+static int storage_ide_wait_atapi_phase(uint16_t io_base, uint64_t deadline) {
+  while (arch_timer_get_ms() <= deadline) {
+    uint8_t status = inb(io_base + 7);
+    if (status & 0x01)
+      return status;
+    if ((status & 0x80) == 0)
+      return status;
+    storage_io_wait();
+  }
+  return -1;
+}
+
+static int storage_ide_wait_atapi_complete(uint16_t io_base,
+                                           uint64_t deadline) {
+  while (arch_timer_get_ms() <= deadline) {
+    uint8_t status = inb(io_base + 7);
+    if (status & 0x01)
+      return status;
+    if ((status & (0x80 | 0x08)) == 0)
+      return status;
+    storage_io_wait();
+  }
+  return -1;
+}
+
 static int storage_ide_disk_geometry(const storage_disk_t *disk,
                                      uint16_t *io_base,
                                      uint8_t *drive_select) {
@@ -954,10 +984,12 @@ static int storage_ide_read_atapi_packet(uint16_t io_base, uint8_t drive_select,
                                          uint32_t lba, void *buffer) {
   int status;
   uint16_t *words = (uint16_t *)buffer;
+  uint16_t words_copied = 0;
   uint16_t byte_count;
   uint16_t words_reported;
   uint16_t words_to_copy;
   uint16_t words_to_discard;
+  uint64_t deadline;
   uint8_t packet[12] = {0};
 
   if (!buffer)
@@ -970,8 +1002,9 @@ static int storage_ide_read_atapi_packet(uint16_t io_base, uint8_t drive_select,
   outb(io_base + 5, 0x08);
   outb(io_base + 7, 0xA0);
 
-  status = storage_ide_wait(io_base, 0x88, 0x08, 100000);
-  if (status < 0 || (status & 0x01))
+  deadline = storage_get_deadline_ms(STORAGE_ATAPI_TIMEOUT_MS);
+  status = storage_ide_wait_atapi_phase(io_base, deadline);
+  if (status < 0 || (status & 0x01) || !(status & 0x08))
     return -1;
 
   packet[0] = 0xA8;
@@ -987,25 +1020,38 @@ static int storage_ide_read_atapi_packet(uint16_t io_base, uint8_t drive_select,
     outw(io_base, word);
   }
 
-  status = storage_ide_wait(io_base, 0x88, 0x08, 100000);
+  while (1) {
+    status = storage_ide_wait_atapi_phase(io_base, deadline);
+    if (status < 0 || (status & 0x01))
+      return -1;
+    if (!(status & 0x08))
+      break;
+
+    byte_count = (uint16_t)inb(io_base + 4) |
+                 ((uint16_t)inb(io_base + 5) << 8);
+    if (byte_count == 0)
+      break;
+
+    words_reported = (uint16_t)((byte_count + 1U) / 2U);
+    words_to_copy = words_copied < 1024 ? words_reported : 0;
+    if (words_copied < 1024 &&
+        words_to_copy > (uint16_t)(1024 - words_copied))
+      words_to_copy = (uint16_t)(1024 - words_copied);
+    words_to_discard = (uint16_t)(words_reported - words_to_copy);
+
+    for (uint16_t i = 0; i < words_to_copy; i++)
+      words[words_copied + i] = inw(io_base);
+    words_copied = (uint16_t)(words_copied + words_to_copy);
+    for (uint16_t i = 0; i < words_to_discard; i++)
+      (void)inw(io_base);
+  }
+
+  for (uint16_t i = words_copied; i < 1024; i++)
+    words[i] = 0;
+
+  status = storage_ide_wait_atapi_complete(io_base, deadline);
   if (status < 0 || (status & 0x01))
     return -1;
-
-  byte_count = (uint16_t)inb(io_base + 4) |
-               ((uint16_t)inb(io_base + 5) << 8);
-  if (byte_count == 0)
-    byte_count = 2048;
-
-  words_reported = (uint16_t)((byte_count + 1U) / 2U);
-  words_to_copy = words_reported > 1024 ? 1024 : words_reported;
-  words_to_discard = words_reported > 1024 ? (uint16_t)(words_reported - 1024) : 0;
-
-  for (uint16_t i = 0; i < words_to_copy; i++)
-    words[i] = inw(io_base);
-  for (uint16_t i = words_to_copy; i < 1024; i++)
-    words[i] = 0;
-  for (uint16_t i = 0; i < words_to_discard; i++)
-    (void)inw(io_base);
 
   return 0;
 }
@@ -1026,6 +1072,9 @@ static int storage_ide_atapi_read(uint64_t lba, uint32_t count, void *buffer,
   uint8_t *dst = (uint8_t *)buffer;
 
   if (!ide_ctx || !ide_ctx->active || !buffer || count == 0)
+    return -1;
+  if (lba > 0xFFFFFFFFULL || count > 0x10000U ||
+      (uint64_t)count - 1U > 0xFFFFFFFFULL - lba)
     return -1;
 
   for (uint32_t i = 0; i < count; i++) {
@@ -1160,10 +1209,6 @@ static void storage_probe_ide_controller(int controller_index) {
 #else
   (void)controller_index;
 #endif
-}
-
-static uint64_t storage_get_deadline_ms(uint32_t timeout_ms) {
-  return arch_timer_get_ms() + timeout_ms;
 }
 
 static int storage_wait_for_bit32(volatile uint32_t *reg, uint32_t mask,
@@ -1366,6 +1411,8 @@ static int storage_ahci_issue_atapi(storage_ahci_port_ctx_t *ctx, uint32_t lba,
 
   if (!ctx || !ctx->port_mmio || !buffer || blocks == 0)
     return -1;
+  if ((uint32_t)blocks > 0xFFFFFFFFU / 2048U)
+    return -1;
   if (storage_ahci_port_wait_ready(ctx) != 0)
     return -1;
 
@@ -1401,7 +1448,7 @@ static int storage_ahci_issue_atapi(storage_ahci_port_ctx_t *ctx, uint32_t lba,
 
   port[0x10 / 4] = 0xFFFFFFFF;
   port[0x38 / 4] = 1;
-  deadline = storage_get_deadline_ms(STORAGE_IO_TIMEOUT_MS);
+  deadline = storage_get_deadline_ms(STORAGE_ATAPI_TIMEOUT_MS);
   while (arch_timer_get_ms() <= deadline) {
     if ((port[0x38 / 4] & 1U) == 0)
       break;
@@ -1450,6 +1497,12 @@ static int storage_ahci_atapi_read(uint64_t lba, uint32_t count, void *buffer,
                                    void *ctx_ptr) {
   storage_ahci_port_ctx_t *ctx = (storage_ahci_port_ctx_t *)ctx_ptr;
   uint8_t *dst = (uint8_t *)buffer;
+
+  if (!ctx || !ctx->active || !buffer || count == 0)
+    return -1;
+  if (lba > 0xFFFFFFFFULL || count > 0x10000U ||
+      (uint64_t)count - 1U > 0xFFFFFFFFULL - lba)
+    return -1;
 
   for (uint32_t i = 0; i < count; i++) {
     if (storage_ahci_issue_atapi(ctx, (uint32_t)(lba + i), 1,

@@ -1,37 +1,0 @@
-OS8 ISO Build + Stress Summary
-
-ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-SHA256: 9161d29642519a8943d65292d0e48f503fdaf537fb2b8d2e3ca28fcdb7672ca2
-Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122641/build.log
-ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122641/iso-build.log
-Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122641/environment.txt
-Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122641/tool-versions.txt
-ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122641/iso-contents.txt
-Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122641/keyword-hits.txt
-
-QEMU runs:
-- bios iteration 1: timeout (exit 124)
-
-Tail of serial logs:
-
-==> qemu-bios-1-serial.log <==
-KMALLOC: Heap at 0xffffffff800f2000 - 0xffffffff880f2000 (131072 KB)
-[INIT] Phase 3: Process Management
-  Initializing scheduler...
-SCHED: Initializing scheduler
-SCHED: Scheduler initialized
-  Initializing process subsystem...
-[PROC] Process subsystem initialized (max 16 processes)
-[PROC] Program load area: 0x44000000+
-[PROC] kernel_context at: 0xffffffff800f17c8
-[INIT] Phase 4: Filesystems
-  Initializing VFS...
-  Initializing VFS...
-VFS: Initializing virtual filesystem
-VFS: Registered filesystem 'fat32'
-VFS: Initialized
-  Initializing RamFS...
-RAMFS: Registering ramfs filesystem
-VFS: Registered filesystem 'ramfs'
-VFS: Registered filesystem 'iso9660'
-qemu-system-x86_64: terminating on signal 15 from pid 1374 (timeout)

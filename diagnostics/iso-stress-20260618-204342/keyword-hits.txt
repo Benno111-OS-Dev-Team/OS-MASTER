@@ -1,3 +1,0 @@
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-204342/qemu-bios-1-serial.log:9:Boot failed: could not read the boot disk
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-204342/qemu-bios-1-serial.log:55:x86_64: IDT loaded for exceptions and IRQs
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-204342/qemu-uefi-1-serial.log:46:x86_64: IDT loaded for exceptions and IRQs

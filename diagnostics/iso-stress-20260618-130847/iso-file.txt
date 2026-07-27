@@ -1,1 +1,0 @@
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso: ISO 9660 CD-ROM filesystem data (DOS/MBR boot sector) 'ISOIMAGE' (bootable)

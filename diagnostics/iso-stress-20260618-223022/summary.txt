@@ -1,60 +1,0 @@
-OS8 ISO Build + Stress Summary
-
-ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-SHA256: 952d50a18569f0832d4d4bb196cd2676a49b79943f6ac88cabfa981571390e6b
-Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-223022/build.log
-ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-223022/iso-build.log
-Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-223022/environment.txt
-Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-223022/tool-versions.txt
-ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-223022/iso-contents.txt
-Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-223022/keyword-hits.txt
-
-QEMU runs:
-- bios iteration 1: timeout (exit 124)
-- uefi iteration 1: timeout (exit 124)
-
-Tail of serial logs:
-
-==> qemu-bios-1-serial.log <==
-SYNC: sync write complete: /System/dock.cfg
-SYNC: sync flush unavailable: /System/setup-state.cfg
-SYNC: sync write complete: /System/setup-state.cfg
-DESKTOP: Found 4 items on desktop
-[INIT] Enabling interrupts...
-x86_64: leaving interrupts disabled on the desktop bring-up path
-[INIT] Kernel initialization complete!
-
-All subsystems initialized successfully
-Starting init process...
-
-x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
-System ready.
-
-INPUT: Initializing PS/2 keyboard and mouse
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 ready
-GUI: Event loop started - type in terminal!\nqemu-system-x86_64: terminating on signal 15 from pid 113493 (timeout)
-
-==> qemu-uefi-1-serial.log <==
-SYNC: sync flush unavailable: /Applications/appstore.app
-SYNC: sync write complete: /Applications/appstore.app
-SYNC: sync flush unavailable: /Desktop/System Apps/App Store.app
-SYNC: sync write complete: /Desktop/System Apps/App Store.app
-SYNC: sync flush unavailable: /System/dock.cfg
-SYNC: sync write complete: /System/dock.cfg
-  GUI desktop ready!
-SYNC: sync flush unavailable: /BOOTABLE.CFG
-SYNC: sync write complete: /BOOTABLE.CFG
-SYNC: sync flush unavailable: /EFI/BOOT/BOOTABLE.CFG
-SYNC: sync write complete: /EFI/BOOT/BOOTABLE.CFG
-SYNC: sync flush unavailable: /boot/BOOTABLE.CFG
-SYNC: sync write complete: /boot/BOOTABLE.CFG
-SYNC: sync flush unavailable: /System/installer-state.txt
-SYNC: sync write complete: /System/installer-state.txt
-SYNC: sync flush unavailable: /System/efi-boot.cfg
-SYNC: sync write complete: /System/efi-boot.cfg
-SYNC: sync flush unavailable: /System/mbr-boot.cfg
-SYNC: sync write complete: /System/mbr-boot.cfg
-SYNC: sync flush unavaqemu-system-x86_64: terminating on signal 15 from pid 113502 (timeout)

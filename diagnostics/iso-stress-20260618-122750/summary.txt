@@ -1,37 +1,0 @@
-OS8 ISO Build + Stress Summary
-
-ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-SHA256: 7b7896f600c92ba4bd26742879144058e34f9675c5db72fbe61ed26cabc8b0b7
-Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122750/build.log
-ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122750/iso-build.log
-Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122750/environment.txt
-Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122750/tool-versions.txt
-ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122750/iso-contents.txt
-Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-122750/keyword-hits.txt
-
-QEMU runs:
-- bios iteration 1: timeout (exit 124)
-
-Tail of serial logs:
-
-==> qemu-bios-1-serial.log <==
-  Using conservative Limine framebuffer path
-BOOT: Cmdline parsed - verbose=0 debug=0 splash=0 usb=0 installer=0 xhci=0 generic=1
-FB: Initializing framebuffer
-FB: Using Limine framebuffer 1280x800 at 0xffff8000fd000000
-x86_64: initializing ACPI tables
-ACPI: no RSDP provided by bootloader
-x86_64: ACPI CPU topology reports 1 CPU(s)
-x86_64: framebuffer bring-up stable, continuing boot
-[INIT] Phase 1: Core Hardware
-  Parsing device tree...
-  Initializing interrupt controller...
-x86_64: IDT loaded for exceptions and IRQs
-x86_64: Initializing legacy PIC for bring-up
-  Initializing timer...
-PIT: Initializing at 100 Hz (divisor=11931)
-PIT: Initialized
-[INIT] Phase 2: Memory Management
-  Initializing physical memory manager...
-PMM: Starting init
-PMM: Memqemu-system-x86_64: terminating on signal 15 from pid 1790 (timeout)

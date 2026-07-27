@@ -1,66 +1,0 @@
-[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
-  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  0.98M      0                              0100 860.3k 100 860.3k   0      0 979.6k      0                              0100 860.3k 100 860.3k   0      0 948.0k      0                              0
-[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
-[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
-[0;32m[X86_64-ISO][0m Preparing ISO root at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
-[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
-  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  1.52M      0                              0100 860.3k 100 860.3k   0      0  1.46M      0                              0100 860.3k 100 860.3k   0      0  1.38M      0                              0
-[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
-[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
-[0;32m[BOOT-FILES][0m Preparing boot payload at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
-[0;32m[BOOT-FILES][0m Boot files staged into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
-[0;32m[BOOT-FILES][0m Boot file archive: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-files.zip
-[0;32m[X86_64-ISO][0m Bundled Limine host tool is not runnable on this platform; building a native copy
-[0;32m[X86_64-ISO][0m Creating hybrid BIOS+UEFI ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
-
-Drive current: -outdev 'stdio:/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso'
-Media current: stdio file, overwriteable
-Media status : is blank
-Media summary: 0 sessions, 0 data blocks, 0 data,  577g free
-Added to ISO image: directory '/'='/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root'
-xorriso : UPDATE :      60 files added in 1 seconds
-xorriso : UPDATE :      60 files added in 1 seconds
-xorriso : UPDATE :  1.26% done
-xorriso : UPDATE :  5.29% done
-xorriso : UPDATE :  16.12% done
-xorriso : UPDATE :  27.13% done, estimate finish Thu Jun 18 18:35:12 2026
-xorriso : UPDATE :  37.81% done, estimate finish Thu Jun 18 18:35:12 2026
-xorriso : UPDATE :  47.42% done, estimate finish Thu Jun 18 18:35:12 2026
-xorriso : UPDATE :  56.05% done, estimate finish Thu Jun 18 18:35:13 2026
-xorriso : UPDATE :  63.99% done, estimate finish Thu Jun 18 18:35:13 2026
-xorriso : UPDATE :  71.89% done, estimate finish Thu Jun 18 18:35:13 2026
-xorriso : UPDATE :  81.06% done, estimate finish Thu Jun 18 18:35:13 2026
-xorriso : UPDATE :  89.96% done, estimate finish Thu Jun 18 18:35:14 2026
-xorriso : UPDATE :  96.63% done
-ISO image produced: 19142 sectors
-Written to medium : 19142 sectors at LBA 0
-Writing to 'stdio:/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso' completed successfully.
-
-[0;32m[X86_64-ISO][0m Validating ISO contents...
-xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
-
-xorriso : NOTE : Loading ISO image tree from LBA 0
-xorriso : UPDATE :      61 nodes read in 1 seconds
-xorriso : NOTE : Detected El-Torito boot information which currently is set to be discarded
-Drive current: -indev '/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso'
-Media current: stdio file, overwriteable
-Media status : is written , is appendable
-Boot record  : El Torito , MBR cyl-align-off
-Media summary: 1 session, 19142 data blocks, 37.4m data,  577g free
-Volume id    : 'ISOIMAGE'
-[0;32m[X86_64-ISO][0m ISO created successfully: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
--rwxrwxrwx 1 benno111 benno111 38M Jun 18 18:35 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
--rwxrwxrwx 1 benno111 benno111 19M Jun 18 18:35 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso.xz
-
-[0;32m[X86_64-ISO][0m BIOS VM test:  qemu-system-x86_64 -M q35 -m 512M -cdrom /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso -serial stdio
-[0;32m[X86_64-ISO][0m UEFI VM test:  qemu-system-x86_64 -M q35 -m 512M -cdrom /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso -bios /usr/share/OVMF/OVMF_CODE.fd -serial stdio
-[0;32m[X86_64-ISO][0m Rufus: select /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso and write it in ISO mode to a USB drive

@@ -1,310 +1,0 @@
-c[?7l[2J[0mSeaBIOS (version 1.17.0-debian-1.17.0-1ubuntu1)
-
-
-iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7EFC8B90+7EF08B90 CA00
-Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
-
-
-Booting from Hard Disk...
-Boot failed: could not read the boot disk
-
-Booting from DVD/CD...
-[01;01H
-
-=== OS8 ===
-Kernel entry point reached!
-Boot IDT installed
-Limine base revision OK
-Framebuffer acquired:
-  Address: 0xFFFF8000FD000000
-  Width: 0x0000000000000500
-  Height: 0x0000000000000320
-  Pitch: 0x0000000000001400
-  BPP: 0x0000000000000020
-  RSDP: 0x0000000000000000
-  HHDM: 0x0000000000000000
-  Cmdline ptr: 0xFFFF80007FF9F000
-Calling kernel_main...
-
-OS 8
-
-OS8 v8.0.0 - x86_64 bring-up
-A Unix-like operating system for x86_64
-Copyright (c) 2026 OS8 Project
-Build UUID: f6a6c537-295b-3908-cac6-18d77d19f1db
-Build: 763 OS8 DEVELOPER PREVIEW
-Branch: main
-Compiled: 2026-06-18 09:59:15Z
-
-[INIT] architecture early init
-x86_64: Early initialization complete (legacy PIC/PIT mode)
-[INIT] architecture MMU init
-x86_64: MMU already enabled
-[INIT] x86_64 early bring-up
-  Using conservative Limine framebuffer path
-BOOT: Cmdline parsed - verbose=0 debug=0 splash=0 usb=0 installer=0 xhci=0 generic=1
-FB: Initializing framebuffer
-FB: Using Limine framebuffer 1280x800 at 0xffff8000fd000000
-x86_64: initializing ACPI tables
-ACPI: no RSDP provided by bootloader
-x86_64: ACPI CPU topology reports 1 CPU(s)
-x86_64: framebuffer bring-up stable, continuing boot
-[INIT] Phase 1: Core Hardware
-  Parsing device tree...
-  Initializing interrupt controller...
-x86_64: IDT loaded for exceptions and IRQs
-x86_64: Initializing legacy PIC for bring-up
-  Initializing timer...
-PIT: Initializing at 100 Hz (divisor=11931)
-PIT: Initialized
-[INIT] Phase 2: Memory Management
-  Initializing physical memory manager...
-PMM: Starting init
-PMM: Memory configured
-PMM: Free lists cleared
-PMM: Skipping bitmap clear (BSS pre-zeroed)
-PMM: Got kernel addresses
-PMM: Kernel pages marked
-PMM: Init complete
-  About to init VMM...
-  Initializing virtual memory manager...
-VMM: Initializing virtual memory manager
-VMM: Using Limine paging on x86_64 bring-up path
-  Initializing kernel heap...
-KMALLOC: Heap at 0xffffffff800f2000 - 0xffffffff880f2000 (131072 KB)
-[INIT] Phase 3: Process Management
-  Initializing scheduler...
-SCHED: Initializing scheduler
-SCHED: Scheduler initialized
-  Initializing process subsystem...
-[PROC] Process subsystem initialized (max 16 processes)
-[PROC] Program load area: 0x44000000+
-[PROC] kernel_context at: 0xffffffff800f17c8
-[INIT] Phase 4: Filesystems
-  Initializing VFS...
-  Initializing VFS...
-VFS: Initializing virtual filesystem
-VFS: Registered filesystem 'fat32'
-VFS: Initialized
-  Initializing RamFS...
-RAMFS: Registering ramfs filesystem
-VFS: Registered filesystem 'ramfs'
-VFS: Registered filesystem 'iso9660'
-  Mounting root filesystem...
-VFS: mount('ramfs', '/', 'ramfs')
-RAMFS: Mounting ramfs
-RAMFS: Mounted successfully
-VFS: Mounted 'ramfs' on '/'
-RAMFS: Created directory '/Documents'
-RAMFS: Created directory '/Downloads'
-RAMFS: Created directory '/Pictures'
-RAMFS: Created directory '/assets'
-RAMFS: Created directory '/assets/themes'
-RAMFS: Created directory '/assets/wallpapers'
-RAMFS: Created directory '/System'
-RAMFS: Created directory '/Desktop'
-RAMFS: Created directory '/System/Apps'
-RAMFS: Created directory '/Desktop/System Apps'
-RAMFS: Created directory '/Desktop/Projects'
-RAMFS: Created file '/Desktop/notes.txt'
-RAMFS: Created file '/Desktop/readme.txt'
-RAMFS: Created file '/readme.txt'
-RAMFS: Created file '/todo.txt'
-RAMFS: Created file '/assets/themes/dark.theme'
-RAMFS: Created file '/assets/themes/light.theme'
-RAMFS: Created file '/sample.mp3' (37206 bytes)
-RAMFS: Created directory '/bin'
-RAMFS: Created directory '/sbin'
-RAMFS: Created directory '/usr'
-RAMFS: Created directory '/usr/bin'
-RAMFS: Created file '/sbin/init' (24632 bytes)
-RAMFS: Created file '/bin/login' (23216 bytes)
-RAMFS: Created file '/bin/sh' (3848 bytes)
-RAMFS: Created directory '/examples'
-RAMFS: Created file '/examples/hello.py'
-RAMFS: Created file '/examples/fibonacci.py'
-RAMFS: Created file '/examples/hello.nano'
-RAMFS: Created file '/examples/calculator.nano'
-INSTALL: looking for staged system image at /install/system-image
-INSTALL: staged system image not found
-  Mounting procfs...
-  Mounting sysfs...
-  Mounting devfs...
-[INIT] Phase 5: Device Drivers
-  Loading framebuffer driver...
-FB: Initializing framebuffer
-FB: Using Limine framebuffer 1280x800 at 0xffff8000fd000000
-  Generic driver mode enabled (cmdline: drivers=generic)
-  Initializing PCI bus...
-RAMFS: Created directory '/External'
-RAMFS: Created directory '/Media'
-STORAGE: external storage views refreshed under /External
-PCI: Initializing x86 config-space scan...
-PCI: generic driver mode enabled; vendor-specific PCI drivers will be skipped
-PCI: Found 8086:29c0 at 00:00.0
-PCI: Found 1234:1111 at 00:01.0
-PCI: Found 8086:10d3 at 00:02.0
-PCI: Found 8086:2918 at 00:1f.0
-PCI: Found 8086:2922 at 00:1f.2
-STORAGE: Loading AHCI driver for 00:1f.2
-STORAGE: Registered AHCI SATA controller via pci
-PCI: Found 8086:2930 at 00:1f.3
-PCI: xHCI remains disabled on x86 bring-up path (set cmdline: xhci=on to enable)
-PCI: Scan complete (6 devices found).
-  Initializing GPU driver...
-  GPU: No virtio-gpu found (software rendering)
-  Initializing GUI...
-GUI: Initializing windowing system
-GUI: Display 1280x800 initialized
-TERM: Created terminal 48x15
-  Loading keyboard driver...
-  Loading NVMe driver...
-  Loading USB driver...
-  Loading network driver...
-  Loading Wi-Fi drivers...
-NET: Initializing network stack
-NET: Loopback interface configured
-NET: TCP/IP stack initialized
-  Generic driver mode skipping virtio-net, VBox net, and Wi-Fi drivers
-SYNC: sync flush unavailable: /System/Apps/terminal.app
-SYNC: sync write complete: /System/Apps/terminal.app
-SYNC: sync flush unavailable: /System/Apps/files.app
-SYNC: sync write complete: /System/Apps/files.app
-SYNC: sync flush unavailable: /System/Apps/calculator.app
-SYNC: sync write complete: /System/Apps/calculator.app
-SYNC: sync flush unavailable: /System/Apps/notes.app
-SYNC: sync write complete: /System/Apps/notes.app
-SYNC: sync flush unavailable: /System/Apps/settings.app
-SYNC: sync write complete: /System/Apps/settings.app
-SYNC: sync flush unavailable: /System/Apps/clock.app
-SYNC: sync write complete: /System/Apps/clock.app
-SYNC: sync flush unavailable: /System/Apps/snake.app
-SYNC: sync write complete: /System/Apps/snake.app
-SYNC: sync flush unavailable: /System/Apps/help.app
-SYNC: sync write complete: /System/Apps/help.app
-SYNC: sync flush unavailable: /System/Apps/browser.app
-SYNC: sync write complete: /System/Apps/browser.app
-SYNC: sync flush unavailable: /System/Apps/appstore.app
-SYNC: sync write complete: /System/Apps/appstore.app
-SYNC: sync flush unavailable: /System/Apps/diskimager.app
-SYNC: sync write complete: /System/Apps/diskimager.app
-SYNC: sync flush unavailable: /Applications/terminal.app
-SYNC: sync write complete: /Applications/terminal.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Terminal.app
-SYNC: sync write complete: /Desktop/System Apps/Terminal.app
-SYNC: sync flush unavailable: /Applications/files.app
-SYNC: sync write complete: /Applications/files.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Files.app
-SYNC: sync write complete: /Desktop/System Apps/Files.app
-SYNC: sync flush unavailable: /Applications/calculator.app
-SYNC: sync write complete: /Applications/calculator.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Calculator.app
-SYNC: sync write complete: /Desktop/System Apps/Calculator.app
-SYNC: sync flush unavailable: /Applications/notes.app
-SYNC: sync write complete: /Applications/notes.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Notes.app
-SYNC: sync write complete: /Desktop/System Apps/Notes.app
-SYNC: sync flush unavailable: /Applications/settings.app
-SYNC: sync write complete: /Applications/settings.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Settings.app
-SYNC: sync write complete: /Desktop/System Apps/Settings.app
-SYNC: sync flush unavailable: /Applications/clock.app
-SYNC: sync write complete: /Applications/clock.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Clock.app
-SYNC: sync write complete: /Desktop/System Apps/Clock.app
-SYNC: sync flush unavailable: /Applications/snake.app
-SYNC: sync write complete: /Applications/snake.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Bowling.app
-SYNC: sync write complete: /Desktop/System Apps/Bowling.app
-SYNC: sync flush unavailable: /Applications/help.app
-SYNC: sync write complete: /Applications/help.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Help.app
-SYNC: sync write complete: /Desktop/System Apps/Help.app
-SYNC: sync flush unavailable: /Applications/browser.app
-SYNC: sync write complete: /Applications/browser.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Browser.app
-SYNC: sync write complete: /Desktop/System Apps/Browser.app
-SYNC: sync flush unavailable: /Applications/appstore.app
-SYNC: sync write complete: /Applications/appstore.app
-SYNC: sync flush unavailable: /Desktop/System Apps/App Store.app
-SYNC: sync write complete: /Desktop/System Apps/App Store.app
-SYNC: sync flush unavailable: /Applications/diskimager.app
-SYNC: sync write complete: /Applications/diskimager.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Disk Imager.app
-SYNC: sync write complete: /Desktop/System Apps/Disk Imager.app
-SYNC: sync flush unavailable: /Applications/terminal.app
-SYNC: sync write complete: /Applications/terminal.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Terminal.app
-SYNC: sync write complete: /Desktop/System Apps/Terminal.app
-SYNC: sync flush unavailable: /Applications/files.app
-SYNC: sync write complete: /Applications/files.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Files.app
-SYNC: sync write complete: /Desktop/System Apps/Files.app
-SYNC: sync flush unavailable: /Applications/calculator.app
-SYNC: sync write complete: /Applications/calculator.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Calculator.app
-SYNC: sync write complete: /Desktop/System Apps/Calculator.app
-SYNC: sync flush unavailable: /Applications/notes.app
-SYNC: sync write complete: /Applications/notes.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Notes.app
-SYNC: sync write complete: /Desktop/System Apps/Notes.app
-SYNC: sync flush unavailable: /Applications/appstore.app
-SYNC: sync write complete: /Applications/appstore.app
-SYNC: sync flush unavailable: /Desktop/System Apps/App Store.app
-SYNC: sync write complete: /Desktop/System Apps/App Store.app
-SYNC: sync flush unavailable: /System/dock.cfg
-SYNC: sync write complete: /System/dock.cfg
-  GUI desktop ready!
-SYNC: sync flush unavailable: /BOOTABLE.CFG
-SYNC: sync write complete: /BOOTABLE.CFG
-SYNC: sync flush unavailable: /EFI/BOOT/BOOTABLE.CFG
-SYNC: sync write complete: /EFI/BOOT/BOOTABLE.CFG
-SYNC: sync flush unavailable: /boot/BOOTABLE.CFG
-SYNC: sync write complete: /boot/BOOTABLE.CFG
-SYNC: sync flush unavailable: /System/installer-state.txt
-SYNC: sync write complete: /System/installer-state.txt
-SYNC: sync flush unavailable: /System/efi-boot.cfg
-SYNC: sync write complete: /System/efi-boot.cfg
-SYNC: sync flush unavailable: /System/mbr-boot.cfg
-SYNC: sync write complete: /System/mbr-boot.cfg
-SYNC: sync flush unavailable: /Applications/terminal.app
-SYNC: sync write complete: /Applications/terminal.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Terminal.app
-SYNC: sync write complete: /Desktop/System Apps/Terminal.app
-SYNC: sync flush unavailable: /Applications/files.app
-SYNC: sync write complete: /Applications/files.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Files.app
-SYNC: sync write complete: /Desktop/System Apps/Files.app
-SYNC: sync flush unavailable: /Applications/calculator.app
-SYNC: sync write complete: /Applications/calculator.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Calculator.app
-SYNC: sync write complete: /Desktop/System Apps/Calculator.app
-SYNC: sync flush unavailable: /Applications/notes.app
-SYNC: sync write complete: /Applications/notes.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Notes.app
-SYNC: sync write complete: /Desktop/System Apps/Notes.app
-SYNC: sync flush unavailable: /Applications/appstore.app
-SYNC: sync write complete: /Applications/appstore.app
-SYNC: sync flush unavailable: /Desktop/System Apps/App Store.app
-SYNC: sync write complete: /Desktop/System Apps/App Store.app
-SYNC: sync flush unavailable: /System/dock.cfg
-SYNC: sync write complete: /System/dock.cfg
-SYNC: sync flush unavailable: /System/setup-state.cfg
-SYNC: sync write complete: /System/setup-state.cfg
-DESKTOP: Found 4 items on desktop
-[INIT] Enabling interrupts...
-x86_64: leaving interrupts disabled on the desktop bring-up path
-[INIT] Kernel initialization complete!
-
-All subsystems initialized successfully
-Starting init process...
-
-x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
-System ready.
-
-INPUT: Initializing PS/2 keyboard and mouse
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 ready
-GUI: Event loop started - type in terminal!\nqemu-system-x86_64: terminating on signal 15 from pid 70822 (timeout)

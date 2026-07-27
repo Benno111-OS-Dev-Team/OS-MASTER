@@ -1,67 +1,0 @@
-[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
-  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0 841.1k      0   00:01   00:01              0100 860.3k 100 860.3k   0      0 806.3k      0   00:01   00:01              0100 860.3k 100 860.3k   0      0 782.7k      0   00:01   00:01              0
-[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
-[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
-[0;32m[X86_64-ISO][0m Preparing ISO root at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
-[0;32m[OS-BOOT-MANAGER][0m Fetching latest release from upstream
-  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
-  0      0   0      0   0      0      0      0                              0100 860.3k 100 860.3k   0      0  1.42M      0                              0100 860.3k 100 860.3k   0      0  1.35M      0                              0100 860.3k 100 860.3k   0      0  1.28M      0                              0
-[0;32m[OS-BOOT-MANAGER][0m Syncing assets into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-assets/os-boot-manager
-[0;32m[OS-BOOT-MANAGER][0m Updated boot assets
-[0;32m[BOOT-FILES][0m Preparing boot payload at /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
-[0;32m[BOOT-FILES][0m Boot files staged into /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root
-[0;32m[BOOT-FILES][0m Boot file archive: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/boot-files.zip
-[0;32m[X86_64-ISO][0m Bundled Limine host tool is not runnable on this platform; building a native copy
-[0;32m[X86_64-ISO][0m Creating hybrid BIOS+UEFI ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
-
-Drive current: -outdev 'stdio:/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso'
-Media current: stdio file, overwriteable
-Media status : is blank
-Media summary: 0 sessions, 0 data blocks, 0 data,  559g free
-Added to ISO image: directory '/'='/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/build/x86_64/iso_root'
-xorriso : UPDATE :      60 files added in 1 seconds
-xorriso : UPDATE :      60 files added in 1 seconds
-xorriso : UPDATE :  1.15% done
-xorriso : UPDATE :  6.27% done
-xorriso : UPDATE :  16.53% done
-xorriso : UPDATE :  25.66% done, estimate finish Fri Jun 19 00:03:08 2026
-xorriso : UPDATE :  34.63% done, estimate finish Fri Jun 19 00:03:08 2026
-xorriso : UPDATE :  42.75% done, estimate finish Fri Jun 19 00:03:09 2026
-xorriso : UPDATE :  49.48% done, estimate finish Fri Jun 19 00:03:09 2026
-xorriso : UPDATE :  57.38% done, estimate finish Fri Jun 19 00:03:09 2026
-xorriso : UPDATE :  65.35% done, estimate finish Fri Jun 19 00:03:10 2026
-xorriso : UPDATE :  73.18% done, estimate finish Fri Jun 19 00:03:10 2026
-xorriso : UPDATE :  83.15% done, estimate finish Fri Jun 19 00:03:09 2026
-xorriso : UPDATE :  90.99% done, estimate finish Fri Jun 19 00:03:10 2026
-xorriso : UPDATE :  98.00% done
-ISO image produced: 19142 sectors
-Written to medium : 19142 sectors at LBA 0
-Writing to 'stdio:/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso' completed successfully.
-
-[0;32m[X86_64-ISO][0m Validating ISO contents...
-xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
-
-xorriso : NOTE : Loading ISO image tree from LBA 0
-xorriso : UPDATE :      61 nodes read in 1 seconds
-xorriso : NOTE : Detected El-Torito boot information which currently is set to be discarded
-Drive current: -indev '/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso'
-Media current: stdio file, overwriteable
-Media status : is written , is appendable
-Boot record  : El Torito , MBR cyl-align-off
-Media summary: 1 session, 19142 data blocks, 37.4m data,  559g free
-Volume id    : 'ISOIMAGE'
-[0;32m[X86_64-ISO][0m ISO created successfully: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
--rwxrwxrwx 1 benno111 benno111 38M Jun 19 00:03 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
--rwxrwxrwx 1 benno111 benno111 19M Jun 19 00:03 /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso.xz
-
-[0;32m[X86_64-ISO][0m BIOS VM test:  qemu-system-x86_64 -M q35 -m 512M -cdrom /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso -serial stdio
-[0;32m[X86_64-ISO][0m UEFI VM test:  qemu-system-x86_64 -M q35 -m 512M -cdrom /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso -bios /usr/share/OVMF/OVMF_CODE.fd -serial stdio
-[0;32m[X86_64-ISO][0m Rufus: select /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso and write it in ISO mode to a USB drive

@@ -1,60 +1,0 @@
-OS8 ISO Build + Stress Summary
-
-ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-SHA256: d4308149861b8349f2c2e1148a19390d962f9fd22e1b63f549075bfc6b372ade
-Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-180239/build.log
-ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-180239/iso-build.log
-Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-180239/environment.txt
-Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-180239/tool-versions.txt
-ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-180239/iso-contents.txt
-Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-180239/keyword-hits.txt
-
-QEMU runs:
-- bios iteration 1: timeout (exit 124)
-- uefi iteration 1: timeout (exit 124)
-
-Tail of serial logs:
-
-==> qemu-bios-1-serial.log <==
-SYNC: sync write complete: /System/dock.cfg
-SYNC: sync flush unavailable: /System/setup-state.cfg
-SYNC: sync write complete: /System/setup-state.cfg
-DESKTOP: Found 4 items on desktop
-[INIT] Enabling interrupts...
-x86_64: leaving interrupts disabled on the desktop bring-up path
-[INIT] Kernel initialization complete!
-
-All subsystems initialized successfully
-Starting init process...
-
-x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
-System ready.
-
-INPUT: Initializing PS/2 keyboard and mouse
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 ready
-GUI: Event loop started - type in terminal!\nqemu-system-x86_64: terminating on signal 15 from pid 64314 (timeout)
-
-==> qemu-uefi-1-serial.log <==
-PCI: Found 8086:10d3 at 00:02.0
-PCI: Found 8086:2918 at 00:1f.0
-PCI: Found 8086:2922 at 00:1f.2
-STORAGE: Loading AHCI driver for 00:1f.2
-STORAGE: Registered AHCI SATA controller via pci
-PCI: Found 8086:2930 at 00:1f.3
-PCI: xHCI remains disabled on x86 bring-up path (set cmdline: xhci=on to enable)
-PCI: Scan complete (6 devices found).
-  Initializing GPU driver...
-  GPU: No virtio-gpu found (software rendering)
-  Initializing GUI...
-GUI: Initializing windowing system
-GUI: Display 1280x800 initialized
-TERM: Created terminal 48x15
-  Loading keyboard driver...
-  Loading NVMe driver...
-  Loading USB driver...
-  Loading network driver...
-  Loading Wi-Fi drivers...
-qemu-system-x86_64: terminating on signal 15 from pid 64323 (timeout)

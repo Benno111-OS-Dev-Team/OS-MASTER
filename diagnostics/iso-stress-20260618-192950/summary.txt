@@ -1,60 +1,0 @@
-OS8 ISO Build + Stress Summary
-
-ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-SHA256: f62cfff742571c4c4b79627192b1ebb41202dc6bd880725b956fab6d7ea0d04f
-Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-192950/build.log
-ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-192950/iso-build.log
-Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-192950/environment.txt
-Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-192950/tool-versions.txt
-ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-192950/iso-contents.txt
-Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-192950/keyword-hits.txt
-
-QEMU runs:
-- bios iteration 1: timeout (exit 124)
-- uefi iteration 1: timeout (exit 124)
-
-Tail of serial logs:
-
-==> qemu-bios-1-serial.log <==
-SYNC: sync write complete: /System/dock.cfg
-SYNC: sync flush unavailable: /System/setup-state.cfg
-SYNC: sync write complete: /System/setup-state.cfg
-DESKTOP: Found 4 items on desktop
-[INIT] Enabling interrupts...
-x86_64: leaving interrupts disabled on the desktop bring-up path
-[INIT] Kernel initialization complete!
-
-All subsystems initialized successfully
-Starting init process...
-
-x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
-System ready.
-
-INPUT: Initializing PS/2 keyboard and mouse
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 ready
-GUI: Event loop started - type in terminal!\nqemu-system-x86_64: terminating on signal 15 from pid 79669 (timeout)
-
-==> qemu-uefi-1-serial.log <==
-SYNC: sync write complete: /Applications/diskimager.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Disk Imager.app
-SYNC: sync write complete: /Desktop/System Apps/Disk Imager.app
-SYNC: sync flush unavailable: /Applications/terminal.app
-SYNC: sync write complete: /Applications/terminal.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Terminal.app
-SYNC: sync write complete: /Desktop/System Apps/Terminal.app
-SYNC: sync flush unavailable: /Applications/files.app
-SYNC: sync write complete: /Applications/files.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Files.app
-SYNC: sync write complete: /Desktop/System Apps/Files.app
-SYNC: sync flush unavailable: /Applications/calculator.app
-SYNC: sync write complete: /Applications/calculator.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Calculator.app
-SYNC: sync write complete: /Desktop/System Apps/Calculator.app
-SYNC: sync flush unavailable: /Applications/notes.app
-SYNC: sync write complete: /Applications/notes.app
-SYNC: sync flush unavailable: /Desktop/System Apps/Notes.app
-SYNC: sync write complete: /Desktop/System Apps/Notes.app
-qemu-system-x86_64: terminating on signal 15 from pid 79678 (timeout)

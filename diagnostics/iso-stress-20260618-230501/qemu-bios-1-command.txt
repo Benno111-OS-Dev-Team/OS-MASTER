@@ -1,2 +1,0 @@
-timeout --signal=TERM 25s qemu-system-x86_64 -M q35 -cpu qemu64 -m 4096 -nographic -serial mon:stdio -no-reboot -no-shutdown -d guest_errors -cdrom /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso -D
-/mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-230501/qemu-bios-1-debug.log

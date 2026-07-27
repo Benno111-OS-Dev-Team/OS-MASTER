@@ -1,71 +1,0 @@
-c[?7l[2J[0mSeaBIOS (version 1.17.0-debian-1.17.0-1ubuntu1)
-
-
-iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+3EFC8B90+3EF08B90 CA00
-Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
-
-
-Booting from Hard Disk...
-Boot failed: could not read the boot disk
-
-Booting from DVD/CD...
-[01;01H
-
-=== OS8 ===
-Kernel entry point reached!
-Boot IDT installed
-Limine base revision OK
-Framebuffer acquired:
-  Address: 0xFFFF8000FD000000
-  Width: 0x0000000000000500
-  Height: 0x0000000000000320
-  Pitch: 0x0000000000001400
-  BPP: 0x0000000000000020
-  RSDP: 0x0000000000000000
-  HHDM: 0x0000000000000000
-  Cmdline ptr: 0xFFFF80003FF9F000
-Calling kernel_main...
-
-OS 8
-
-OS8 v8.0.0 - x86_64 bring-up
-A Unix-like operating system for x86_64
-Copyright (c) 2026 OS8 Project
-Build UUID: f6a6c537-295b-3908-cac6-18d77d19f1db
-Build: 763 OS8 DEVELOPER PREVIEW
-Branch: main
-Compiled: 2026-06-18 09:59:15Z
-
-[INIT] architecture early init
-x86_64: Early initialization complete (legacy PIC/PIT mode)
-[INIT] architecture MMU init
-x86_64: MMU already enabled
-[INIT] x86_64 early bring-up
-  Using conservative Limine framebuffer path
-BOOT: Cmdline parsed - verbose=0 debug=0 splash=0 usb=0 installer=0 xhci=0 generic=1
-FB: Initializing framebuffer
-FB: Using Limine framebuffer 1280x800 at 0xffff8000fd000000
-x86_64: initializing ACPI tables
-ACPI: no RSDP provided by bootloader
-x86_64: ACPI CPU topology reports 1 CPU(s)
-x86_64: framebuffer bring-up stable, continuing boot
-[INIT] Phase 1: Core Hardware
-  Parsing device tree...
-  Initializing interrupt controller...
-x86_64: IDT loaded for exceptions and IRQs
-x86_64: Initializing legacy PIC for bring-up
-  Initializing timer...
-PIT: Initializing at 100 Hz (divisor=11931)
-PIT: Initialized
-[INIT] Phase 2: Memory Management
-  Initializing physical memory manager...
-PMM: Starting init
-PMM: Memory configured
-PMM: Free lists cleared
-PMM: Skipping bitmap clear (BSS pre-zeroed)
-PMM: Got kernel addresses
-PMM: Kernel pages marked
-PMM: Init complete
-  About to init VMM...
-  Initializing virtual memory manager...
-qemu-system-x86_64: terminating on signal 15 from pid 1061 (timeout)

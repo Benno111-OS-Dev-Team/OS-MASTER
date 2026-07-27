@@ -1,4 +1,0 @@
-mode=bios
-iteration=1
-exit_code=124
-status=timeout

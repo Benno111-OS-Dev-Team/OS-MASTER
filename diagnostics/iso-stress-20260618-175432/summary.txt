@@ -1,43 +1,0 @@
-OS8 ISO Build + Stress Summary
-
-ISO: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/image/os8-x86_64.iso
-SHA256: 6355fbb79f31ed374c3be805e20a037c989168107412fed53a3838c1523ff9ab
-Build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-175432/build.log
-ISO build log: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-175432/iso-build.log
-Environment: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-175432/environment.txt
-Tool versions: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-175432/tool-versions.txt
-ISO contents: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-175432/iso-contents.txt
-Keyword hits: /mnt/c/Users/Benno111/Documents/GitHub/OS-MASTER/diagnostics/iso-stress-20260618-175432/keyword-hits.txt
-
-QEMU runs:
-- bios iteration 1: timeout (exit 124)
-- uefi iteration 1: timeout (exit 124)
-
-Tail of serial logs:
-
-==> qemu-bios-1-serial.log <==
-SYNC: sync write complete: /System/dock.cfg
-SYNC: sync flush unavailable: /System/setup-state.cfg
-SYNC: sync write complete: /System/setup-state.cfg
-DESKTOP: Found 4 items on desktop
-[INIT] Enabling interrupts...
-x86_64: leaving interrupts disabled on the desktop bring-up path
-[INIT] Kernel initialization complete!
-
-All subsystems initialized successfully
-Starting init process...
-
-x86_64: keeping the desktop loop for now; /sbin/init stays on the ARM64 userspace path
-System ready.
-
-INPUT: Initializing PS/2 keyboard and mouse
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 extended pointer detected (id=0x3)
-INPUT: PS/2 ready
-GUI: Event loop started - type in terminal!\nqemu-system-x86_64: terminating on signal 15 from pid 62956 (timeout)
-
-==> qemu-uefi-1-serial.log <==
-[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
-BdsDxe: starting Boot0002 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
-[001;001H[001;001Hqemu-system-x86_64: terminating on signal 15 from pid 62965 (timeout)
