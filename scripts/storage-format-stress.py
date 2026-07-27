@@ -47,6 +47,7 @@ STATS = {
     "boundary_checks": 0,
     "corruption_checks": 0,
     "churn_checks": 0,
+    "gpt_crc_checks": 0,
 }
 
 
@@ -257,6 +258,16 @@ def ascii_padded(text, length):
     return raw + b" " * (length - len(raw))
 
 
+def storage_crc32(data):
+    crc = 0xFFFFFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            mask = -(crc & 1) & 0xFFFFFFFF
+            crc = ((crc >> 1) ^ (0xEDB88320 & mask)) & 0xFFFFFFFF
+    return (~crc) & 0xFFFFFFFF
+
+
 def partition_type_guid(kind):
     return {
         "EFI": bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b"),
@@ -340,16 +351,52 @@ def write_gpt(disk, parts):
     put64(header, 72, 2)
     put32(header, 80, GPT_ENTRY_COUNT)
     put32(header, 84, GPT_ENTRY_SIZE)
+    put32(header, 88, storage_crc32(entries))
+    put32(header, 16, storage_crc32(header[:92]))
     disk.write(1, header)
     disk.write(2, entries)
 
     backup_lba = disk.sectors - GPT_ENTRY_SECTORS - 1
     disk.write(backup_lba, entries)
     header2 = bytearray(header)
+    put32(header2, 16, 0)
     put64(header2, 24, disk.sectors - 1)
     put64(header2, 32, 1)
     put64(header2, 72, backup_lba)
+    put32(header2, 16, storage_crc32(header2[:92]))
     disk.write(disk.sectors - 1, header2)
+
+
+def validate_gpt_header(disk, lba, expected_current_lba):
+    header = bytearray(disk.read(lba))
+    if header[0:8] != b"EFI PART":
+        raise StressFailure("GPT header signature missing")
+    header_size = le32(header, 12)
+    if header_size < 92 or header_size > SECTOR_SIZE:
+        raise StressFailure("GPT header size invalid")
+    if struct.unpack_from("<Q", header, 24)[0] != expected_current_lba:
+        raise StressFailure("GPT current LBA mismatch")
+    stored_header_crc = le32(header, 16)
+    header[16:20] = b"\x00\x00\x00\x00"
+    if storage_crc32(header[:header_size]) != stored_header_crc:
+        raise StressFailure("GPT header CRC mismatch")
+
+    entry_lba = struct.unpack_from("<Q", header, 72)[0]
+    entry_count = le32(header, 80)
+    entry_size = le32(header, 84)
+    if entry_count != GPT_ENTRY_COUNT or entry_size != GPT_ENTRY_SIZE:
+        raise StressFailure("GPT entry geometry mismatch")
+    entry_bytes = entry_count * entry_size
+    entry_sectors = (entry_bytes + SECTOR_SIZE - 1) // SECTOR_SIZE
+    entries = disk.read(entry_lba, entry_sectors)[:entry_bytes]
+    if storage_crc32(entries) != le32(header, 88):
+        raise StressFailure("GPT partition entry CRC mismatch")
+    STATS["gpt_crc_checks"] += 1
+
+
+def validate_gpt(disk):
+    validate_gpt_header(disk, 1, 1)
+    validate_gpt_header(disk, disk.sectors - 1, disk.sectors - 1)
 
 
 def detect_partition_table(disk):
@@ -357,9 +404,7 @@ def detect_partition_table(disk):
     if sector[510:512] != b"\x55\xaa":
         return "none"
     if sector[MBR_PARTITION_OFFSET + 4] == 0xEE:
-        header = disk.read(1)
-        if header[0:8] != b"EFI PART":
-            raise StressFailure("protective MBR without GPT header")
+        validate_gpt(disk)
         return "gpt"
     return "mbr"
 
@@ -837,6 +882,26 @@ def stress_corruption_cases(kind):
         lambda: detect_swap(fs_disk, swap),
     )
 
+    crc_disk = Disk(kind, 128)
+    write_gpt(crc_disk, parts)
+    bad_header = bytearray(crc_disk.read(1))
+    bad_header[40] ^= 0x01
+    crc_disk.write(1, bad_header)
+    expect_stress_failure(
+        f"{kind}: GPT header CRC corruption",
+        lambda: detect_partition_table(crc_disk),
+    )
+
+    crc_disk = Disk(kind, 128)
+    write_gpt(crc_disk, parts)
+    bad_entries = bytearray(crc_disk.read(2, GPT_ENTRY_SECTORS))
+    bad_entries[0] ^= 0x01
+    crc_disk.write(2, bad_entries)
+    expect_stress_failure(
+        f"{kind}: GPT entry CRC corruption",
+        lambda: detect_partition_table(crc_disk),
+    )
+
 
 def stress_gpt_partition_churn(kind):
     disk = Disk(kind, 512)
@@ -938,7 +1003,8 @@ def main():
         f"{STATS['detect_only_checks']} detect-only checks, "
         f"{STATS['boundary_checks']} boundary checks, "
         f"{STATS['corruption_checks']} corruption checks, "
-        f"{STATS['churn_checks']} churn checks passed"
+        f"{STATS['churn_checks']} churn checks, "
+        f"{STATS['gpt_crc_checks']} GPT CRC checks passed"
     )
     return 0
 
