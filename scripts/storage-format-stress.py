@@ -46,6 +46,7 @@ STATS = {
     "detect_only_checks": 0,
     "boundary_checks": 0,
     "corruption_checks": 0,
+    "churn_checks": 0,
 }
 
 
@@ -567,8 +568,68 @@ def make_parts(sizes):
     return parts
 
 
+def assert_layout_within_disk(kind, parts, disk):
+    previous_end = 2048
+    for part in parts:
+        if part["start"] < previous_end:
+            raise StressFailure(f"{kind}: partition layout overlapped")
+        if part["start"] + part["sectors"] > disk.sectors:
+            raise StressFailure(f"{kind}: partition layout exceeded disk")
+        previous_end = part["start"] + part["sectors"]
+    STATS["churn_checks"] += 1
+
+
+def create_partition(parts, kind, size_mib, capacity_mib=None):
+    if size_mib <= 0 or len(parts) >= 8:
+        return False
+    if capacity_mib is not None:
+        used_mib = sum(part["sectors"] for part in parts) // SECTORS_PER_MIB
+        if used_mib > capacity_mib or size_mib > capacity_mib - used_mib:
+            return False
+    ordinal = sum(1 for part in parts if part["kind"] == kind)
+    start = 2048
+    if parts:
+        last = parts[-1]
+        start = last["start"] + last["sectors"]
+    parts.append({
+        "kind": kind,
+        "label": f"{kind}{ordinal + 1}",
+        "start": start,
+        "sectors": size_mib * SECTORS_PER_MIB,
+    })
+    return True
+
+
+def update_partition(parts, index, kind, size_mib):
+    if index < 0 or index >= len(parts) or size_mib <= 0:
+        return False
+    parts[index]["kind"] = kind
+    parts[index]["label"] = f"{kind}{index + 1}"
+    parts[index]["sectors"] = size_mib * SECTORS_PER_MIB
+    for idx in range(index, len(parts)):
+        if idx == 0:
+            parts[idx]["start"] = 2048
+        else:
+            previous = parts[idx - 1]
+            parts[idx]["start"] = previous["start"] + previous["sectors"]
+    return True
+
+
+def delete_partition(parts, index):
+    if index < 0 or index >= len(parts):
+        return False
+    del parts[index]
+    for idx, part in enumerate(parts):
+        if idx == 0:
+            part["start"] = 2048
+        else:
+            previous = parts[idx - 1]
+            part["start"] = previous["start"] + previous["sectors"]
+    return True
+
+
 def check_formatter(kind, table_format, part, fs_name):
-    disk = Disk(kind, 256)
+    disk = Disk(kind, 1024)
     clone = dict(part)
 
     if fs_name == "FAT32":
@@ -606,7 +667,7 @@ def check_formatter(kind, table_format, part, fs_name):
 
 
 def check_detect_only(kind, table_format, part, fs_name):
-    disk = Disk(kind, 256)
+    disk = Disk(kind, 1024)
     clone = dict(part)
 
     if fs_name == "ISO9660":
@@ -674,6 +735,7 @@ def stress_writable_kind(kind):
     STATS["boundary_checks"] += 1
 
     stress_corruption_cases(kind)
+    stress_gpt_partition_churn(kind)
 
 
 def stress_corruption_cases(kind):
@@ -776,6 +838,60 @@ def stress_corruption_cases(kind):
     )
 
 
+def stress_gpt_partition_churn(kind):
+    disk = Disk(kind, 512)
+    parts = []
+
+    for part_kind, size_mib in (
+        ("EFI", 32),
+        ("SYSTEM", 96),
+        ("DATA", 128),
+        ("SWAP", 32),
+    ):
+        if not create_partition(parts, part_kind, size_mib, disk.mib):
+            raise StressFailure(f"{kind}: failed to create {part_kind} partition")
+        write_gpt(disk, parts)
+        if detect_partition_table(disk) != "gpt":
+            raise StressFailure(f"{kind}: GPT missing after create")
+        assert_layout_within_disk(kind, parts, disk)
+
+    if create_partition(parts, "DATA", 4096, disk.mib):
+        raise StressFailure(f"{kind}: accepted over-capacity partition")
+    STATS["churn_checks"] += 1
+
+    if not update_partition(parts, 1, "DATA", 64):
+        raise StressFailure(f"{kind}: failed to update partition")
+    write_gpt(disk, parts)
+    assert_layout_within_disk(kind, parts, disk)
+    check_formatter(kind, "GPT-CHURN", parts[1], "EXT4")
+
+    if not update_partition(parts, 2, "SYSTEM", 192):
+        raise StressFailure(f"{kind}: failed to grow partition")
+    write_gpt(disk, parts)
+    assert_layout_within_disk(kind, parts, disk)
+    check_formatter(kind, "GPT-CHURN", parts[2], "FAT32")
+
+    if not delete_partition(parts, 0):
+        raise StressFailure(f"{kind}: failed to delete partition")
+    write_gpt(disk, parts)
+    if detect_partition_table(disk) != "gpt":
+        raise StressFailure(f"{kind}: GPT missing after delete")
+    assert_layout_within_disk(kind, parts, disk)
+
+    if not create_partition(parts, "EFI", 16, disk.mib):
+        raise StressFailure(f"{kind}: failed to recreate partition")
+    write_gpt(disk, parts)
+    assert_layout_within_disk(kind, parts, disk)
+    check_formatter(kind, "GPT-CHURN", parts[-1], "SWAP")
+
+    if update_partition(parts, 42, "DATA", 1):
+        raise StressFailure(f"{kind}: accepted invalid update index")
+    STATS["churn_checks"] += 1
+    if delete_partition(parts, 42):
+        raise StressFailure(f"{kind}: accepted invalid delete index")
+    STATS["churn_checks"] += 1
+
+
 def stress_cdrom():
     STATS["drive_kinds"] += 1
     disk = Disk("CDROM", 64)
@@ -821,7 +937,8 @@ def main():
         f"{STATS['formatter_checks']} formatter checks, "
         f"{STATS['detect_only_checks']} detect-only checks, "
         f"{STATS['boundary_checks']} boundary checks, "
-        f"{STATS['corruption_checks']} corruption checks passed"
+        f"{STATS['corruption_checks']} corruption checks, "
+        f"{STATS['churn_checks']} churn checks passed"
     )
     return 0
 
