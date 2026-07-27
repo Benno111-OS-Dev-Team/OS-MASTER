@@ -23,10 +23,10 @@ run_test() {
     echo -n "  Testing $name... "
     if eval "$cmd" > /dev/null 2>&1; then
         echo -e "${GREEN}PASS${NC}"
-        ((PASSED++))
+        PASSED=$((PASSED + 1))
     else
         echo -e "${RED}FAIL${NC}"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 }
 
@@ -51,6 +51,8 @@ echo ""
 echo "Kernel Tests"
 echo "------------"
 
+run_test "Storage format stress" "python3 scripts/storage-format-stress.py"
+
 if [ -f build/kernel/unixos.elf ]; then
     run_test "Kernel binary exists" "[ -f build/kernel/unixos.elf ]"
     run_test "Kernel is ARM64" "file build/kernel/unixos.elf | grep -q 'ARM aarch64'"
@@ -60,7 +62,7 @@ fi
 
 echo ""
 echo "========================================"
-echo "Results: ${GREEN}$PASSED passed${NC}, ${RED}$FAILED failed${NC}"
+echo -e "Results: ${GREEN}$PASSED passed${NC}, ${RED}$FAILED failed${NC}"
 echo "========================================"
 
 if [ $FAILED -gt 0 ]; then
