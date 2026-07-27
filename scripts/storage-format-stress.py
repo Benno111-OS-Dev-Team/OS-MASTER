@@ -63,6 +63,7 @@ STATS = {
     "detection_precedence_checks": 0,
     "label_checks": 0,
     "management_checks": 0,
+    "prep_checks": 0,
 }
 
 
@@ -366,6 +367,18 @@ def assert_kernel_storage_parity():
         "storage_create_partition",
     )
 
+    space_available_body = parse_storage_function_body(
+        "storage_partition_space_available"
+    )
+    assert_contains_all(
+        space_available_body,
+        [
+            "storage_partition_usable_mib",
+            "request_mib <= capacity - used_mib",
+        ],
+        "storage partition capacity accounting",
+    )
+
     update_partition_body = parse_storage_function_body("storage_update_partition")
     assert_contains_all(
         update_partition_body,
@@ -387,6 +400,41 @@ def assert_kernel_storage_parity():
             "storage_partitions[disk_index][i].present = 0",
         ],
         "storage_delete_partition",
+    )
+
+    ensure_body = parse_storage_function_body("storage_ensure_install_partitions")
+    assert_contains_all(
+        ensure_body,
+        [
+            "storage_partition_usable_mib",
+            "storage_has_efi_partition",
+            "STORAGE_PARTITION_SYSTEM",
+            "STORAGE_PARTITION_DATA",
+            "system_size < 8192",
+            "system_size > 65536",
+            "has_system = 1",
+            "!has_data && has_system",
+            "free_mib >= 4096",
+        ],
+        "storage_ensure_install_partitions",
+    )
+
+    prepare_body = parse_storage_function_body("storage_prepare_user_partition")
+    assert_contains_all(
+        prepare_body,
+        [
+            "storage_partition_usable_mib",
+            "has_data",
+            "free_mib >= 4096",
+            "data_size > 32768",
+            "present_count == 1",
+            "storage_partition_usable_mib",
+            "split_total",
+            "split_total <= data_size + 8192",
+            "storage_update_partition",
+            "storage_create_partition",
+        ],
+        "storage_prepare_user_partition",
     )
 
 
@@ -1242,6 +1290,7 @@ def create_partition(parts, kind, size_mib, capacity_mib=None):
     if size_mib <= 0 or len(parts) >= 8:
         return False
     if capacity_mib is not None:
+        capacity_mib = usable_mib(capacity_mib)
         used_mib = sum(part["sectors"] for part in parts) // SECTORS_PER_MIB
         if used_mib > capacity_mib or size_mib > capacity_mib - used_mib:
             return False
@@ -1259,6 +1308,10 @@ def create_partition(parts, kind, size_mib, capacity_mib=None):
     return True
 
 
+def usable_mib(capacity_mib):
+    return capacity_mib - 2 if capacity_mib > 2 else 0
+
+
 def used_mib(parts):
     return sum(part["sectors"] for part in parts) // SECTORS_PER_MIB
 
@@ -1271,6 +1324,7 @@ def update_partition(parts, index, kind, size_mib, capacity_mib=None):
     if index < 0 or index >= len(parts) or size_mib <= 0:
         return False
     if capacity_mib is not None:
+        capacity_mib = usable_mib(capacity_mib)
         used_without_part = used_mib(parts) - parts[index]["sectors"] // SECTORS_PER_MIB
         if used_without_part > capacity_mib or size_mib > capacity_mib - used_without_part:
             return False
@@ -1297,6 +1351,80 @@ def delete_partition(parts, index):
             previous = parts[idx - 1]
             part["start"] = previous["start"] + previous["sectors"]
     return True
+
+
+def has_partition_kind(parts, kind):
+    return any(part["kind"] == kind for part in parts)
+
+
+def ensure_install_partitions(parts, capacity_mib):
+    changed = 0
+    has_system = has_partition_kind(parts, "SYSTEM")
+    has_data = has_partition_kind(parts, "DATA")
+
+    if not has_partition_kind(parts, "EFI"):
+        if create_partition(parts, "EFI", 256, capacity_mib):
+            changed += 1
+
+    if not has_system:
+        system_size = capacity_mib // 2
+        if system_size < 8192:
+            system_size = 8192
+        if system_size > 65536:
+            system_size = 65536
+        if create_partition(parts, "SYSTEM", system_size, capacity_mib):
+            has_system = True
+            changed += 1
+
+    usable_capacity = usable_mib(capacity_mib)
+    free_mib = usable_capacity - used_mib(parts) if usable_capacity > used_mib(parts) else 0
+    if not has_data and has_system and free_mib >= 4096:
+        data_size = min(free_mib, 65536)
+        if create_partition(parts, "DATA", data_size, capacity_mib):
+            changed += 1
+
+    return changed
+
+
+def prepare_user_partition(parts, capacity_mib):
+    if has_partition_kind(parts, "DATA"):
+        return 0
+
+    usable_capacity = usable_mib(capacity_mib)
+    free_mib = usable_capacity - used_mib(parts) if usable_capacity > used_mib(parts) else 0
+    if free_mib >= 4096:
+        data_size = min(free_mib, 32768)
+        if not create_partition(parts, "DATA", data_size, capacity_mib):
+            return -1
+        return 1
+
+    system_indexes = [
+        idx for idx, part in enumerate(parts) if part["kind"] == "SYSTEM"
+    ]
+    if len(parts) == 1 and system_indexes:
+        index = system_indexes[0]
+        original_system_size = parts[index]["sectors"] // SECTORS_PER_MIB
+        split_total = min(original_system_size, usable_mib(capacity_mib))
+        data_size = split_total // 4
+        if data_size < 4096:
+            data_size = 4096
+        if data_size > 16384:
+            data_size = 16384
+        if split_total <= data_size + 8192:
+            return 0
+        new_system_size = split_total - data_size
+        if new_system_size < 8192:
+            return 0
+        if not update_partition(parts, index, "SYSTEM", new_system_size,
+                                capacity_mib):
+            return -1
+        if not create_partition(parts, "DATA", data_size, capacity_mib):
+            update_partition(parts, index, "SYSTEM", original_system_size,
+                             capacity_mib)
+            return -1
+        return 1
+
+    return 0
 
 
 def check_formatter(kind, table_format, part, fs_name):
@@ -1417,6 +1545,7 @@ def stress_writable_kind(kind):
     stress_detection_precedence(kind)
     stress_label_handling(kind)
     stress_partition_management(kind)
+    stress_install_partition_prep(kind)
     stress_gpt_partition_churn(kind)
 
 
@@ -1791,6 +1920,88 @@ def stress_partition_management(kind):
     STATS["management_checks"] += 1
 
 
+def stress_install_partition_prep(kind):
+    capacity_mib = 131072
+    disk = Disk(kind, capacity_mib)
+    parts = []
+
+    changed = ensure_install_partitions(parts, capacity_mib)
+    if changed != 3:
+        raise StressFailure(f"{kind}: installer prep did not create all partitions")
+    if [part["kind"] for part in parts] != ["EFI", "SYSTEM", "DATA"]:
+        raise StressFailure(f"{kind}: installer prep created wrong partition kinds")
+    if parts[0]["sectors"] != 256 * SECTORS_PER_MIB:
+        raise StressFailure(f"{kind}: installer EFI size mismatch")
+    if parts[1]["sectors"] != 65536 * SECTORS_PER_MIB:
+        raise StressFailure(f"{kind}: installer system size cap mismatch")
+    if parts[2]["sectors"] != 65278 * SECTORS_PER_MIB:
+        raise StressFailure(f"{kind}: installer data free-space size mismatch")
+    write_gpt(disk, parts)
+    assert_layout_within_disk(kind, parts, disk)
+    STATS["prep_checks"] += 1
+
+    if ensure_install_partitions(parts, capacity_mib) != 0:
+        raise StressFailure(f"{kind}: installer prep was not idempotent")
+    STATS["prep_checks"] += 1
+
+    small_parts = []
+    small_capacity = 8192
+    changed = ensure_install_partitions(small_parts, small_capacity)
+    if changed != 1 or [part["kind"] for part in small_parts] != ["EFI"]:
+        raise StressFailure(f"{kind}: small installer prep should only fit EFI")
+    STATS["prep_checks"] += 1
+
+    user_parts = [{
+        "kind": "SYSTEM",
+        "label": "SYSTEM1",
+        "start": 2048,
+        "sectors": 32768 * SECTORS_PER_MIB,
+    }]
+    if prepare_user_partition(user_parts, 65536) != 1:
+        raise StressFailure(f"{kind}: free-space user prep did not add data")
+    if user_parts[-1]["kind"] != "DATA" or (
+            user_parts[-1]["sectors"] != 32766 * SECTORS_PER_MIB):
+        raise StressFailure(f"{kind}: free-space user data size mismatch")
+    STATS["prep_checks"] += 1
+
+    split_parts = [{
+        "kind": "SYSTEM",
+        "label": "SYSTEM1",
+        "start": 2048,
+        "sectors": 32768 * SECTORS_PER_MIB,
+    }]
+    if prepare_user_partition(split_parts, 32768) != 1:
+        raise StressFailure(f"{kind}: lone-system split did not create data")
+    if [part["kind"] for part in split_parts] != ["SYSTEM", "DATA"]:
+        raise StressFailure(f"{kind}: lone-system split kinds mismatch")
+    if split_parts[0]["sectors"] != 24575 * SECTORS_PER_MIB:
+        raise StressFailure(f"{kind}: lone-system split system size mismatch")
+    if split_parts[1]["sectors"] != 8191 * SECTORS_PER_MIB:
+        raise StressFailure(f"{kind}: lone-system split data size mismatch")
+    STATS["prep_checks"] += 1
+
+    tiny_parts = [{
+        "kind": "SYSTEM",
+        "label": "SYSTEM1",
+        "start": 2048,
+        "sectors": 12288 * SECTORS_PER_MIB,
+    }]
+    before = [dict(part) for part in tiny_parts]
+    if prepare_user_partition(tiny_parts, 12288) != 0 or tiny_parts != before:
+        raise StressFailure(f"{kind}: tiny system split should leave layout unchanged")
+    STATS["prep_checks"] += 1
+
+    data_parts = [{
+        "kind": "DATA",
+        "label": "DATA1",
+        "start": 2048,
+        "sectors": 4096 * SECTORS_PER_MIB,
+    }]
+    if prepare_user_partition(data_parts, 8192) != 0:
+        raise StressFailure(f"{kind}: user prep should skip existing data")
+    STATS["prep_checks"] += 1
+
+
 def stress_gpt_partition_churn(kind):
     disk = Disk(kind, 512)
     parts = []
@@ -1921,7 +2132,8 @@ def main():
         f"{STATS['block_api_checks']} block API checks, "
         f"{STATS['detection_precedence_checks']} detection precedence checks, "
         f"{STATS['label_checks']} label checks, "
-        f"{STATS['management_checks']} management checks passed"
+        f"{STATS['management_checks']} management checks, "
+        f"{STATS['prep_checks']} prep checks passed"
     )
     return 0
 

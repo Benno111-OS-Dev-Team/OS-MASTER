@@ -408,6 +408,21 @@ static uint32_t storage_partition_used_mib(int disk_index) {
   return total > UINT32_MAX ? UINT32_MAX : (uint32_t)total;
 }
 
+static uint32_t storage_partition_usable_mib(int disk_index) {
+  uint32_t capacity;
+
+  if (disk_index < 0 || disk_index >= storage_disk_count)
+    return 0;
+
+  capacity = storage_disks[disk_index].capacity_mib;
+  /* GPT layouts start user partitions at LBA 2048 and keep metadata at the
+   * end. Keep management API sizing below nominal media capacity so commits
+   * do not fail after accepting an apparently exact-fit request. */
+  if (capacity <= 2)
+    return 0;
+  return capacity - 2;
+}
+
 static int storage_partition_space_available(int disk_index,
                                              uint32_t used_mib,
                                              uint32_t request_mib) {
@@ -415,7 +430,7 @@ static int storage_partition_space_available(int disk_index,
 
   if (disk_index < 0 || disk_index >= storage_disk_count || request_mib == 0)
     return 0;
-  capacity = storage_disks[disk_index].capacity_mib;
+  capacity = storage_partition_usable_mib(disk_index);
   if (used_mib > capacity)
     return 0;
   return request_mib <= capacity - used_mib;
@@ -3245,8 +3260,10 @@ int storage_describe_disk(int index, char *buf, int max) {
     return 0;
   }
   if (disk->kind == STORAGE_KIND_USB_MASS_STORAGE) {
-    free_mib = disk->capacity_mib > storage_partition_used_mib(index)
-                   ? disk->capacity_mib - storage_partition_used_mib(index)
+    free_mib = storage_partition_usable_mib(index) >
+                       storage_partition_used_mib(index)
+                   ? storage_partition_usable_mib(index) -
+                         storage_partition_used_mib(index)
                    : 0;
     buf[0] = '\0';
     storage_append_string(buf, max, disk->name);
@@ -3266,8 +3283,10 @@ int storage_describe_disk(int index, char *buf, int max) {
     }
     return 0;
   }
-  free_mib = disk->capacity_mib > storage_partition_used_mib(index)
-                 ? disk->capacity_mib - storage_partition_used_mib(index)
+  free_mib = storage_partition_usable_mib(index) >
+                     storage_partition_used_mib(index)
+                 ? storage_partition_usable_mib(index) -
+                       storage_partition_used_mib(index)
                  : 0;
   buf[0] = '\0';
   storage_append_string(buf, max, disk->name);
@@ -3992,16 +4011,18 @@ int storage_ensure_install_partitions(int disk_index) {
     if (system_size > 65536)
       system_size = 65536;
     if (storage_create_partition(disk_index, STORAGE_PARTITION_SYSTEM,
-                                 system_size) == 0)
+                                 system_size) == 0) {
+      has_system = 1;
       changed++;
+    }
   }
 
-  free_mib = storage_disks[disk_index].capacity_mib >
+  free_mib = storage_partition_usable_mib(disk_index) >
                      storage_partition_used_mib(disk_index)
-                 ? storage_disks[disk_index].capacity_mib -
+                 ? storage_partition_usable_mib(disk_index) -
                        storage_partition_used_mib(disk_index)
                  : 0;
-  if (!has_data && free_mib >= 4096) {
+  if (!has_data && has_system && free_mib >= 4096) {
     uint32_t data_size = free_mib;
     if (data_size > 65536)
       data_size = 65536;
@@ -4041,9 +4062,9 @@ int storage_prepare_user_partition(int disk_index) {
   if (has_data)
     return 0;
 
-  free_mib = storage_disks[disk_index].capacity_mib >
+  free_mib = storage_partition_usable_mib(disk_index) >
                      storage_partition_used_mib(disk_index)
-                 ? storage_disks[disk_index].capacity_mib -
+                 ? storage_partition_usable_mib(disk_index) -
                        storage_partition_used_mib(disk_index)
                  : 0;
   if (free_mib >= 4096) {
@@ -4062,17 +4083,22 @@ int storage_prepare_user_partition(int disk_index) {
   if (present_count == 1 && system_partition_index >= 0) {
     uint32_t original_system_size =
         storage_partitions[disk_index][system_partition_slot].size_mib;
-    uint32_t data_size = original_system_size / 4;
+    uint32_t split_total = original_system_size;
+    uint32_t usable_mib = storage_partition_usable_mib(disk_index);
+    uint32_t data_size;
     uint32_t new_system_size;
 
+    if (split_total > usable_mib)
+      split_total = usable_mib;
+    data_size = split_total / 4;
     if (data_size < 4096)
       data_size = 4096;
     if (data_size > 16384)
       data_size = 16384;
-    if (original_system_size <= data_size + 8192)
+    if (split_total <= data_size + 8192)
       return 0;
 
-    new_system_size = original_system_size - data_size;
+    new_system_size = split_total - data_size;
     if (new_system_size < 8192)
       return 0;
 
