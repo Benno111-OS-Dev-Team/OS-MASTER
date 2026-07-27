@@ -60,6 +60,7 @@ STATS = {
     "fs_metadata_checks": 0,
     "partition_range_checks": 0,
     "block_api_checks": 0,
+    "detection_precedence_checks": 0,
 }
 
 
@@ -1106,6 +1107,20 @@ def detect_apfs(disk, part):
     return le32(block, 32) == 0x4253584E
 
 
+def detect_filesystem(disk, part):
+    if detect_partition_iso9660(disk, part):
+        return "ISO9660"
+    if detect_apfs(disk, part):
+        return "APFS"
+    if detect_ext4(disk, part):
+        return "EXT4"
+    if detect_fat32(disk, part):
+        return "FAT32"
+    if detect_swap(disk, part):
+        return "SWAP"
+    return "UNKNOWN"
+
+
 def validate_apfs_metadata(disk, part):
     block = part_read(disk, part, 0, 8)
     if le32(block, 32) != 0x4253584E:
@@ -1301,6 +1316,7 @@ def stress_writable_kind(kind):
     STATS["boundary_checks"] += 1
 
     stress_corruption_cases(kind)
+    stress_detection_precedence(kind)
     stress_gpt_partition_churn(kind)
 
 
@@ -1512,6 +1528,49 @@ def stress_corruption_cases(kind):
     )
 
 
+def stress_detection_precedence(kind):
+    disk = Disk(kind, 256)
+    part = make_parts([96])[0]
+
+    if not format_fat32(disk, part):
+        raise StressFailure(f"{kind}: FAT32 setup failed for precedence test")
+    if detect_filesystem(disk, part) != "FAT32":
+        raise StressFailure(f"{kind}: FAT32 did not win base detection")
+    STATS["detection_precedence_checks"] += 1
+
+    if not format_swap(disk, part):
+        raise StressFailure(f"{kind}: SWAP setup failed for precedence test")
+    if detect_filesystem(disk, part) != "SWAP":
+        raise StressFailure(f"{kind}: SWAP did not win base detection")
+    STATS["detection_precedence_checks"] += 1
+
+    if not format_fat32(disk, part):
+        raise StressFailure(f"{kind}: FAT32 reset failed for precedence test")
+    swap_page = bytearray(part_read(disk, part, 0, 8))
+    swap_page[SWAP_SIGNATURE_OFFSET:SWAP_SIGNATURE_OFFSET + 10] = b"SWAPSPACE2"
+    part_write(disk, part, 0, swap_page)
+    if detect_filesystem(disk, part) != "FAT32":
+        raise StressFailure(f"{kind}: FAT32 did not outrank SWAP")
+    STATS["detection_precedence_checks"] += 1
+
+    if not format_ext4(disk, part):
+        raise StressFailure(f"{kind}: EXT4 setup failed for precedence test")
+    format_fat32(disk, part)
+    if detect_filesystem(disk, part) != "EXT4":
+        raise StressFailure(f"{kind}: EXT4 did not outrank FAT32")
+    STATS["detection_precedence_checks"] += 1
+
+    write_apfs_marker(disk, part)
+    if detect_filesystem(disk, part) != "APFS":
+        raise StressFailure(f"{kind}: APFS did not outrank EXT4/FAT32")
+    STATS["detection_precedence_checks"] += 1
+
+    write_partition_iso9660_marker(disk, part)
+    if detect_filesystem(disk, part) != "ISO9660":
+        raise StressFailure(f"{kind}: ISO9660 did not outrank APFS")
+    STATS["detection_precedence_checks"] += 1
+
+
 def stress_gpt_partition_churn(kind):
     disk = Disk(kind, 512)
     parts = []
@@ -1578,6 +1637,9 @@ def stress_cdrom():
     if block[0] != 1 or block[1:6] != b"CD001":
         raise StressFailure("CDROM: 2048-byte block read did not expose ISO9660")
     STATS["block_api_checks"] += 1
+    if not detect_cdrom_iso9660(disk):
+        raise StressFailure("CDROM: ISO9660 lost precedence after block read")
+    STATS["detection_precedence_checks"] += 1
     expect_stress_failure(
         "CDROM: 512-byte sector read",
         lambda: storage_read_block(disk, 0, SECTOR_SIZE),
@@ -1636,7 +1698,8 @@ def main():
         f"{STATS['gpt_crc_checks']} GPT CRC checks, "
         f"{STATS['fs_metadata_checks']} filesystem metadata checks, "
         f"{STATS['partition_range_checks']} partition range checks, "
-        f"{STATS['block_api_checks']} block API checks passed"
+        f"{STATS['block_api_checks']} block API checks, "
+        f"{STATS['detection_precedence_checks']} detection precedence checks passed"
     )
     return 0
 
