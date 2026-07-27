@@ -48,6 +48,7 @@ STATS = {
     "corruption_checks": 0,
     "churn_checks": 0,
     "gpt_crc_checks": 0,
+    "fs_metadata_checks": 0,
 }
 
 
@@ -256,6 +257,10 @@ def put64(buf, off, value):
 def ascii_padded(text, length):
     raw = (text or "")[:length].encode("ascii", "replace")
     return raw + b" " * (length - len(raw))
+
+
+def trim_ascii_field(data):
+    return data.rstrip(b" \x00").decode("ascii", "replace")
 
 
 def storage_crc32(data):
@@ -504,6 +509,23 @@ def format_fat32(disk, part):
     put32(fsinfo, 508, 0xAA550000)
     part_write(disk, part, 1, fsinfo)
     part_write(disk, part, 7, fsinfo)
+
+    fat_sector = bytearray(SECTOR_SIZE)
+    put32(fat_sector, 0, 0x0FFFFFF8)
+    put32(fat_sector, 4, 0xFFFFFFFF)
+    put32(fat_sector, 8, 0x0FFFFFFF)
+    fats_start = reserved
+    part_write(disk, part, fats_start, fat_sector)
+    part_write(disk, part, fats_start + fat_size, fat_sector)
+
+    empty = bytearray(SECTOR_SIZE)
+    for idx in range(1, fat_size):
+        part_write(disk, part, fats_start + idx, empty)
+        part_write(disk, part, fats_start + fat_size + idx, empty)
+
+    root_dir_first_sector = reserved + fat_size * 2
+    for idx in range(spc):
+        part_write(disk, part, root_dir_first_sector + idx, empty)
     return True
 
 
@@ -519,6 +541,38 @@ def detect_fat32(disk, part):
     )
 
 
+def validate_fat32_metadata(disk, part):
+    sector = part_read(disk, part, 0, 1)
+    backup = part_read(disk, part, 6, 1)
+    fsinfo = part_read(disk, part, 1, 1)
+    fsinfo_backup = part_read(disk, part, 7, 1)
+    if backup != sector:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 backup boot mismatch")
+    if fsinfo_backup != fsinfo:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 backup FSInfo mismatch")
+    if le16(sector, 11) != SECTOR_SIZE:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 sector size mismatch")
+    if le16(sector, 14) != 32 or sector[16] != 2 or le32(sector, 44) != 2:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 layout fields invalid")
+    if le32(sector, 32) != part["sectors"]:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 sector count mismatch")
+    if trim_ascii_field(sector[71:82]) != part["label"][:11].upper():
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 label mismatch")
+    if le32(fsinfo, 0) != 0x41615252 or le32(fsinfo, 484) != 0x61417272:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 FSInfo signatures invalid")
+    if le32(fsinfo, 508) != 0xAA550000:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 FSInfo trail signature invalid")
+    fat_size = le32(sector, 36)
+    first_fat = part_read(disk, part, le16(sector, 14), 1)
+    second_fat = part_read(disk, part, le16(sector, 14) + fat_size, 1)
+    if first_fat != second_fat:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 FAT copies differ")
+    if (le32(first_fat, 0), le32(first_fat, 4), le32(first_fat, 8)) != (
+            0x0FFFFFF8, 0xFFFFFFFF, 0x0FFFFFFF):
+        raise StressFailure(f"{disk.kind}/{part['kind']}: FAT32 reserved FAT entries invalid")
+    STATS["fs_metadata_checks"] += 1
+
+
 def format_swap(disk, part):
     if part["sectors"] < 8:
         return False
@@ -532,6 +586,16 @@ def detect_swap(disk, part):
     page = part_read(disk, part, 0, 8)
     sig = page[SWAP_SIGNATURE_OFFSET:SWAP_SIGNATURE_OFFSET + 10]
     return sig in (b"SWAPSPACE2", b"SWAP-SPACE")
+
+
+def validate_swap_metadata(disk, part):
+    page = part_read(disk, part, 0, 8)
+    sig = page[SWAP_SIGNATURE_OFFSET:SWAP_SIGNATURE_OFFSET + 10]
+    if sig != b"SWAPSPACE2":
+        raise StressFailure(f"{disk.kind}/{part['kind']}: SWAP signature mismatch")
+    if any(page[:SWAP_SIGNATURE_OFFSET]) or any(page[SWAP_SIGNATURE_OFFSET + 10:]):
+        raise StressFailure(f"{disk.kind}/{part['kind']}: SWAP page was not zero-filled")
+    STATS["fs_metadata_checks"] += 1
 
 
 def format_ext4(disk, part):
@@ -561,6 +625,26 @@ def detect_ext4(disk, part):
     return sector[56:58] == b"\x53\xef"
 
 
+def validate_ext4_metadata(disk, part):
+    block = part_read(disk, part, 0, 8)
+    total_blocks = part["sectors"] // 8
+    if le32(block, 1024 + 4) != total_blocks:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 block count mismatch")
+    if le32(block, 1024 + 24) != 2:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 block size log mismatch")
+    if le32(block, 1024 + 32) != 32768 or le32(block, 1024 + 40) != 2048:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 group geometry invalid")
+    if le16(block, 1024 + 56) != 0xEF53:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 magic mismatch")
+    if le16(block, 1024 + 58) != 1 or le16(block, 1024 + 60) != 1:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 state/error policy invalid")
+    if le32(block, 1024 + 84) != 11 or le16(block, 1024 + 88) != 128:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 inode metadata invalid")
+    if trim_ascii_field(block[1024 + 120:1024 + 136]) != part["label"][:16].upper():
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 label mismatch")
+    STATS["fs_metadata_checks"] += 1
+
+
 def write_partition_iso9660_marker(disk, part):
     block = bytearray(2048)
     block[0] = 1
@@ -572,6 +656,15 @@ def write_partition_iso9660_marker(disk, part):
 def detect_partition_iso9660(disk, part):
     block = part_read(disk, part, 64, 4)
     return block[0] in (1, 2) and block[1:6] == b"CD001"
+
+
+def validate_partition_iso9660_metadata(disk, part):
+    block = part_read(disk, part, 64, 4)
+    if block[0] != 1:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: ISO9660 descriptor type mismatch")
+    if trim_ascii_field(block[40:72]) != "OS8_STRESS_ISO":
+        raise StressFailure(f"{disk.kind}/{part['kind']}: ISO9660 volume label mismatch")
+    STATS["fs_metadata_checks"] += 1
 
 
 def write_cdrom_iso9660(disk):
@@ -589,6 +682,15 @@ def detect_cdrom_iso9660(disk):
     return block[0] in (1, 2) and block[1:6] == b"CD001"
 
 
+def validate_cdrom_iso9660_metadata(disk):
+    block = disk.read(64, 4)
+    if block[0] != 1:
+        raise StressFailure(f"{disk.kind}: CD-ROM ISO9660 descriptor type mismatch")
+    if trim_ascii_field(block[40:72]) != "OS8_STRESS_ISO":
+        raise StressFailure(f"{disk.kind}: CD-ROM ISO9660 volume label mismatch")
+    STATS["fs_metadata_checks"] += 1
+
+
 def write_apfs_marker(disk, part):
     block = bytearray(4096)
     put32(block, 32, 0x4253584E)
@@ -598,6 +700,13 @@ def write_apfs_marker(disk, part):
 def detect_apfs(disk, part):
     block = part_read(disk, part, 0, 8)
     return le32(block, 32) == 0x4253584E
+
+
+def validate_apfs_metadata(disk, part):
+    block = part_read(disk, part, 0, 8)
+    if le32(block, 32) != 0x4253584E:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: APFS container magic mismatch")
+    STATS["fs_metadata_checks"] += 1
 
 
 def make_parts(sizes):
@@ -687,6 +796,8 @@ def check_formatter(kind, table_format, part, fs_name):
             raise StressFailure(
                 f"{kind}/{table_format}/{clone['kind']}: FAT32 did not self-detect"
             )
+        if formatted:
+            validate_fat32_metadata(disk, clone)
     elif fs_name == "EXT4":
         if not format_ext4(disk, clone):
             raise StressFailure(
@@ -696,6 +807,7 @@ def check_formatter(kind, table_format, part, fs_name):
             raise StressFailure(
                 f"{kind}/{table_format}/{clone['kind']}: EXT4 did not self-detect"
             )
+        validate_ext4_metadata(disk, clone)
     elif fs_name == "SWAP":
         if not format_swap(disk, clone):
             raise StressFailure(
@@ -705,6 +817,7 @@ def check_formatter(kind, table_format, part, fs_name):
             raise StressFailure(
                 f"{kind}/{table_format}/{clone['kind']}: SWAP did not self-detect"
             )
+        validate_swap_metadata(disk, clone)
     else:
         raise StressFailure(f"unknown formatter {fs_name}")
 
@@ -721,12 +834,14 @@ def check_detect_only(kind, table_format, part, fs_name):
             raise StressFailure(
                 f"{kind}/{table_format}/{clone['kind']}: ISO9660 marker not detected"
             )
+        validate_partition_iso9660_metadata(disk, clone)
     elif fs_name == "APFS":
         write_apfs_marker(disk, clone)
         if not detect_apfs(disk, clone):
             raise StressFailure(
                 f"{kind}/{table_format}/{clone['kind']}: APFS marker not detected"
             )
+        validate_apfs_metadata(disk, clone)
     else:
         raise StressFailure(f"unknown detect-only filesystem {fs_name}")
 
@@ -963,6 +1078,7 @@ def stress_cdrom():
     write_cdrom_iso9660(disk)
     if not detect_cdrom_iso9660(disk):
         raise StressFailure("CDROM: ISO9660 marker was not detected")
+    validate_cdrom_iso9660_metadata(disk)
     STATS["detect_only_checks"] += 1
     try:
         disk.write(0, bytes(SECTOR_SIZE))
@@ -1004,7 +1120,8 @@ def main():
         f"{STATS['boundary_checks']} boundary checks, "
         f"{STATS['corruption_checks']} corruption checks, "
         f"{STATS['churn_checks']} churn checks, "
-        f"{STATS['gpt_crc_checks']} GPT CRC checks passed"
+        f"{STATS['gpt_crc_checks']} GPT CRC checks, "
+        f"{STATS['fs_metadata_checks']} filesystem metadata checks passed"
     )
     return 0
 
