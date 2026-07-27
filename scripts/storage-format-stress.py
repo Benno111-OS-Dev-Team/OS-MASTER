@@ -62,6 +62,7 @@ STATS = {
     "block_api_checks": 0,
     "detection_precedence_checks": 0,
     "label_checks": 0,
+    "management_checks": 0,
 }
 
 
@@ -351,6 +352,41 @@ def assert_kernel_storage_parity():
             "ch - 'a' + 'A'",
         ],
         "filesystem label formatter",
+    )
+
+    create_partition_body = parse_storage_function_body("storage_create_partition")
+    assert_contains_all(
+        create_partition_body,
+        [
+            "storage_partition_space_available",
+            "storage_find_free_partition_slot",
+            "old_parts",
+            "storage_commit_gpt_partitions",
+        ],
+        "storage_create_partition",
+    )
+
+    update_partition_body = parse_storage_function_body("storage_update_partition")
+    assert_contains_all(
+        update_partition_body,
+        [
+            "used_without_part",
+            "storage_partition_space_available",
+            "old_parts",
+            "storage_commit_gpt_partitions",
+        ],
+        "storage_update_partition",
+    )
+
+    delete_partition_body = parse_storage_function_body("storage_delete_partition")
+    assert_contains_all(
+        delete_partition_body,
+        [
+            "old_parts",
+            "storage_commit_gpt_partitions",
+            "storage_partitions[disk_index][i].present = 0",
+        ],
+        "storage_delete_partition",
     )
 
 
@@ -1223,9 +1259,21 @@ def create_partition(parts, kind, size_mib, capacity_mib=None):
     return True
 
 
-def update_partition(parts, index, kind, size_mib):
+def used_mib(parts):
+    return sum(part["sectors"] for part in parts) // SECTORS_PER_MIB
+
+
+def count_partitions_of_kind(parts, kind):
+    return sum(1 for part in parts if part["kind"] == kind)
+
+
+def update_partition(parts, index, kind, size_mib, capacity_mib=None):
     if index < 0 or index >= len(parts) or size_mib <= 0:
         return False
+    if capacity_mib is not None:
+        used_without_part = used_mib(parts) - parts[index]["sectors"] // SECTORS_PER_MIB
+        if used_without_part > capacity_mib or size_mib > capacity_mib - used_without_part:
+            return False
     parts[index]["kind"] = kind
     parts[index]["label"] = f"{kind}{index + 1}"
     parts[index]["sectors"] = size_mib * SECTORS_PER_MIB
@@ -1368,6 +1416,7 @@ def stress_writable_kind(kind):
     stress_corruption_cases(kind)
     stress_detection_precedence(kind)
     stress_label_handling(kind)
+    stress_partition_management(kind)
     stress_gpt_partition_churn(kind)
 
 
@@ -1680,6 +1729,68 @@ def stress_label_handling(kind):
     STATS["label_checks"] += 1
 
 
+def stress_partition_management(kind):
+    disk = Disk(kind, 384)
+    parts = []
+
+    for part_kind, size_mib in (
+        ("EFI", 32),
+        ("SYSTEM", 80),
+        ("DATA", 96),
+        ("SWAP", 16),
+        ("DATA", 32),
+        ("SYSTEM", 24),
+        ("DATA", 16),
+        ("SWAP", 8),
+    ):
+        snapshot = [dict(part) for part in parts]
+        if not create_partition(parts, part_kind, size_mib, disk.mib):
+            raise StressFailure(f"{kind}: failed to fill partition slot table")
+        if len(parts) != len(snapshot) + 1:
+            raise StressFailure(f"{kind}: create did not add exactly one partition")
+        write_gpt(disk, parts)
+        assert_layout_within_disk(kind, parts, disk)
+        STATS["management_checks"] += 1
+
+    if create_partition(parts, "DATA", 1, disk.mib):
+        raise StressFailure(f"{kind}: accepted ninth partition slot")
+    STATS["management_checks"] += 1
+
+    before = [dict(part) for part in parts]
+    if update_partition(parts, 2, "DATA", disk.mib, disk.mib):
+        raise StressFailure(f"{kind}: accepted over-capacity partition update")
+    if parts != before:
+        raise StressFailure(f"{kind}: failed update mutated partition table")
+    STATS["management_checks"] += 1
+
+    if not update_partition(parts, 2, "SYSTEM", 48, disk.mib):
+        raise StressFailure(f"{kind}: rejected valid partition update")
+    if parts[2]["kind"] != "SYSTEM" or parts[2]["sectors"] != 48 * SECTORS_PER_MIB:
+        raise StressFailure(f"{kind}: valid update did not apply expected fields")
+    write_gpt(disk, parts)
+    assert_layout_within_disk(kind, parts, disk)
+    STATS["management_checks"] += 1
+
+    if count_partitions_of_kind(parts, "SYSTEM") < 2:
+        raise StressFailure(f"{kind}: partition kind accounting lost SYSTEM entries")
+    STATS["management_checks"] += 1
+
+    before = [dict(part) for part in parts]
+    if delete_partition(parts, 99):
+        raise StressFailure(f"{kind}: accepted invalid partition delete")
+    if parts != before:
+        raise StressFailure(f"{kind}: invalid delete mutated partition table")
+    STATS["management_checks"] += 1
+
+    if not delete_partition(parts, 0):
+        raise StressFailure(f"{kind}: rejected valid partition delete")
+    write_gpt(disk, parts)
+    assert_layout_within_disk(kind, parts, disk)
+    if parts[0]["start"] != 2048:
+        raise StressFailure(f"{kind}: delete did not compact first partition")
+    STATS["management_checks"] += 1
+
+
 def stress_gpt_partition_churn(kind):
     disk = Disk(kind, 512)
     parts = []
@@ -1809,7 +1920,8 @@ def main():
         f"{STATS['partition_range_checks']} partition range checks, "
         f"{STATS['block_api_checks']} block API checks, "
         f"{STATS['detection_precedence_checks']} detection precedence checks, "
-        f"{STATS['label_checks']} label checks passed"
+        f"{STATS['label_checks']} label checks, "
+        f"{STATS['management_checks']} management checks passed"
     )
     return 0
 
