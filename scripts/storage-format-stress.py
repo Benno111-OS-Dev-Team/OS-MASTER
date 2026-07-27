@@ -2,6 +2,7 @@
 import struct
 import sys
 from pathlib import Path
+import re
 
 SECTOR_SIZE = 512
 SECTORS_PER_MIB = 2048
@@ -51,6 +52,12 @@ def repo_root():
     return Path(__file__).resolve().parents[1]
 
 
+def storage_source():
+    return (repo_root() / "kernel" / "drivers" / "storage.c").read_text(
+        encoding="utf-8"
+    )
+
+
 def parse_storage_enum(enum_name):
     header = repo_root() / "kernel" / "include" / "drivers" / "storage.h"
     lines = header.read_text(encoding="utf-8").splitlines()
@@ -76,6 +83,41 @@ def parse_storage_enum(enum_name):
             values.append(token)
 
     raise StressFailure(f"could not find {enum_name} in storage.h")
+
+
+def parse_storage_define(name):
+    source = storage_source()
+    match = re.search(rf"^#define\s+{re.escape(name)}\s+([0-9A-Fa-fxX]+)",
+                      source, re.MULTILINE)
+    if not match:
+        raise StressFailure(f"could not find {name} in storage.c")
+    return int(match.group(1), 0)
+
+
+def parse_storage_format_cases():
+    source = storage_source()
+    match = re.search(
+        r"switch\s*\(fs_kind\)\s*\{(?P<body>.*?)\n\s*default:",
+        source,
+        re.DOTALL,
+    )
+    if not match:
+        raise StressFailure("could not find storage_format_partition switch")
+    return re.findall(r"case\s+STORAGE_FILESYSTEM_([A-Z0-9_]+)\s*:",
+                      match.group("body"))
+
+
+def parse_storage_detect_order():
+    source = storage_source()
+    match = re.search(
+        r"static void storage_detect_partition_filesystem"
+        r"\(.*?\)\s*\{(?P<body>.*?)\n\}",
+        source,
+        re.DOTALL,
+    )
+    if not match:
+        raise StressFailure("could not find storage_detect_partition_filesystem")
+    return re.findall(r"storage_detect_([a-z0-9_]+)\(", match.group("body"))
 
 
 def assert_kernel_enum_coverage():
@@ -104,6 +146,44 @@ def assert_kernel_enum_coverage():
             raise StressFailure(
                 f"stress matrix missing kernel {label}s: {', '.join(missing)}"
             )
+
+
+def assert_kernel_storage_parity():
+    define_checks = {
+        "STORAGE_SECTOR_SIZE": SECTOR_SIZE,
+        "STORAGE_MBR_PARTITION_OFFSET": MBR_PARTITION_OFFSET,
+        "STORAGE_MBR_SIGNATURE_OFFSET": MBR_SIGNATURE_OFFSET,
+        "STORAGE_GPT_ENTRY_SIZE": GPT_ENTRY_SIZE,
+        "STORAGE_GPT_ENTRY_COUNT": GPT_ENTRY_COUNT,
+        "STORAGE_SWAP_SIGNATURE_OFFSET": SWAP_SIGNATURE_OFFSET,
+    }
+    for name, expected in define_checks.items():
+        actual = parse_storage_define(name)
+        if actual != expected:
+            raise StressFailure(
+                f"{name} mismatch: stress={expected}, kernel={actual}"
+            )
+
+    formatter_cases = parse_storage_format_cases()
+    if formatter_cases != FORMATTERS:
+        raise StressFailure(
+            "formatter matrix mismatch: "
+            f"stress={FORMATTERS}, kernel={formatter_cases}"
+        )
+
+    expected_detect_order = [
+        "iso9660",
+        "apfs",
+        "ext4",
+        "fat32",
+        "swap",
+    ]
+    detect_order = parse_storage_detect_order()
+    if detect_order != expected_detect_order:
+        raise StressFailure(
+            "filesystem detection order mismatch: "
+            f"stress={expected_detect_order}, kernel={detect_order}"
+        )
 
 
 class StressFailure(Exception):
@@ -595,10 +675,11 @@ def stress_cdrom():
 
 def main():
     failures = []
-    try:
-        assert_kernel_enum_coverage()
-    except StressFailure as exc:
-        failures.append(str(exc))
+    for parity_check in (assert_kernel_enum_coverage, assert_kernel_storage_parity):
+        try:
+            parity_check()
+        except StressFailure as exc:
+            failures.append(str(exc))
 
     for kind in DRIVE_KINDS:
         try:
