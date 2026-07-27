@@ -59,6 +59,7 @@ STATS = {
     "gpt_crc_checks": 0,
     "fs_metadata_checks": 0,
     "partition_range_checks": 0,
+    "block_api_checks": 0,
 }
 
 
@@ -137,7 +138,8 @@ def parse_storage_detect_order():
 def parse_storage_function_body(function_name):
     source = storage_source()
     pattern = re.compile(
-        rf"\bstatic\b[^\{{;]*\b{re.escape(function_name)}\s*"
+        rf"(?:\bstatic\b\s+)?[A-Za-z_][A-Za-z0-9_ \t\*]*"
+        rf"\b{re.escape(function_name)}\s*"
         r"\([^;{}]*\)\s*\{",
         re.DOTALL,
     )
@@ -282,6 +284,40 @@ def assert_kernel_storage_parity():
         "partition loader fallback",
     )
 
+    read_block = parse_storage_function_body("storage_read_block")
+    assert_contains_all(
+        read_block,
+        [
+            "block_size == 512",
+            "block_size == 2048",
+            "STORAGE_KIND_CDROM",
+            "return -1;",
+        ],
+        "storage_read_block",
+    )
+
+    write_block = parse_storage_function_body("storage_write_block")
+    assert_contains_all(
+        write_block,
+        [
+            "block_size == 512",
+            "return -1;",
+        ],
+        "storage_write_block",
+    )
+
+    write_image = parse_storage_function_body("storage_write_disk_image")
+    assert_contains_all(
+        write_image,
+        [
+            "STORAGE_KIND_CDROM",
+            "image_sectors > disk_sectors",
+            "sector[i] = 0",
+            "storage_disk_write_sector",
+        ],
+        "storage_write_disk_image",
+    )
+
 
 class StressFailure(Exception):
     pass
@@ -296,6 +332,9 @@ class Disk:
 
     @property
     def writable(self):
+        return self.kind in WRITABLE_KINDS
+
+    def supports_partition_writes(self):
         return self.kind in WRITABLE_KINDS
 
     def read(self, lba, count=1):
@@ -325,6 +364,40 @@ class Disk:
                 self.sector_data.pop(lba + offset, None)
             else:
                 self.sector_data[lba + offset] = sector
+
+
+def storage_read_block(disk, lba, block_size):
+    if block_size == SECTOR_SIZE:
+        if disk.kind == "CDROM":
+            raise StressFailure("CDROM: 512-byte read unexpectedly succeeded")
+        return disk.read(lba, 1)
+    if block_size == 2048 and disk.kind == "CDROM":
+        return disk.read(lba * 4, 4)
+    raise StressFailure(f"{disk.kind}: unsupported read block size {block_size}")
+
+
+def storage_write_block(disk, lba, payload, block_size):
+    if block_size != SECTOR_SIZE:
+        raise StressFailure(f"{disk.kind}: unsupported write block size {block_size}")
+    if len(payload) != SECTOR_SIZE:
+        raise StressFailure(f"{disk.kind}: write block payload size mismatch")
+    disk.write(lba, payload)
+
+
+def storage_write_disk_image(disk, data):
+    if not data:
+        return False
+    if disk.kind == "CDROM":
+        return False
+    image_sectors = (len(data) + SECTOR_SIZE - 1) // SECTOR_SIZE
+    if image_sectors > disk.sectors:
+        return False
+    for sector_index in range(image_sectors):
+        chunk = data[
+            sector_index * SECTOR_SIZE:(sector_index + 1) * SECTOR_SIZE
+        ]
+        disk.write(sector_index, chunk + bytes(SECTOR_SIZE - len(chunk)))
+    return True
 
 
 def le16(buf, off):
@@ -1208,6 +1281,8 @@ def stress_partition_table(kind, table_format):
 def stress_writable_kind(kind):
     STATS["drive_kinds"] += 1
 
+    stress_block_api(kind)
+
     for table_format in TABLE_FORMATS:
         stress_partition_table(kind, table_format)
 
@@ -1227,6 +1302,41 @@ def stress_writable_kind(kind):
 
     stress_corruption_cases(kind)
     stress_gpt_partition_churn(kind)
+
+
+def stress_block_api(kind):
+    disk = Disk(kind, 8)
+    payload = bytes((idx * 17 + 3) & 0xFF for idx in range(SECTOR_SIZE))
+    storage_write_block(disk, 0, payload, SECTOR_SIZE)
+    if storage_read_block(disk, 0, SECTOR_SIZE) != payload:
+        raise StressFailure(f"{kind}: block API roundtrip mismatch")
+    STATS["block_api_checks"] += 1
+
+    expect_stress_failure(
+        f"{kind}: unsupported read block size",
+        lambda: storage_read_block(disk, 0, 1024),
+    )
+    expect_stress_failure(
+        f"{kind}: unsupported write block size",
+        lambda: storage_write_block(disk, 0, payload * 4, 2048),
+    )
+
+    image = b"OS8IMAGE" + bytes(range(251)) * 3
+    if not storage_write_disk_image(disk, image):
+        raise StressFailure(f"{kind}: disk image write rejected valid image")
+    first = storage_read_block(disk, 0, SECTOR_SIZE)
+    second = storage_read_block(disk, 1, SECTOR_SIZE)
+    if first[:len(image[:SECTOR_SIZE])] != image[:SECTOR_SIZE]:
+        raise StressFailure(f"{kind}: disk image first sector mismatch")
+    if second[:len(image[SECTOR_SIZE:])] != image[SECTOR_SIZE:]:
+        raise StressFailure(f"{kind}: disk image second sector mismatch")
+    if any(second[len(image[SECTOR_SIZE:]):]):
+        raise StressFailure(f"{kind}: disk image tail was not zero padded")
+    STATS["block_api_checks"] += 1
+
+    if storage_write_disk_image(disk, bytes(disk.sectors * SECTOR_SIZE + 1)):
+        raise StressFailure(f"{kind}: oversize disk image was accepted")
+    STATS["block_api_checks"] += 1
 
 
 def stress_corruption_cases(kind):
@@ -1464,6 +1574,25 @@ def stress_cdrom():
         raise StressFailure("CDROM: ISO9660 marker was not detected")
     validate_cdrom_iso9660_metadata(disk)
     STATS["detect_only_checks"] += 1
+    block = storage_read_block(disk, 16, 2048)
+    if block[0] != 1 or block[1:6] != b"CD001":
+        raise StressFailure("CDROM: 2048-byte block read did not expose ISO9660")
+    STATS["block_api_checks"] += 1
+    expect_stress_failure(
+        "CDROM: 512-byte sector read",
+        lambda: storage_read_block(disk, 0, SECTOR_SIZE),
+    )
+    expect_stress_failure(
+        "CDROM: 512-byte sector write",
+        lambda: storage_write_block(disk, 0, bytes(SECTOR_SIZE), SECTOR_SIZE),
+    )
+    expect_stress_failure(
+        "CDROM: unsupported read block size",
+        lambda: storage_read_block(disk, 0, 1024),
+    )
+    if storage_write_disk_image(disk, b"not for optical media"):
+        raise StressFailure("CDROM: disk image write unexpectedly succeeded")
+    STATS["block_api_checks"] += 1
     try:
         disk.write(0, bytes(SECTOR_SIZE))
     except StressFailure:
@@ -1506,7 +1635,8 @@ def main():
         f"{STATS['churn_checks']} churn checks, "
         f"{STATS['gpt_crc_checks']} GPT CRC checks, "
         f"{STATS['fs_metadata_checks']} filesystem metadata checks, "
-        f"{STATS['partition_range_checks']} partition range checks passed"
+        f"{STATS['partition_range_checks']} partition range checks, "
+        f"{STATS['block_api_checks']} block API checks passed"
     )
     return 0
 
