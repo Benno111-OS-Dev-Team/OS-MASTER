@@ -289,8 +289,10 @@ static phys_addr_t storage_dma_addr(const void *ptr) {
   if (paddr)
     return paddr;
 
+#if defined(ARCH_X86_64) || defined(ARCH_ARM64)
   if ((uintptr_t)ptr >= PHYS_OFFSET)
     return virt_to_phys((void *)ptr);
+#endif
 
   return (phys_addr_t)(uintptr_t)ptr;
 }

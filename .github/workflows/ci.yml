@@ -49,6 +49,8 @@ jobs:
         run: |
           set -euxo pipefail
           make -f Makefile.multiarch check-source-complete
+          make -f Makefile.multiarch storage-format-stress
+          make -f Makefile.multiarch storage-driver-compile-check
 
       - name: Compile custom x86_64 UEFI boot chain
         run: |

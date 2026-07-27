@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import struct
 import sys
+from pathlib import Path
 
 SECTOR_SIZE = 512
 SECTORS_PER_MIB = 2048
@@ -35,6 +36,65 @@ WRITABLE_KINDS = {
 PARTITION_KINDS = ["EFI", "SYSTEM", "DATA", "SWAP"]
 FORMATTERS = ["FAT32", "EXT4", "SWAP"]
 DETECT_ONLY_FILESYSTEMS = ["ISO9660", "APFS"]
+
+
+def repo_root():
+    return Path(__file__).resolve().parents[1]
+
+
+def parse_storage_enum(enum_name):
+    header = repo_root() / "kernel" / "include" / "drivers" / "storage.h"
+    lines = header.read_text(encoding="utf-8").splitlines()
+    in_enum = False
+    values = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "typedef enum {":
+            in_enum = True
+            values = []
+            continue
+        if not in_enum:
+            continue
+        if stripped.startswith("}") and enum_name in stripped:
+            return values
+        if stripped.startswith("}"):
+            in_enum = False
+            values = []
+            continue
+        token = stripped.split("=", 1)[0].split(",", 1)[0].strip()
+        if token:
+            values.append(token)
+
+    raise StressFailure(f"could not find {enum_name} in storage.h")
+
+
+def assert_kernel_enum_coverage():
+    storage_kinds = parse_storage_enum("storage_kind_t")
+    partition_kinds = parse_storage_enum("storage_partition_kind_t")
+    filesystem_kinds = parse_storage_enum("storage_filesystem_kind_t")
+
+    expected_drives = [f"STORAGE_KIND_{kind}" for kind in DRIVE_KINDS]
+    expected_partitions = [
+        f"STORAGE_PARTITION_{kind}" for kind in PARTITION_KINDS
+    ]
+    expected_filesystems = [
+        f"STORAGE_FILESYSTEM_{fs}" for fs in FORMATTERS + DETECT_ONLY_FILESYSTEMS
+    ]
+
+    for expected, actual, label in (
+        (expected_drives, storage_kinds, "drive kind"),
+        (expected_partitions, partition_kinds, "partition kind"),
+        (expected_filesystems, filesystem_kinds, "filesystem kind"),
+    ):
+        missing = sorted(set(actual) - {f"STORAGE_KIND_UNKNOWN",
+                                        f"STORAGE_PARTITION_UNKNOWN",
+                                        f"STORAGE_FILESYSTEM_UNKNOWN"} -
+                         set(expected))
+        if missing:
+            raise StressFailure(
+                f"stress matrix missing kernel {label}s: {', '.join(missing)}"
+            )
 
 
 class StressFailure(Exception):
@@ -100,7 +160,7 @@ def partition_type_guid(kind):
     return {
         "EFI": bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b"),
         "SWAP": bytes.fromhex("6dfd5706aba4c44384e50933c84b4f4f"),
-    }.get(kind, bytes.fromhex("a2a0d0ebe5b9334487c068b6b72699c7"))
+    }.get(kind, bytes.fromhex("af3dc60f838472478e793d69d8477de4"))
 
 
 def partition_mbr_type(kind):
@@ -443,6 +503,11 @@ def stress_cdrom():
 
 def main():
     failures = []
+    try:
+        assert_kernel_enum_coverage()
+    except StressFailure as exc:
+        failures.append(str(exc))
+
     for kind in DRIVE_KINDS:
         try:
             if kind == "CDROM":

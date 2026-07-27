@@ -52,6 +52,7 @@ echo "Kernel Tests"
 echo "------------"
 
 run_test "Storage format stress" "python3 scripts/storage-format-stress.py"
+run_test "Storage driver compile" "bash scripts/storage-driver-compile-check.sh"
 
 if [ -f build/kernel/unixos.elf ]; then
     run_test "Kernel binary exists" "[ -f build/kernel/unixos.elf ]"
