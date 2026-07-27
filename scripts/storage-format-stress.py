@@ -45,6 +45,7 @@ STATS = {
     "formatter_checks": 0,
     "detect_only_checks": 0,
     "boundary_checks": 0,
+    "corruption_checks": 0,
 }
 
 
@@ -362,6 +363,21 @@ def detect_partition_table(disk):
     return "mbr"
 
 
+def expect_stress_failure(label, fn):
+    try:
+        fn()
+    except StressFailure:
+        STATS["corruption_checks"] += 1
+        return
+    raise StressFailure(f"{label}: expected failure was not raised")
+
+
+def expect_not_detected(label, fn):
+    if fn():
+        raise StressFailure(f"{label}: corrupted structure was detected")
+    STATS["corruption_checks"] += 1
+
+
 def choose_fat32_spc(total_sectors):
     size_mib = total_sectors // SECTORS_PER_MIB
     if size_mib < 260:
@@ -657,6 +673,108 @@ def stress_writable_kind(kind):
         raise StressFailure(f"{kind}: SWAP accepted undersized partition")
     STATS["boundary_checks"] += 1
 
+    stress_corruption_cases(kind)
+
+
+def stress_corruption_cases(kind):
+    disk = Disk(kind, 128)
+    parts = make_parts([40, 32, 8, 8])
+    part = parts[0]
+
+    if detect_partition_table(disk) != "none":
+        raise StressFailure(f"{kind}: blank disk looked partitioned")
+    STATS["corruption_checks"] += 1
+
+    write_mbr(disk, parts)
+    bad_mbr = bytearray(disk.read(0))
+    bad_mbr[510] = 0
+    disk.write(0, bad_mbr)
+    if detect_partition_table(disk) != "none":
+        raise StressFailure(f"{kind}: bad MBR signature was accepted")
+    STATS["corruption_checks"] += 1
+
+    bad_gpt = Disk(kind, 128)
+    protective = bytearray(SECTOR_SIZE)
+    protective[MBR_PARTITION_OFFSET + 4] = 0xEE
+    protective[510:512] = b"\x55\xaa"
+    bad_gpt.write(0, protective)
+    expect_stress_failure(
+        f"{kind}: protective MBR without GPT header",
+        lambda: detect_partition_table(bad_gpt),
+    )
+
+    expect_stress_failure(
+        f"{kind}: partition read escaped bounds",
+        lambda: part_read(disk, part, part["sectors"], 1),
+    )
+    expect_stress_failure(
+        f"{kind}: partition write escaped bounds",
+        lambda: part_write(disk, part, part["sectors"] - 1, bytes(1024)),
+    )
+
+    fs_disk = Disk(kind, 128)
+    fat = dict(part)
+    if not format_fat32(fs_disk, fat):
+        raise StressFailure(f"{kind}: FAT32 setup failed for corruption test")
+    fat_sector = bytearray(part_read(fs_disk, fat, 0, 1))
+    fat_sector[510] = 0
+    part_write(fs_disk, fat, 0, fat_sector)
+    expect_not_detected(
+        f"{kind}: FAT32 bad boot signature",
+        lambda: detect_fat32(fs_disk, fat),
+    )
+    format_fat32(fs_disk, fat)
+    fat_sector = bytearray(part_read(fs_disk, fat, 0, 1))
+    fat_sector[82:87] = b"NOT32"
+    part_write(fs_disk, fat, 0, fat_sector)
+    expect_not_detected(
+        f"{kind}: FAT32 bad fs type",
+        lambda: detect_fat32(fs_disk, fat),
+    )
+
+    ext = dict(part)
+    ext["sectors"] = 2048
+    if not format_ext4(fs_disk, ext):
+        raise StressFailure(f"{kind}: EXT4 setup failed for corruption test")
+    ext_sector = bytearray(part_read(fs_disk, ext, 2, 1))
+    ext_sector[56:58] = b"\x00\x00"
+    part_write(fs_disk, ext, 2, ext_sector)
+    expect_not_detected(
+        f"{kind}: EXT4 bad superblock magic",
+        lambda: detect_ext4(fs_disk, ext),
+    )
+
+    iso = dict(part)
+    write_partition_iso9660_marker(fs_disk, iso)
+    iso_block = bytearray(part_read(fs_disk, iso, 64, 4))
+    iso_block[1:6] = b"BAD!!"
+    part_write(fs_disk, iso, 64, iso_block)
+    expect_not_detected(
+        f"{kind}: ISO9660 bad identifier",
+        lambda: detect_partition_iso9660(fs_disk, iso),
+    )
+
+    apfs = dict(part)
+    write_apfs_marker(fs_disk, apfs)
+    apfs_block = bytearray(part_read(fs_disk, apfs, 0, 8))
+    put32(apfs_block, 32, 0)
+    part_write(fs_disk, apfs, 0, apfs_block)
+    expect_not_detected(
+        f"{kind}: APFS bad magic",
+        lambda: detect_apfs(fs_disk, apfs),
+    )
+
+    swap = dict(part)
+    if not format_swap(fs_disk, swap):
+        raise StressFailure(f"{kind}: SWAP setup failed for corruption test")
+    swap_page = bytearray(part_read(fs_disk, swap, 0, 8))
+    swap_page[SWAP_SIGNATURE_OFFSET:SWAP_SIGNATURE_OFFSET + 10] = b"NOT-SWAP!!"
+    part_write(fs_disk, swap, 0, swap_page)
+    expect_not_detected(
+        f"{kind}: SWAP bad signature",
+        lambda: detect_swap(fs_disk, swap),
+    )
+
 
 def stress_cdrom():
     STATS["drive_kinds"] += 1
@@ -702,7 +820,8 @@ def main():
         f"{STATS['partition_tables']} partition table checks, "
         f"{STATS['formatter_checks']} formatter checks, "
         f"{STATS['detect_only_checks']} detect-only checks, "
-        f"{STATS['boundary_checks']} boundary checks passed"
+        f"{STATS['boundary_checks']} boundary checks, "
+        f"{STATS['corruption_checks']} corruption checks passed"
     )
     return 0
 
