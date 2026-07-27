@@ -61,6 +61,7 @@ STATS = {
     "partition_range_checks": 0,
     "block_api_checks": 0,
     "detection_precedence_checks": 0,
+    "label_checks": 0,
 }
 
 
@@ -319,6 +320,39 @@ def assert_kernel_storage_parity():
         "storage_write_disk_image",
     )
 
+    gpt_decode = parse_storage_function_body("storage_decode_gpt_name")
+    assert_contains_all(
+        gpt_decode,
+        [
+            "max - 1",
+            "ch >= 32 && ch < 127",
+            "?",
+        ],
+        "GPT label decode",
+    )
+
+    trim_ascii = parse_storage_function_body("storage_trim_ascii_field")
+    assert_contains_all(
+        trim_ascii,
+        [
+            "src[end - 1] == ' '",
+            "src[end - 1] == '\\0'",
+            "ch >= 32 && ch < 127",
+            "_",
+        ],
+        "filesystem label trim",
+    )
+
+    copy_ascii = parse_storage_function_body("storage_copy_ascii_padded")
+    assert_contains_all(
+        copy_ascii,
+        [
+            "ch >= 'a' && ch <= 'z'",
+            "ch - 'a' + 'A'",
+        ],
+        "filesystem label formatter",
+    )
+
 
 class StressFailure(Exception):
     pass
@@ -434,8 +468,24 @@ def ascii_padded(text, length):
     return raw + b" " * (length - len(raw))
 
 
+def ascii_upper_padded(text, length):
+    return ascii_padded((text or "").upper(), length)
+
+
 def trim_ascii_field(data):
     return data.rstrip(b" \x00").decode("ascii", "replace")
+
+
+def decode_gpt_name(raw):
+    out = []
+    for idx in range(36):
+        ch = le16(raw, idx * 2)
+        if ch == 0:
+            break
+        out.append(chr(ch) if 32 <= ch < 127 else "?")
+        if len(out) >= 31:
+            break
+    return "".join(out)
 
 
 def storage_crc32(data):
@@ -739,7 +789,7 @@ def format_fat32(disk, part):
     sector[64] = 0x80
     sector[66] = 0x29
     put32(sector, 67, 0x4F533846 ^ part["sectors"] ^ part["start"])
-    sector[71:82] = ascii_padded(part["label"], 11)
+    sector[71:82] = ascii_upper_padded(part["label"], 11)
     sector[82:90] = b"FAT32   "
     sector[510:512] = b"\x55\xaa"
     part_write(disk, part, 0, sector)
@@ -954,7 +1004,7 @@ def format_ext4(disk, part):
     put32(block, 1024 + 84, 11)
     put16(block, 1024 + 88, EXT4_INODE_SIZE)
     put16(block, 1024 + 254, EXT4_GROUP_DESC_SIZE)
-    block[1024 + 120:1024 + 136] = ascii_padded(part["label"], 16)
+    block[1024 + 120:1024 + 136] = ascii_upper_padded(part["label"], 16)
     part_write(disk, part, 0, block)
     return True
 
@@ -1317,6 +1367,7 @@ def stress_writable_kind(kind):
 
     stress_corruption_cases(kind)
     stress_detection_precedence(kind)
+    stress_label_handling(kind)
     stress_gpt_partition_churn(kind)
 
 
@@ -1571,6 +1622,64 @@ def stress_detection_precedence(kind):
     STATS["detection_precedence_checks"] += 1
 
 
+def stress_label_handling(kind):
+    disk = Disk(kind, 256)
+    long_label = "SystemPartitionLabelThatIsTooLongForLoader"
+    weird_part = {
+        "kind": "DATA",
+        "label": long_label,
+        "start": 2048,
+        "sectors": 64 * SECTORS_PER_MIB,
+    }
+    write_gpt(disk, [weird_part])
+    entries = bytearray(disk.read(2, GPT_ENTRY_SECTORS))
+    decoded = decode_gpt_name(entries[56:56 + 72])
+    if decoded != long_label[:31]:
+        raise StressFailure(f"{kind}: GPT long label truncation mismatch")
+    STATS["label_checks"] += 1
+
+    for idx, ch in enumerate((ord("O"), 1, 0x263A, ord("K"))):
+        put16(entries, 56 + idx * 2, ch)
+    put16(entries, 56 + 8, 0)
+    write_gpt_entries_with_valid_crcs(disk, entries)
+    decoded = decode_gpt_name(bytearray(disk.read(2, GPT_ENTRY_SECTORS))[56:128])
+    if decoded != "O??K":
+        raise StressFailure(f"{kind}: GPT non-printable label sanitization mismatch")
+    STATS["label_checks"] += 1
+
+    part = {
+        "kind": "DATA",
+        "label": "mixedCaseLabel",
+        "start": 2048,
+        "sectors": 96 * SECTORS_PER_MIB,
+    }
+    if not format_fat32(disk, part):
+        raise StressFailure(f"{kind}: FAT32 label setup failed")
+    fat_label = trim_ascii_field(part_read(disk, part, 0, 1)[71:82])
+    if fat_label != "MIXEDCASELA":
+        raise StressFailure(f"{kind}: FAT32 uppercase/truncated label mismatch")
+    STATS["label_checks"] += 1
+
+    if not format_ext4(disk, part):
+        raise StressFailure(f"{kind}: EXT4 label setup failed")
+    ext_label = trim_ascii_field(
+        part_read(disk, part, 0, EXT4_SECTORS_PER_BLOCK)[
+            1024 + 120:1024 + 136
+        ]
+    )
+    if ext_label != "MIXEDCASELABEL":
+        raise StressFailure(f"{kind}: EXT4 uppercase label mismatch")
+    STATS["label_checks"] += 1
+
+    write_partition_iso9660_marker(disk, part)
+    iso = bytearray(part_read(disk, part, 64, 4))
+    iso[40:72] = b"ODD_ISO_LABEL\x00\x00" + b" " * 17
+    part_write(disk, part, 64, iso)
+    if trim_ascii_field(part_read(disk, part, 64, 4)[40:72]) != "ODD_ISO_LABEL":
+        raise StressFailure(f"{kind}: ISO9660 label trimming mismatch")
+    STATS["label_checks"] += 1
+
+
 def stress_gpt_partition_churn(kind):
     disk = Disk(kind, 512)
     parts = []
@@ -1699,7 +1808,8 @@ def main():
         f"{STATS['fs_metadata_checks']} filesystem metadata checks, "
         f"{STATS['partition_range_checks']} partition range checks, "
         f"{STATS['block_api_checks']} block API checks, "
-        f"{STATS['detection_precedence_checks']} detection precedence checks passed"
+        f"{STATS['detection_precedence_checks']} detection precedence checks, "
+        f"{STATS['label_checks']} label checks passed"
     )
     return 0
 
