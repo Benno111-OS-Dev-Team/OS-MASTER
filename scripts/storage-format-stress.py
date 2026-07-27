@@ -134,6 +134,36 @@ def parse_storage_detect_order():
     return re.findall(r"storage_detect_([a-z0-9_]+)\(", match.group("body"))
 
 
+def parse_storage_function_body(function_name):
+    source = storage_source()
+    pattern = re.compile(
+        rf"\bstatic\b[^\{{;]*\b{re.escape(function_name)}\s*"
+        r"\([^;{}]*\)\s*\{",
+        re.DOTALL,
+    )
+    for match in pattern.finditer(source):
+        brace = source.find("{", match.start())
+        if brace < 0:
+            continue
+        depth = 0
+        for pos in range(brace, len(source)):
+            if source[pos] == "{":
+                depth += 1
+            elif source[pos] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[brace + 1:pos]
+    raise StressFailure(f"could not find {function_name} in storage.c")
+
+
+def assert_contains_all(haystack, needles, label):
+    missing = [needle for needle in needles if needle not in haystack]
+    if missing:
+        raise StressFailure(
+            f"{label} missing hardening guard(s): {', '.join(missing)}"
+        )
+
+
 def assert_kernel_enum_coverage():
     storage_kinds = parse_storage_enum("storage_kind_t")
     partition_kinds = parse_storage_enum("storage_partition_kind_t")
@@ -203,6 +233,54 @@ def assert_kernel_storage_parity():
             "filesystem detection order mismatch: "
             f"stress={expected_detect_order}, kernel={detect_order}"
         )
+
+    source = storage_source()
+    assert_contains_all(
+        source,
+        [
+            "storage_partition_range_valid",
+            "storage_partition_range_overlaps",
+            "storage_has_protective_mbr",
+        ],
+        "storage loader source",
+    )
+
+    gpt_loader = parse_storage_function_body("storage_load_gpt_partitions")
+    assert_contains_all(
+        gpt_loader,
+        [
+            "header.header_crc32",
+            "storage_crc32(header_crc_sector, header.header_size)",
+            "header.partition_entry_array_crc32",
+            "storage_partition_range_valid",
+            "storage_partition_range_overlaps",
+            "storage_clear_partitions(disk_index)",
+        ],
+        "GPT loader",
+    )
+
+    mbr_loader = parse_storage_function_body("storage_load_mbr_partitions")
+    assert_contains_all(
+        mbr_loader,
+        [
+            "type == 0xEE",
+            "storage_partition_range_valid",
+            "storage_partition_range_overlaps",
+            "storage_clear_partitions(disk_index)",
+        ],
+        "MBR loader",
+    )
+
+    partition_loader = parse_storage_function_body("storage_load_partitions")
+    assert_contains_all(
+        partition_loader,
+        [
+            "storage_has_protective_mbr(disk_index)",
+            "storage_clear_partitions(disk_index)",
+            "return;",
+        ],
+        "partition loader fallback",
+    )
 
 
 class StressFailure(Exception):
