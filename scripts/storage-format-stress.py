@@ -36,6 +36,15 @@ WRITABLE_KINDS = {
 PARTITION_KINDS = ["EFI", "SYSTEM", "DATA", "SWAP"]
 FORMATTERS = ["FAT32", "EXT4", "SWAP"]
 DETECT_ONLY_FILESYSTEMS = ["ISO9660", "APFS"]
+TABLE_FORMATS = ["GPT", "MBR"]
+
+STATS = {
+    "drive_kinds": 0,
+    "partition_tables": 0,
+    "formatter_checks": 0,
+    "detect_only_checks": 0,
+    "boundary_checks": 0,
+}
 
 
 def repo_root():
@@ -106,7 +115,7 @@ class Disk:
         self.kind = kind
         self.mib = mib
         self.sectors = mib * SECTORS_PER_MIB
-        self.data = bytearray(self.sectors * SECTOR_SIZE)
+        self.sector_data = {}
 
     @property
     def writable(self):
@@ -115,20 +124,30 @@ class Disk:
     def read(self, lba, count=1):
         if count <= 0 or lba < 0 or lba + count > self.sectors:
             raise StressFailure(f"{self.kind}: invalid read {lba}+{count}")
-        start = lba * SECTOR_SIZE
-        end = start + count * SECTOR_SIZE
-        return bytes(self.data[start:end])
+        empty = bytes(SECTOR_SIZE)
+        return b"".join(
+            self.sector_data.get(lba + offset, empty) for offset in range(count)
+        )
 
     def write(self, lba, payload):
         if not self.writable:
             raise StressFailure(f"{self.kind}: write accepted on read-only disk")
+        self.raw_write(lba, payload)
+
+    def raw_write(self, lba, payload):
         if len(payload) % SECTOR_SIZE != 0:
             raise StressFailure(f"{self.kind}: unaligned write length {len(payload)}")
         count = len(payload) // SECTOR_SIZE
         if count <= 0 or lba < 0 or lba + count > self.sectors:
             raise StressFailure(f"{self.kind}: invalid write {lba}+{count}")
-        start = lba * SECTOR_SIZE
-        self.data[start:start + len(payload)] = payload
+        empty = bytes(SECTOR_SIZE)
+        for offset in range(count):
+            sector = bytes(payload[offset * SECTOR_SIZE:
+                                   (offset + 1) * SECTOR_SIZE])
+            if sector == empty:
+                self.sector_data.pop(lba + offset, None)
+            else:
+                self.sector_data[lba + offset] = sector
 
 
 def le16(buf, off):
@@ -285,13 +304,15 @@ def part_slice(disk, part, rel_lba, count):
 
 
 def part_write(disk, part, rel_lba, payload):
-    start, end = part_slice(disk, part, rel_lba, len(payload) // SECTOR_SIZE)
-    disk.data[start:end] = payload
+    if len(payload) % SECTOR_SIZE != 0:
+        raise StressFailure("partition write length is not sector aligned")
+    part_slice(disk, part, rel_lba, len(payload) // SECTOR_SIZE)
+    disk.raw_write(part["start"] + rel_lba, payload)
 
 
 def part_read(disk, part, rel_lba, count):
-    start, end = part_slice(disk, part, rel_lba, count)
-    return bytes(disk.data[start:end])
+    part_slice(disk, part, rel_lba, count)
+    return disk.read(part["start"] + rel_lba, count)
 
 
 def format_fat32(disk, part):
@@ -398,19 +419,31 @@ def detect_ext4(disk, part):
     return sector[56:58] == b"\x53\xef"
 
 
-def write_iso9660(disk):
+def write_partition_iso9660_marker(disk, part):
+    block = bytearray(2048)
+    block[0] = 1
+    block[1:6] = b"CD001"
+    block[40:72] = ascii_padded("OS8_STRESS_ISO", 32)
+    part_write(disk, part, 64, block)
+
+
+def detect_partition_iso9660(disk, part):
+    block = part_read(disk, part, 64, 4)
+    return block[0] in (1, 2) and block[1:6] == b"CD001"
+
+
+def write_cdrom_iso9660(disk):
     if disk.kind != "CDROM":
         raise StressFailure("ISO9660 image was written to non-optical disk")
     block = bytearray(2048)
     block[0] = 1
     block[1:6] = b"CD001"
     block[40:72] = ascii_padded("OS8_STRESS_ISO", 32)
-    start = 16 * 2048
-    disk.data[start:start + 2048] = block
+    disk.raw_write(64, block)
 
 
-def detect_iso9660(disk):
-    block = bytes(disk.data[16 * 2048:17 * 2048])
+def detect_cdrom_iso9660(disk):
+    block = disk.read(64, 4)
     return block[0] in (1, 2) and block[1:6] == b"CD001"
 
 
@@ -438,61 +471,120 @@ def make_parts(sizes):
     return parts
 
 
-def stress_writable_kind(kind):
+def check_formatter(kind, table_format, part, fs_name):
+    disk = Disk(kind, 256)
+    clone = dict(part)
+
+    if fs_name == "FAT32":
+        formatted = format_fat32(disk, clone)
+        if not formatted and clone["sectors"] >= 65536:
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: FAT32 rejected valid partition"
+            )
+        if formatted and not detect_fat32(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: FAT32 did not self-detect"
+            )
+    elif fs_name == "EXT4":
+        if not format_ext4(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: EXT4 rejected valid partition"
+            )
+        if not detect_ext4(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: EXT4 did not self-detect"
+            )
+    elif fs_name == "SWAP":
+        if not format_swap(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: SWAP rejected valid partition"
+            )
+        if not detect_swap(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: SWAP did not self-detect"
+            )
+    else:
+        raise StressFailure(f"unknown formatter {fs_name}")
+
+    STATS["formatter_checks"] += 1
+
+
+def check_detect_only(kind, table_format, part, fs_name):
+    disk = Disk(kind, 256)
+    clone = dict(part)
+
+    if fs_name == "ISO9660":
+        write_partition_iso9660_marker(disk, clone)
+        if not detect_partition_iso9660(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: ISO9660 marker not detected"
+            )
+    elif fs_name == "APFS":
+        write_apfs_marker(disk, clone)
+        if not detect_apfs(disk, clone):
+            raise StressFailure(
+                f"{kind}/{table_format}/{clone['kind']}: APFS marker not detected"
+            )
+    else:
+        raise StressFailure(f"unknown detect-only filesystem {fs_name}")
+
+    if fs_name in FORMATTERS:
+        raise StressFailure(f"{kind}: {fs_name} unexpectedly has a formatter")
+    STATS["detect_only_checks"] += 1
+
+
+def stress_partition_table(kind, table_format):
     disk = Disk(kind, 256)
     parts = make_parts([40, 64, 80, 16])
-    write_gpt(disk, parts)
-    if detect_partition_table(disk) != "gpt":
-        raise StressFailure(f"{kind}: GPT was not detected")
+
+    if table_format == "GPT":
+        write_gpt(disk, parts)
+        expected = "gpt"
+    elif table_format == "MBR":
+        write_mbr(disk, parts)
+        expected = "mbr"
+    else:
+        raise StressFailure(f"unknown partition table {table_format}")
+
+    if detect_partition_table(disk) != expected:
+        raise StressFailure(f"{kind}: {table_format} was not detected")
+    STATS["partition_tables"] += 1
 
     for part in parts:
-        if not format_fat32(disk, part):
-            if part["sectors"] >= 65536:
-                raise StressFailure(f"{kind}: FAT32 rejected valid partition")
-        elif not detect_fat32(disk, part):
-            raise StressFailure(f"{kind}: FAT32 format did not self-detect")
+        for fs_name in FORMATTERS:
+            check_formatter(kind, table_format, part, fs_name)
+        for fs_name in DETECT_ONLY_FILESYSTEMS:
+            check_detect_only(kind, table_format, part, fs_name)
 
-        if not format_ext4(disk, part):
-            raise StressFailure(f"{kind}: EXT4 rejected valid partition")
-        if not detect_ext4(disk, part):
-            raise StressFailure(f"{kind}: EXT4 format did not self-detect")
 
-        if not format_swap(disk, part):
-            raise StressFailure(f"{kind}: SWAP rejected valid partition")
-        if not detect_swap(disk, part):
-            raise StressFailure(f"{kind}: SWAP format did not self-detect")
+def stress_writable_kind(kind):
+    STATS["drive_kinds"] += 1
+
+    for table_format in TABLE_FORMATS:
+        stress_partition_table(kind, table_format)
 
     small = make_parts([1])[0]
+    disk = Disk(kind, 16)
     if format_fat32(disk, small):
         raise StressFailure(f"{kind}: FAT32 accepted undersized partition")
+    STATS["boundary_checks"] += 1
     if format_ext4(disk, {"start": small["start"], "sectors": 128,
                           "label": "tiny"}):
         raise StressFailure(f"{kind}: EXT4 accepted undersized partition")
+    STATS["boundary_checks"] += 1
     if format_swap(disk, {"start": small["start"], "sectors": 4,
                           "label": "tiny"}):
         raise StressFailure(f"{kind}: SWAP accepted undersized partition")
-
-    mbr_disk = Disk(kind, 128)
-    mbr_parts = make_parts([40, 32, 8, 8])
-    write_mbr(mbr_disk, mbr_parts)
-    if detect_partition_table(mbr_disk) != "mbr":
-        raise StressFailure(f"{kind}: MBR was not detected")
-
-    apfs_part = mbr_parts[0]
-    write_apfs_marker(mbr_disk, apfs_part)
-    if not detect_apfs(mbr_disk, apfs_part):
-        raise StressFailure(f"{kind}: APFS marker was not detected")
-
-    for fs in DETECT_ONLY_FILESYSTEMS:
-        if fs in FORMATTERS:
-            raise StressFailure(f"{kind}: {fs} unexpectedly has a formatter")
+    STATS["boundary_checks"] += 1
 
 
 def stress_cdrom():
+    STATS["drive_kinds"] += 1
     disk = Disk("CDROM", 64)
-    write_iso9660(disk)
-    if not detect_iso9660(disk):
+    write_cdrom_iso9660(disk)
+    if not detect_cdrom_iso9660(disk):
         raise StressFailure("CDROM: ISO9660 marker was not detected")
+    STATS["detect_only_checks"] += 1
     try:
         disk.write(0, bytes(SECTOR_SIZE))
     except StressFailure:
@@ -525,9 +617,11 @@ def main():
 
     print(
         "storage format stress: "
-        f"{len(WRITABLE_KINDS)} writable drive kinds, "
-        f"{len(FORMATTERS)} formatters, "
-        "GPT/MBR, ISO9660, APFS, and CDROM read-only checks passed"
+        f"{STATS['drive_kinds']} drive kinds, "
+        f"{STATS['partition_tables']} partition table checks, "
+        f"{STATS['formatter_checks']} formatter checks, "
+        f"{STATS['detect_only_checks']} detect-only checks, "
+        f"{STATS['boundary_checks']} boundary checks passed"
     )
     return 0
 
