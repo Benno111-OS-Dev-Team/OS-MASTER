@@ -58,6 +58,7 @@ STATS = {
     "churn_checks": 0,
     "gpt_crc_checks": 0,
     "fs_metadata_checks": 0,
+    "partition_range_checks": 0,
 }
 
 
@@ -394,6 +395,59 @@ def write_gpt(disk, parts):
     disk.write(disk.sectors - 1, header2)
 
 
+def write_gpt_entries_with_valid_crcs(disk, entries):
+    entry_crc = storage_crc32(entries)
+    primary = bytearray(disk.read(1))
+    backup = bytearray(disk.read(disk.sectors - 1))
+    primary_entry_lba = struct.unpack_from("<Q", primary, 72)[0]
+    backup_entry_lba = struct.unpack_from("<Q", backup, 72)[0]
+
+    put32(primary, 88, entry_crc)
+    put32(primary, 16, 0)
+    put32(primary, 16, storage_crc32(primary[:le32(primary, 12)]))
+    put32(backup, 88, entry_crc)
+    put32(backup, 16, 0)
+    put32(backup, 16, storage_crc32(backup[:le32(backup, 12)]))
+
+    disk.write(primary_entry_lba, entries)
+    disk.write(backup_entry_lba, entries)
+    disk.write(1, primary)
+    disk.write(disk.sectors - 1, backup)
+
+
+def validate_partition_ranges(disk, ranges, label):
+    previous_end = 0
+    for start_lba, last_lba in sorted(ranges):
+        if start_lba < 2048:
+            raise StressFailure(f"{label}: partition starts before usable space")
+        if last_lba < start_lba:
+            raise StressFailure(f"{label}: partition has inverted LBA range")
+        if last_lba >= disk.sectors:
+            raise StressFailure(f"{label}: partition extends beyond disk")
+        if start_lba < previous_end:
+            raise StressFailure(f"{label}: partition ranges overlap")
+        previous_end = last_lba + 1
+    STATS["partition_range_checks"] += 1
+
+
+def validate_mbr(disk):
+    sector = disk.read(0)
+    ranges = []
+    for idx in range(4):
+        entry = MBR_PARTITION_OFFSET + idx * 16
+        part_type = sector[entry + 4]
+        start_lba = le32(sector, entry + 8)
+        sector_count = le32(sector, entry + 12)
+        if part_type == 0:
+            if sector_count != 0:
+                raise StressFailure("MBR empty partition carried sectors")
+            continue
+        if sector_count == 0:
+            raise StressFailure("MBR partition has zero sectors")
+        ranges.append((start_lba, start_lba + sector_count - 1))
+    validate_partition_ranges(disk, ranges, "MBR")
+
+
 def validate_gpt_header(disk, lba, expected_current_lba):
     header = bytearray(disk.read(lba))
     if header[0:8] != b"EFI PART":
@@ -418,6 +472,21 @@ def validate_gpt_header(disk, lba, expected_current_lba):
     entries = disk.read(entry_lba, entry_sectors)[:entry_bytes]
     if storage_crc32(entries) != le32(header, 88):
         raise StressFailure("GPT partition entry CRC mismatch")
+    first_usable_lba = struct.unpack_from("<Q", header, 40)[0]
+    last_usable_lba = struct.unpack_from("<Q", header, 48)[0]
+    if first_usable_lba < 2048 or last_usable_lba >= disk.sectors:
+        raise StressFailure("GPT usable LBA range invalid")
+    ranges = []
+    for idx in range(entry_count):
+        off = idx * entry_size
+        if entries[off:off + 16] == bytes(16):
+            continue
+        first_lba = struct.unpack_from("<Q", entries, off + 32)[0]
+        last_lba = struct.unpack_from("<Q", entries, off + 40)[0]
+        if first_lba < first_usable_lba or last_lba > last_usable_lba:
+            raise StressFailure("GPT partition outside usable LBA range")
+        ranges.append((first_lba, last_lba))
+    validate_partition_ranges(disk, ranges, "GPT")
     STATS["gpt_crc_checks"] += 1
 
 
@@ -433,6 +502,7 @@ def detect_partition_table(disk):
     if sector[MBR_PARTITION_OFFSET + 4] == 0xEE:
         validate_gpt(disk)
         return "gpt"
+    validate_mbr(disk)
     return "mbr"
 
 
@@ -1200,6 +1270,59 @@ def stress_corruption_cases(kind):
         lambda: detect_partition_table(crc_disk),
     )
 
+    range_disk = Disk(kind, 128)
+    write_gpt(range_disk, parts)
+    range_entries = bytearray(range_disk.read(2, GPT_ENTRY_SECTORS))
+    put64(range_entries, 0 * GPT_ENTRY_SIZE + 32, 34)
+    put64(range_entries, 0 * GPT_ENTRY_SIZE + 40, 4096)
+    write_gpt_entries_with_valid_crcs(range_disk, range_entries)
+    expect_stress_failure(
+        f"{kind}: GPT partition before usable range",
+        lambda: detect_partition_table(range_disk),
+    )
+
+    range_disk = Disk(kind, 128)
+    write_gpt(range_disk, parts)
+    range_entries = bytearray(range_disk.read(2, GPT_ENTRY_SECTORS))
+    put64(range_entries, 0 * GPT_ENTRY_SIZE + 40, range_disk.sectors - 1)
+    write_gpt_entries_with_valid_crcs(range_disk, range_entries)
+    expect_stress_failure(
+        f"{kind}: GPT partition beyond usable range",
+        lambda: detect_partition_table(range_disk),
+    )
+
+    range_disk = Disk(kind, 128)
+    write_gpt(range_disk, parts)
+    range_entries = bytearray(range_disk.read(2, GPT_ENTRY_SECTORS))
+    put64(range_entries, 1 * GPT_ENTRY_SIZE + 32, parts[0]["start"] + 8)
+    put64(range_entries, 1 * GPT_ENTRY_SIZE + 40, parts[0]["start"] + 64)
+    write_gpt_entries_with_valid_crcs(range_disk, range_entries)
+    expect_stress_failure(
+        f"{kind}: GPT overlapping partitions",
+        lambda: detect_partition_table(range_disk),
+    )
+
+    range_disk = Disk(kind, 128)
+    write_mbr(range_disk, parts)
+    range_sector = bytearray(range_disk.read(0))
+    put32(range_sector, MBR_PARTITION_OFFSET + 12, range_disk.sectors)
+    range_disk.write(0, range_sector)
+    expect_stress_failure(
+        f"{kind}: MBR partition beyond disk",
+        lambda: detect_partition_table(range_disk),
+    )
+
+    range_disk = Disk(kind, 128)
+    write_mbr(range_disk, parts)
+    range_sector = bytearray(range_disk.read(0))
+    put32(range_sector, MBR_PARTITION_OFFSET + 16 + 8, parts[0]["start"] + 16)
+    put32(range_sector, MBR_PARTITION_OFFSET + 16 + 12, 128)
+    range_disk.write(0, range_sector)
+    expect_stress_failure(
+        f"{kind}: MBR overlapping partitions",
+        lambda: detect_partition_table(range_disk),
+    )
+
 
 def stress_gpt_partition_churn(kind):
     disk = Disk(kind, 512)
@@ -1304,7 +1427,8 @@ def main():
         f"{STATS['corruption_checks']} corruption checks, "
         f"{STATS['churn_checks']} churn checks, "
         f"{STATS['gpt_crc_checks']} GPT CRC checks, "
-        f"{STATS['fs_metadata_checks']} filesystem metadata checks passed"
+        f"{STATS['fs_metadata_checks']} filesystem metadata checks, "
+        f"{STATS['partition_range_checks']} partition range checks passed"
     )
     return 0
 
