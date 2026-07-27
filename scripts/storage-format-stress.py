@@ -9,6 +9,15 @@ SECTORS_PER_MIB = 2048
 GPT_ENTRY_SIZE = 128
 GPT_ENTRY_COUNT = 128
 GPT_ENTRY_SECTORS = (GPT_ENTRY_COUNT * GPT_ENTRY_SIZE) // SECTOR_SIZE
+EXT4_BLOCK_SIZE = 4096
+EXT4_SECTORS_PER_BLOCK = EXT4_BLOCK_SIZE // SECTOR_SIZE
+EXT4_BLOCKS_PER_GROUP = EXT4_BLOCK_SIZE * 8
+EXT4_GROUP_DESC_SIZE = 32
+EXT4_INODE_SIZE = 128
+EXT4_INODES_PER_GROUP = 2048
+EXT4_SUPERBLOCK_OFFSET = 1024
+EXT4_SUPERBLOCK_MAGIC_OFFSET = 56
+EXT4_SUPERBLOCK_VOLUME_NAME_OFFSET = 120
 MBR_PARTITION_OFFSET = 446
 MBR_SIGNATURE_OFFSET = 510
 SWAP_SIGNATURE_OFFSET = 4086
@@ -159,6 +168,11 @@ def assert_kernel_storage_parity():
         "STORAGE_MBR_SIGNATURE_OFFSET": MBR_SIGNATURE_OFFSET,
         "STORAGE_GPT_ENTRY_SIZE": GPT_ENTRY_SIZE,
         "STORAGE_GPT_ENTRY_COUNT": GPT_ENTRY_COUNT,
+        "STORAGE_EXT4_SUPERBLOCK_OFFSET": EXT4_SUPERBLOCK_OFFSET,
+        "STORAGE_EXT4_SUPERBLOCK_MAGIC_OFFSET": EXT4_SUPERBLOCK_MAGIC_OFFSET,
+        "STORAGE_EXT4_SUPERBLOCK_VOLUME_NAME_OFFSET": (
+            EXT4_SUPERBLOCK_VOLUME_NAME_OFFSET
+        ),
         "STORAGE_SWAP_SIGNATURE_OFFSET": SWAP_SIGNATURE_OFFSET,
     }
     for name, expected in define_checks.items():
@@ -252,6 +266,14 @@ def put32(buf, off, value):
 
 def put64(buf, off, value):
     struct.pack_into("<Q", buf, off, value)
+
+
+def put_ext4_inode(buf, off, mode, size, blocks, first_block):
+    put16(buf, off + 0, mode)
+    put32(buf, off + 4, size)
+    put16(buf, off + 26, 2)
+    put32(buf, off + 28, blocks)
+    put32(buf, off + 40, first_block)
 
 
 def ascii_padded(text, length):
@@ -599,22 +621,117 @@ def validate_swap_metadata(disk, part):
 
 
 def format_ext4(disk, part):
-    sectors_per_block = 8
-    if part["sectors"] < sectors_per_block * 256:
+    if part["sectors"] < EXT4_SECTORS_PER_BLOCK * 256:
         return False
-    block = bytearray(4096)
-    total_blocks = part["sectors"] // sectors_per_block
-    put32(block, 1024 + 0, 2048)
+    total_blocks = part["sectors"] // EXT4_SECTORS_PER_BLOCK
+    group_count = (total_blocks + EXT4_BLOCKS_PER_GROUP - 1) // EXT4_BLOCKS_PER_GROUP
+    desc_blocks = (
+        group_count * EXT4_GROUP_DESC_SIZE + EXT4_BLOCK_SIZE - 1
+    ) // EXT4_BLOCK_SIZE
+    inode_table_blocks = (
+        EXT4_INODES_PER_GROUP * EXT4_INODE_SIZE + EXT4_BLOCK_SIZE - 1
+    ) // EXT4_BLOCK_SIZE
+    total_inodes = group_count * EXT4_INODES_PER_GROUP
+    total_free_blocks = 0
+    total_free_inodes = 0
+    group_desc = bytearray(desc_blocks * EXT4_BLOCK_SIZE)
+
+    for group in range(group_count):
+        group_first_block = group * EXT4_BLOCKS_PER_GROUP
+        group_blocks = min(EXT4_BLOCKS_PER_GROUP,
+                           total_blocks - group_first_block)
+        block_bitmap = 1 + desc_blocks if group == 0 else 0
+        inode_bitmap = block_bitmap + 1
+        inode_table = inode_bitmap + 1
+        used_blocks = inode_table + inode_table_blocks
+        if group == 0:
+            used_blocks += 1
+        if group_blocks <= used_blocks:
+            return False
+        used_inodes = 11 if group == 0 else 0
+        free_blocks = group_blocks - used_blocks
+        free_inodes = EXT4_INODES_PER_GROUP - used_inodes
+        total_free_blocks += free_blocks
+        total_free_inodes += free_inodes
+
+        off = group * EXT4_GROUP_DESC_SIZE
+        put32(group_desc, off + 0, group_first_block + block_bitmap)
+        put32(group_desc, off + 4, group_first_block + inode_bitmap)
+        put32(group_desc, off + 8, group_first_block + inode_table)
+        put16(group_desc, off + 12, free_blocks)
+        put16(group_desc, off + 14, free_inodes)
+        put16(group_desc, off + 16, 1 if group == 0 else 0)
+
+        bitmap = bytearray(EXT4_BLOCK_SIZE)
+        for idx in range(used_blocks):
+            bitmap[idx // 8] |= 1 << (idx % 8)
+        for idx in range(group_blocks, EXT4_BLOCKS_PER_GROUP):
+            bitmap[idx // 8] |= 1 << (idx % 8)
+        part_write(disk, part,
+                   (group_first_block + block_bitmap) * EXT4_SECTORS_PER_BLOCK,
+                   bitmap)
+
+        bitmap = bytearray(EXT4_BLOCK_SIZE)
+        for idx in range(used_inodes):
+            bitmap[idx // 8] |= 1 << (idx % 8)
+        part_write(disk, part,
+                   (group_first_block + inode_bitmap) * EXT4_SECTORS_PER_BLOCK,
+                   bitmap)
+
+        empty = bytearray(EXT4_BLOCK_SIZE)
+        for idx in range(inode_table_blocks):
+            part_write(disk, part,
+                       (group_first_block + inode_table + idx) *
+                       EXT4_SECTORS_PER_BLOCK,
+                       empty)
+
+        if group == 0:
+            root_dir_block = used_blocks - 1
+            inode_block = bytearray(part_read(
+                disk, part, inode_table * EXT4_SECTORS_PER_BLOCK,
+                EXT4_SECTORS_PER_BLOCK))
+            put_ext4_inode(inode_block, EXT4_INODE_SIZE,
+                           0x4000 | 0o755, EXT4_BLOCK_SIZE,
+                           EXT4_SECTORS_PER_BLOCK, root_dir_block)
+            part_write(disk, part, inode_table * EXT4_SECTORS_PER_BLOCK,
+                       inode_block)
+
+            root_dir = bytearray(EXT4_BLOCK_SIZE)
+            put32(root_dir, 0, 2)
+            put16(root_dir, 4, 12)
+            root_dir[6] = 1
+            root_dir[7] = 2
+            root_dir[8] = ord(".")
+            put32(root_dir, 12, 2)
+            put16(root_dir, 16, EXT4_BLOCK_SIZE - 12)
+            root_dir[18] = 2
+            root_dir[19] = 2
+            root_dir[20:22] = b".."
+            part_write(disk, part, root_dir_block * EXT4_SECTORS_PER_BLOCK,
+                       root_dir)
+
+    for idx in range(desc_blocks):
+        start = idx * EXT4_BLOCK_SIZE
+        part_write(disk, part, (1 + idx) * EXT4_SECTORS_PER_BLOCK,
+                   group_desc[start:start + EXT4_BLOCK_SIZE])
+
+    block = bytearray(EXT4_BLOCK_SIZE)
+    put32(block, 1024 + 0, total_inodes)
     put32(block, 1024 + 4, total_blocks)
+    put32(block, 1024 + 12, total_free_blocks)
+    put32(block, 1024 + 16, total_free_inodes)
     put32(block, 1024 + 24, 2)
-    put32(block, 1024 + 32, 32768)
-    put32(block, 1024 + 40, 2048)
+    put32(block, 1024 + 28, 2)
+    put32(block, 1024 + 32, EXT4_BLOCKS_PER_GROUP)
+    put32(block, 1024 + 36, EXT4_BLOCKS_PER_GROUP)
+    put32(block, 1024 + 40, EXT4_INODES_PER_GROUP)
     put16(block, 1024 + 56, 0xEF53)
     put16(block, 1024 + 58, 1)
     put16(block, 1024 + 60, 1)
     put32(block, 1024 + 76, 1)
     put32(block, 1024 + 84, 11)
-    put16(block, 1024 + 88, 128)
+    put16(block, 1024 + 88, EXT4_INODE_SIZE)
+    put16(block, 1024 + 254, EXT4_GROUP_DESC_SIZE)
     block[1024 + 120:1024 + 136] = ascii_padded(part["label"], 16)
     part_write(disk, part, 0, block)
     return True
@@ -626,22 +743,88 @@ def detect_ext4(disk, part):
 
 
 def validate_ext4_metadata(disk, part):
-    block = part_read(disk, part, 0, 8)
-    total_blocks = part["sectors"] // 8
+    block = part_read(disk, part, 0, EXT4_SECTORS_PER_BLOCK)
+    total_blocks = part["sectors"] // EXT4_SECTORS_PER_BLOCK
+    group_count = (total_blocks + EXT4_BLOCKS_PER_GROUP - 1) // EXT4_BLOCKS_PER_GROUP
+    desc_blocks = (
+        group_count * EXT4_GROUP_DESC_SIZE + EXT4_BLOCK_SIZE - 1
+    ) // EXT4_BLOCK_SIZE
+    inode_table_blocks = (
+        EXT4_INODES_PER_GROUP * EXT4_INODE_SIZE + EXT4_BLOCK_SIZE - 1
+    ) // EXT4_BLOCK_SIZE
     if le32(block, 1024 + 4) != total_blocks:
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 block count mismatch")
+    if le32(block, 1024 + 0) != group_count * EXT4_INODES_PER_GROUP:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 inode count mismatch")
     if le32(block, 1024 + 24) != 2:
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 block size log mismatch")
-    if le32(block, 1024 + 32) != 32768 or le32(block, 1024 + 40) != 2048:
+    if le32(block, 1024 + 32) != EXT4_BLOCKS_PER_GROUP:
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 group geometry invalid")
+    if le32(block, 1024 + 40) != EXT4_INODES_PER_GROUP:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 inode group geometry invalid")
     if le16(block, 1024 + 56) != 0xEF53:
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 magic mismatch")
     if le16(block, 1024 + 58) != 1 or le16(block, 1024 + 60) != 1:
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 state/error policy invalid")
-    if le32(block, 1024 + 84) != 11 or le16(block, 1024 + 88) != 128:
+    if le32(block, 1024 + 84) != 11 or le16(block, 1024 + 88) != EXT4_INODE_SIZE:
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 inode metadata invalid")
+    if le16(block, 1024 + 254) != EXT4_GROUP_DESC_SIZE:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 group descriptor size invalid")
     if trim_ascii_field(block[1024 + 120:1024 + 136]) != part["label"][:16].upper():
         raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 label mismatch")
+
+    desc = part_read(disk, part, EXT4_SECTORS_PER_BLOCK,
+                     desc_blocks * EXT4_SECTORS_PER_BLOCK)
+    total_free_blocks = 0
+    total_free_inodes = 0
+    for group in range(group_count):
+        off = group * EXT4_GROUP_DESC_SIZE
+        group_first_block = group * EXT4_BLOCKS_PER_GROUP
+        group_blocks = min(EXT4_BLOCKS_PER_GROUP,
+                           total_blocks - group_first_block)
+        block_bitmap = le32(desc, off + 0)
+        inode_bitmap = le32(desc, off + 4)
+        inode_table = le32(desc, off + 8)
+        expected_block_bitmap = group_first_block + (1 + desc_blocks if group == 0 else 0)
+        expected_inode_bitmap = expected_block_bitmap + 1
+        expected_inode_table = expected_inode_bitmap + 1
+        used_blocks = expected_inode_table - group_first_block + inode_table_blocks
+        if group == 0:
+            used_blocks += 1
+        if (block_bitmap, inode_bitmap, inode_table) != (
+                expected_block_bitmap, expected_inode_bitmap, expected_inode_table):
+            raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 group descriptor pointers invalid")
+        if le16(desc, off + 12) != group_blocks - used_blocks:
+            raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 free block count invalid")
+        used_inodes = 11 if group == 0 else 0
+        if le16(desc, off + 14) != EXT4_INODES_PER_GROUP - used_inodes:
+            raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 free inode count invalid")
+        if le16(desc, off + 16) != (1 if group == 0 else 0):
+            raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 used dir count invalid")
+        total_free_blocks += group_blocks - used_blocks
+        total_free_inodes += EXT4_INODES_PER_GROUP - used_inodes
+    if le32(block, 1024 + 12) != total_free_blocks:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 total free blocks invalid")
+    if le32(block, 1024 + 16) != total_free_inodes:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 total free inodes invalid")
+
+    inode_table = le32(desc, 8)
+    inode_block = part_read(disk, part, inode_table * EXT4_SECTORS_PER_BLOCK,
+                            EXT4_SECTORS_PER_BLOCK)
+    root_inode = EXT4_INODE_SIZE
+    root_dir_block = le32(inode_block, root_inode + 40)
+    if le16(inode_block, root_inode + 0) != (0x4000 | 0o755):
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 root inode mode invalid")
+    if le32(inode_block, root_inode + 4) != EXT4_BLOCK_SIZE:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 root inode size invalid")
+    if le16(inode_block, root_inode + 26) != 2:
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 root inode link count invalid")
+    root_dir = part_read(disk, part, root_dir_block * EXT4_SECTORS_PER_BLOCK,
+                         EXT4_SECTORS_PER_BLOCK)
+    if le32(root_dir, 0) != 2 or root_dir[6] != 1 or root_dir[8:9] != b".":
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 root dot entry invalid")
+    if le32(root_dir, 12) != 2 or root_dir[18] != 2 or root_dir[20:22] != b"..":
+        raise StressFailure(f"{disk.kind}/{part['kind']}: EXT4 root dot-dot entry invalid")
     STATS["fs_metadata_checks"] += 1
 
 
