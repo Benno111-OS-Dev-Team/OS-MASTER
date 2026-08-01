@@ -515,6 +515,19 @@ pid_t sched_wait4(pid_t pid, int *status, int options)
 #undef WNOHANG
 }
 
+int sched_count_live_tasks(void)
+{
+    int count = 1; /* init/idle task */
+
+    for (int i = 0; i < task_pool_index; i++) {
+        if (task_pool[i].state != TASK_DEAD) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
 struct task_struct *get_task_by_pid(pid_t pid)
 {
     /* Check init task */

@@ -41,6 +41,36 @@
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 #define KERNEL_NSIG 32
+#define CLOCK_REALTIME 0
+#define CLOCK_MONOTONIC 1
+#define CLOCK_PROCESS_CPUTIME_ID 2
+#define CLOCK_THREAD_CPUTIME_ID 3
+#define CLOCK_MONOTONIC_RAW 4
+#define CLOCK_REALTIME_COARSE 5
+#define CLOCK_MONOTONIC_COARSE 6
+#define CLOCK_BOOTTIME 7
+#define USER_HZ 100
+#define RUSAGE_SELF 0
+#define RUSAGE_CHILDREN (-1)
+#define RUSAGE_THREAD 1
+#define RLIMIT_CPU 0
+#define RLIMIT_FSIZE 1
+#define RLIMIT_DATA 2
+#define RLIMIT_STACK 3
+#define RLIMIT_CORE 4
+#define RLIMIT_RSS 5
+#define RLIMIT_NPROC 6
+#define RLIMIT_NOFILE 7
+#define RLIMIT_MEMLOCK 8
+#define RLIMIT_AS 9
+#define RLIMIT_LOCKS 10
+#define RLIMIT_SIGPENDING 11
+#define RLIMIT_MSGQUEUE 12
+#define RLIMIT_NICE 13
+#define RLIMIT_RTPRIO 14
+#define RLIMIT_RTTIME 15
+#define RLIMIT_NLIMITS 16
+#define RLIM_INFINITY UINT64_MAX
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -340,6 +370,107 @@ struct linux_stat {
   struct timespec st_ctim;
   unsigned __stat_unused[2];
 };
+
+struct linux_rlimit {
+  uint64_t rlim_cur;
+  uint64_t rlim_max;
+};
+
+struct linux_rusage {
+  struct timeval ru_utime;
+  struct timeval ru_stime;
+  long ru_maxrss;
+  long ru_ixrss;
+  long ru_idrss;
+  long ru_isrss;
+  long ru_minflt;
+  long ru_majflt;
+  long ru_nswap;
+  long ru_inblock;
+  long ru_oublock;
+  long ru_msgsnd;
+  long ru_msgrcv;
+  long ru_nsignals;
+  long ru_nvcsw;
+  long ru_nivcsw;
+  long __reserved[16];
+};
+
+struct linux_tms {
+  long tms_utime;
+  long tms_stime;
+  long tms_cutime;
+  long tms_cstime;
+};
+
+struct linux_sysinfo {
+  unsigned long uptime;
+  unsigned long loads[3];
+  unsigned long totalram;
+  unsigned long freeram;
+  unsigned long sharedram;
+  unsigned long bufferram;
+  unsigned long totalswap;
+  unsigned long freeswap;
+  unsigned short procs;
+  unsigned short pad;
+  unsigned long totalhigh;
+  unsigned long freehigh;
+  unsigned int mem_unit;
+  char __reserved[256];
+};
+
+static struct linux_rlimit resource_limits[RLIMIT_NLIMITS];
+static int resource_limits_initialized;
+
+static uint64_t kernel_time_ns(void) {
+  uint64_t ticks = arch_timer_get_ticks();
+  uint64_t freq = arch_timer_get_frequency();
+
+  if (freq == 0)
+    return arch_timer_get_ms() * 1000000ULL;
+  return (ticks / freq) * 1000000000ULL +
+         ((ticks % freq) * 1000000000ULL) / freq;
+}
+
+static long kernel_clock_ticks(void) {
+  uint64_t ms = arch_timer_get_ms();
+  return (long)((ms * USER_HZ) / 1000);
+}
+
+static long task_cpu_ticks(uint64_t runtime) {
+  return (long)((runtime * USER_HZ) / 1000000000ULL);
+}
+
+static void runtime_to_timeval(uint64_t runtime, struct timeval *tv) {
+  if (!tv)
+    return;
+
+  tv->tv_sec = (time_t)(runtime / 1000000000ULL);
+  tv->tv_usec = (suseconds_t)((runtime % 1000000000ULL) / 1000ULL);
+}
+
+static void init_resource_limits_once(void) {
+  if (resource_limits_initialized)
+    return;
+
+  for (int i = 0; i < RLIMIT_NLIMITS; i++) {
+    resource_limits[i].rlim_cur = RLIM_INFINITY;
+    resource_limits[i].rlim_max = RLIM_INFINITY;
+  }
+
+  resource_limits[RLIMIT_DATA].rlim_cur = 64ULL * 1024ULL * 1024ULL;
+  resource_limits[RLIMIT_DATA].rlim_max = 64ULL * 1024ULL * 1024ULL;
+  resource_limits[RLIMIT_STACK].rlim_cur = USER_STACK_SIZE;
+  resource_limits[RLIMIT_STACK].rlim_max = USER_STACK_SIZE;
+  resource_limits[RLIMIT_NPROC].rlim_cur = 256;
+  resource_limits[RLIMIT_NPROC].rlim_max = 256;
+  resource_limits[RLIMIT_NOFILE].rlim_cur = TASK_MAX_FDS;
+  resource_limits[RLIMIT_NOFILE].rlim_max = TASK_MAX_FDS;
+  resource_limits[RLIMIT_SIGPENDING].rlim_cur = KERNEL_NSIG;
+  resource_limits[RLIMIT_SIGPENDING].rlim_max = KERNEL_NSIG;
+  resource_limits_initialized = 1;
+}
 
 static long copy_inode_stat(const struct inode *inode, uint64_t statbuf) {
   struct linux_stat *st;
@@ -1732,6 +1863,194 @@ static long sys_nanosleep(uint64_t req, uint64_t rem, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+static long sys_clock_gettime(uint64_t clockid, uint64_t tp, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(tp, sizeof(struct timespec)))
+    return -EFAULT;
+
+  if (clockid != CLOCK_REALTIME && clockid != CLOCK_MONOTONIC &&
+      clockid != CLOCK_PROCESS_CPUTIME_ID &&
+      clockid != CLOCK_THREAD_CPUTIME_ID &&
+      clockid != CLOCK_MONOTONIC_RAW && clockid != CLOCK_REALTIME_COARSE &&
+      clockid != CLOCK_MONOTONIC_COARSE && clockid != CLOCK_BOOTTIME)
+    return -EINVAL;
+
+  uint64_t ns = kernel_time_ns();
+  struct timespec *ts = (struct timespec *)(uintptr_t)tp;
+  ts->tv_sec = (time_t)(ns / 1000000000ULL);
+  ts->tv_nsec = (long)(ns % 1000000000ULL);
+  return 0;
+}
+
+static long sys_clock_getres(uint64_t clockid, uint64_t res, uint64_t a2,
+                             uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (clockid != CLOCK_REALTIME && clockid != CLOCK_MONOTONIC &&
+      clockid != CLOCK_PROCESS_CPUTIME_ID &&
+      clockid != CLOCK_THREAD_CPUTIME_ID &&
+      clockid != CLOCK_MONOTONIC_RAW && clockid != CLOCK_REALTIME_COARSE &&
+      clockid != CLOCK_MONOTONIC_COARSE && clockid != CLOCK_BOOTTIME)
+    return -EINVAL;
+  if (!res)
+    return 0;
+  if (!is_valid_user_ptr(res, sizeof(struct timespec)))
+    return -EFAULT;
+
+  struct timespec *ts = (struct timespec *)(uintptr_t)res;
+  ts->tv_sec = 0;
+  ts->tv_nsec = 10000000L;
+  return 0;
+}
+
+static long sys_gettimeofday(uint64_t tvp, uint64_t tzp, uint64_t a2,
+                             uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (tvp) {
+    if (!is_valid_user_ptr(tvp, sizeof(struct timeval)))
+      return -EFAULT;
+    uint64_t ns = kernel_time_ns();
+    struct timeval *tv = (struct timeval *)(uintptr_t)tvp;
+    tv->tv_sec = (time_t)(ns / 1000000000ULL);
+    tv->tv_usec = (suseconds_t)((ns % 1000000000ULL) / 1000ULL);
+  }
+  if (tzp) {
+    if (!is_valid_user_ptr(tzp, sizeof(int) * 2))
+      return -EFAULT;
+    memset((void *)(uintptr_t)tzp, 0, sizeof(int) * 2);
+  }
+
+  return 0;
+}
+
+static long sys_times(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (buf) {
+    if (!is_valid_user_ptr(buf, sizeof(struct linux_tms)))
+      return -EFAULT;
+    struct task_struct *task = get_current();
+    struct linux_tms *tms = (struct linux_tms *)(uintptr_t)buf;
+    memset(tms, 0, sizeof(*tms));
+    if (task) {
+      tms->tms_utime = task_cpu_ticks(task->utime);
+      tms->tms_stime = task_cpu_ticks(task->stime);
+    }
+  }
+
+  return kernel_clock_ticks();
+}
+
+static long sys_getrlimit(uint64_t resource, uint64_t rlim, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (resource >= RLIMIT_NLIMITS)
+    return -EINVAL;
+  if (!is_valid_user_ptr(rlim, sizeof(struct linux_rlimit)))
+    return -EFAULT;
+
+  init_resource_limits_once();
+  *(struct linux_rlimit *)(uintptr_t)rlim = resource_limits[resource];
+  return 0;
+}
+
+static long sys_setrlimit(uint64_t resource, uint64_t rlim, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (resource >= RLIMIT_NLIMITS)
+    return -EINVAL;
+  if (!is_valid_user_ptr(rlim, sizeof(struct linux_rlimit)))
+    return -EFAULT;
+
+  struct linux_rlimit new_limit = *(struct linux_rlimit *)(uintptr_t)rlim;
+  if (new_limit.rlim_cur > new_limit.rlim_max)
+    return -EINVAL;
+  if (resource == RLIMIT_NOFILE && new_limit.rlim_max > TASK_MAX_FDS)
+    return -EINVAL;
+
+  init_resource_limits_once();
+  resource_limits[resource] = new_limit;
+  return 0;
+}
+
+static long sys_getrusage(uint64_t who, uint64_t usage, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if ((int64_t)who != RUSAGE_SELF && (int64_t)who != RUSAGE_CHILDREN &&
+      (int64_t)who != RUSAGE_THREAD)
+    return -EINVAL;
+  if (!is_valid_user_ptr(usage, sizeof(struct linux_rusage)))
+    return -EFAULT;
+
+  struct linux_rusage *ru = (struct linux_rusage *)(uintptr_t)usage;
+  memset(ru, 0, sizeof(*ru));
+  if ((int64_t)who == RUSAGE_SELF || (int64_t)who == RUSAGE_THREAD) {
+    struct task_struct *task = get_current();
+    if (task) {
+      runtime_to_timeval(task->utime, &ru->ru_utime);
+      runtime_to_timeval(task->stime, &ru->ru_stime);
+    }
+  }
+
+  return 0;
+}
+
+static long sys_sysinfo(uint64_t info, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(info, sizeof(struct linux_sysinfo)))
+    return -EFAULT;
+
+  size_t heap_total = 0;
+  size_t heap_used = 0;
+  size_t heap_free = 0;
+  kmalloc_get_stats(&heap_total, &heap_used, &heap_free);
+
+  struct linux_sysinfo *si = (struct linux_sysinfo *)(uintptr_t)info;
+  memset(si, 0, sizeof(*si));
+  si->uptime = (unsigned long)(arch_timer_get_ms() / 1000);
+  si->totalram = (unsigned long)heap_total;
+  si->freeram = (unsigned long)heap_free;
+  si->bufferram = (unsigned long)heap_used;
+  si->procs = (unsigned short)CLAMP(sched_count_live_tasks(), 0, UINT16_MAX);
+  si->mem_unit = 1;
+  return 0;
+}
+
 static long sys_not_implemented(uint64_t a0, uint64_t a1, uint64_t a2,
                                 uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a0;
@@ -1839,6 +2158,14 @@ void syscall_init(void) {
   syscall_table[SYS_rt_sigprocmask] = sys_rt_sigprocmask;
   syscall_table[SYS_rt_sigpending] = sys_rt_sigpending;
   syscall_table[SYS_nanosleep] = sys_nanosleep;
+  syscall_table[SYS_clock_gettime] = sys_clock_gettime;
+  syscall_table[SYS_clock_getres] = sys_clock_getres;
+  syscall_table[SYS_times] = sys_times;
+  syscall_table[SYS_getrlimit] = sys_getrlimit;
+  syscall_table[SYS_setrlimit] = sys_setrlimit;
+  syscall_table[SYS_getrusage] = sys_getrusage;
+  syscall_table[SYS_gettimeofday] = sys_gettimeofday;
+  syscall_table[SYS_sysinfo] = sys_sysinfo;
 
   printk(KERN_INFO "SYSCALL: System call table initialized\n");
 }

@@ -253,6 +253,13 @@ int sched_kill_task(pid_t pid);
 pid_t sched_wait4(pid_t pid, int *status, int options);
 
 /**
+ * sched_count_live_tasks - Count tasks currently known to the scheduler
+ *
+ * Return: Number of non-dead tasks including the idle/init task.
+ */
+int sched_count_live_tasks(void);
+
+/**
  * exit_task - Terminate current task
  * @code: Exit code
  */
