@@ -629,6 +629,8 @@ int vmm_map_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size, uin
         if (vaddr < vma->end && end > vma->start) return -1;
     }
     
+    flags |= mm->default_vm_flags & VM_LOCKED;
+
     /* Add VMA */
     if (vmm_add_vma(mm, vaddr, end, flags) != 0) return -1;
     
@@ -765,6 +767,35 @@ int vmm_user_range_flags(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
     struct vm_area *vma = vmm_find_vma(mm, start);
     if (!vma_covers_range(vma, start, end)) return -1;
     *flags = vma->flags;
+    return 0;
+}
+
+int vmm_lock_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
+                        int locked)
+{
+    if (!mm) return -1;
+    virt_addr_t start;
+    virt_addr_t end;
+    if (user_range_bounds(vaddr, size, &start, &end) != 0) return -1;
+
+    struct vm_area *vma = vmm_find_vma(mm, start);
+    if (!vma_covers_range(vma, start, end)) return -1;
+    if (locked)
+        vma->flags |= VM_LOCKED;
+    else
+        vma->flags &= ~VM_LOCKED;
+    return 0;
+}
+
+int vmm_lock_all_user_ranges(struct mm_struct *mm, int locked)
+{
+    if (!mm) return -1;
+    for (struct vm_area *vma = mm->vma_list; vma; vma = vma->next) {
+        if (locked)
+            vma->flags |= VM_LOCKED;
+        else
+            vma->flags &= ~VM_LOCKED;
+    }
     return 0;
 }
 

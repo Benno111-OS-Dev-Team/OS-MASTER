@@ -74,6 +74,7 @@
 #define VM_USER             (1 << 3)
 #define VM_SHARED           (1 << 4)
 #define VM_DEVICE           (1 << 5)
+#define VM_LOCKED           (1 << 6)
 
 /* ===================================================================== */
 /* Memory layout */
@@ -125,6 +126,7 @@ struct mm_struct {
     /* Anonymous mmap allocator */
     uint64_t mmap_base;         /* Start of mmap region */
     uint64_t mmap_next;         /* Next free mmap address */
+    uint32_t default_vm_flags;  /* Flags inherited by future user mappings */
     
     /* Stack */
     uint64_t start_stack;       /* Start of user stack */
@@ -257,6 +259,27 @@ int vmm_user_range_mapped(struct mm_struct *mm, virt_addr_t vaddr, size_t size);
  */
 int vmm_user_range_flags(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
                          uint32_t *flags);
+
+/**
+ * vmm_lock_user_range - Mark a covered user range as memory locked/unlocked
+ * @mm: Address space to modify
+ * @vaddr: Starting virtual address
+ * @size: Size in bytes
+ * @locked: Non-zero to lock, zero to unlock
+ *
+ * Return: 0 if fully covered, negative on invalid or unmapped input
+ */
+int vmm_lock_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
+                        int locked);
+
+/**
+ * vmm_lock_all_user_ranges - Mark all VMAs in an address space locked/unlocked
+ * @mm: Address space to modify
+ * @locked: Non-zero to lock, zero to unlock
+ *
+ * Return: 0 on success, negative on invalid input
+ */
+int vmm_lock_all_user_ranges(struct mm_struct *mm, int locked);
 
 /**
  * vmm_discard_user_range - Discard anonymous user-page contents

@@ -173,6 +173,10 @@
 #define MS_ASYNC 1
 #define MS_INVALIDATE 2
 #define MS_SYNC 4
+#define MCL_CURRENT 1
+#define MCL_FUTURE 2
+#define MCL_ONFAULT 4
+#define MLOCK_ONFAULT 1
 #define MADV_NORMAL 0
 #define MADV_RANDOM 1
 #define MADV_SEQUENTIAL 2
@@ -6272,6 +6276,97 @@ static long sys_mincore(uint64_t addr, uint64_t len, uint64_t vec, uint64_t a3,
   return 0;
 }
 
+static long do_mlock_range(uint64_t addr, uint64_t len, int locked) {
+  if (len == 0)
+    return 0;
+  if (len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  uint64_t aligned_len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  int valid = user_mapping_range_valid(mm, addr, aligned_len);
+  if (valid != 0)
+    return valid;
+  return vmm_lock_user_range(mm, addr, (size_t)aligned_len, locked) == 0
+             ? 0
+             : -ENOMEM;
+}
+
+static long sys_mlock(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return do_mlock_range(addr, len, 1);
+}
+
+static long sys_munlock(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return do_mlock_range(addr, len, 0);
+}
+
+static long sys_mlock2(uint64_t addr, uint64_t len, uint64_t flags, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)MLOCK_ONFAULT)
+    return -EINVAL;
+  return do_mlock_range(addr, len, 1);
+}
+
+static long sys_mlockall(uint64_t flags, uint64_t a1, uint64_t a2, uint64_t a3,
+                         uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags == 0 || (flags & ~(uint64_t)(MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT)))
+    return -EINVAL;
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  if (flags & MCL_CURRENT) {
+    if (vmm_lock_all_user_ranges(mm, 1) != 0)
+      return -ENOMEM;
+  }
+  if (flags & MCL_FUTURE)
+    mm->default_vm_flags |= VM_LOCKED;
+  return 0;
+}
+
+static long sys_munlockall(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                           uint64_t a4, uint64_t a5) {
+  (void)a0;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  mm->default_vm_flags &= ~VM_LOCKED;
+  return vmm_lock_all_user_ranges(mm, 0) == 0 ? 0 : -ENOMEM;
+}
+
 static long sys_madvise(uint64_t addr, uint64_t len, uint64_t advice,
                         uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -7329,8 +7424,13 @@ void syscall_init(void) {
   syscall_table[SYS_mremap] = sys_mremap;
   syscall_table[SYS_mprotect] = sys_mprotect;
   syscall_table[SYS_msync] = sys_msync;
+  syscall_table[SYS_mlock] = sys_mlock;
+  syscall_table[SYS_munlock] = sys_munlock;
+  syscall_table[SYS_mlockall] = sys_mlockall;
+  syscall_table[SYS_munlockall] = sys_munlockall;
   syscall_table[SYS_mincore] = sys_mincore;
   syscall_table[SYS_madvise] = sys_madvise;
+  syscall_table[SYS_mlock2] = sys_mlock2;
   syscall_table[SYS_copy_file_range] = sys_copy_file_range;
   syscall_table[SYS_preadv2] = sys_preadv2;
   syscall_table[SYS_pwritev2] = sys_pwritev2;
