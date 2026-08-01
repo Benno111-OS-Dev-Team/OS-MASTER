@@ -70,6 +70,9 @@
 #define SIG_SETMASK 2
 #define KERNEL_NSIG 32
 #define SI_USER 0
+#define SS_ONSTACK 1
+#define SS_DISABLE 2
+#define MINSIGSTKSZ 2048
 #define SCHED_OTHER 0
 #define SCHED_FIFO 1
 #define SCHED_RR 2
@@ -396,6 +399,12 @@ struct linux_siginfo {
   uint64_t si_addr;
   uint64_t si_value;
   uint8_t __pad[88];
+};
+
+struct linux_stack {
+  uint64_t ss_sp;
+  int32_t ss_flags;
+  size_t ss_size;
 };
 
 static void eventfd_lock(struct eventfd_ctx *ctx) {
@@ -5125,6 +5134,91 @@ static long sys_rt_sigpending(uint64_t set, uint64_t sigsetsize, uint64_t a2,
   return 0;
 }
 
+static long sys_sigaltstack(uint64_t ss, uint64_t old_ss, uint64_t a2,
+                            uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  struct linux_stack new_stack;
+
+  if (!task)
+    return -ESRCH;
+  if (old_ss) {
+    struct linux_stack *old = (struct linux_stack *)(uintptr_t)old_ss;
+    if (!is_valid_user_ptr(old_ss, sizeof(*old)))
+      return -EFAULT;
+    old->ss_sp = task->sigaltstack_sp;
+    old->ss_flags = task->sigaltstack_size ? task->sigaltstack_flags : SS_DISABLE;
+    old->ss_size = task->sigaltstack_size;
+  }
+  if (!ss)
+    return 0;
+  if (!is_valid_user_ptr(ss, sizeof(new_stack)))
+    return -EFAULT;
+
+  new_stack = *(const struct linux_stack *)(uintptr_t)ss;
+  if (new_stack.ss_flags & ~(SS_DISABLE | SS_ONSTACK))
+    return -EINVAL;
+  if ((new_stack.ss_flags & SS_DISABLE) != 0) {
+    task->sigaltstack_sp = 0;
+    task->sigaltstack_size = 0;
+    task->sigaltstack_flags = SS_DISABLE;
+    return 0;
+  }
+  if ((new_stack.ss_flags & SS_ONSTACK) != 0)
+    return -EINVAL;
+  if (new_stack.ss_size < MINSIGSTKSZ)
+    return -ENOMEM;
+  if (!is_valid_user_ptr(new_stack.ss_sp, new_stack.ss_size))
+    return -EFAULT;
+
+  task->sigaltstack_sp = new_stack.ss_sp;
+  task->sigaltstack_size = new_stack.ss_size;
+  task->sigaltstack_flags = 0;
+  return 0;
+}
+
+static long sys_rt_sigsuspend(uint64_t mask, uint64_t sigsetsize, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task;
+  ksigset_t suspend_mask;
+  ksigset_t old_mask = 0;
+
+  if (sigsetsize < sizeof(ksigset_t))
+    return -EINVAL;
+  if (!is_valid_user_ptr(mask, sizeof(ksigset_t)))
+    return -EFAULT;
+
+  task = get_current();
+  if (!task)
+    return -ESRCH;
+
+  suspend_mask = *(const ksigset_t *)(uintptr_t)mask;
+  suspend_mask &= ~((1ULL << 9) | (1ULL << 19));
+  signal_pending_mask(task);
+  if (sigprocmask(SIG_SETMASK, &suspend_mask, &old_mask) != 0)
+    return -EINVAL;
+
+  for (;;) {
+    if (signal_pending_mask(task) & ~suspend_mask) {
+      do_signal(task);
+      sigprocmask(SIG_SETMASK, &old_mask, NULL);
+      return -EINTR;
+    }
+
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
 static long sys_rt_sigtimedwait(uint64_t set, uint64_t info, uint64_t timeout,
                                 uint64_t sigsetsize, uint64_t a4,
                                 uint64_t a5) {
@@ -7001,6 +7095,8 @@ void syscall_init(void) {
   syscall_table[SYS_kill] = sys_kill;
   syscall_table[SYS_tkill] = sys_tkill;
   syscall_table[SYS_tgkill] = sys_tgkill;
+  syscall_table[SYS_sigaltstack] = sys_sigaltstack;
+  syscall_table[SYS_rt_sigsuspend] = sys_rt_sigsuspend;
   syscall_table[SYS_rt_sigaction] = sys_rt_sigaction;
   syscall_table[SYS_rt_sigprocmask] = sys_rt_sigprocmask;
   syscall_table[SYS_rt_sigpending] = sys_rt_sigpending;

@@ -136,6 +136,11 @@ void signal_copy_state(struct task_struct *child, struct task_struct *parent) {
   signal_init(child);
   if (!child->signals)
     return;
+  if (parent) {
+    child->sigaltstack_sp = parent->sigaltstack_sp;
+    child->sigaltstack_size = parent->sigaltstack_size;
+    child->sigaltstack_flags = parent->sigaltstack_flags;
+  }
   if (!parent || !parent->signals) {
     child->signals->pending = 0;
     return;

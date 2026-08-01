@@ -160,6 +160,9 @@ struct task_struct {
   struct signal_struct *signals;
   uint64_t pending_signals;
   uint64_t blocked_signals;
+  uint64_t sigaltstack_sp;
+  size_t sigaltstack_size;
+  int sigaltstack_flags;
   int pdeath_signal;
   uint8_t no_new_privs;
   uint8_t seccomp_mode;
