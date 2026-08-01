@@ -132,6 +132,11 @@
 #define EFD_CLOEXEC O_CLOEXEC
 #define EFD_NONBLOCK O_NONBLOCK
 #define EVENTFD_COUNTER_MAX (UINT64_MAX - 1)
+#define EPOLL_CTL_ADD 1
+#define EPOLL_CTL_DEL 2
+#define EPOLL_CTL_MOD 3
+#define EPOLL_CLOEXEC O_CLOEXEC
+#define EPOLL_MAX_WATCHES 64
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
@@ -369,6 +374,50 @@ static const struct file_operations eventfd_ops = {
     .release = eventfd_release,
     .poll = eventfd_poll,
 };
+
+struct epoll_watch {
+  int fd;
+  uint32_t events;
+  uint64_t data;
+  uint8_t used;
+};
+
+struct epoll_ctx {
+  struct epoll_watch watches[EPOLL_MAX_WATCHES];
+  volatile int lock;
+};
+
+static void epoll_lock(struct epoll_ctx *ctx) {
+  while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
+#ifdef ARCH_ARM64
+    asm volatile("yield");
+#elif defined(ARCH_X86_64) || defined(ARCH_X86)
+    asm volatile("pause");
+#endif
+  }
+}
+
+static void epoll_unlock(struct epoll_ctx *ctx) {
+  __atomic_clear(&ctx->lock, __ATOMIC_RELEASE);
+}
+
+static int epoll_release(struct inode *inode, struct file *file) {
+  (void)inode;
+
+  if (file && file->private_data) {
+    kfree(file->private_data);
+    file->private_data = NULL;
+  }
+  return 0;
+}
+
+static const struct file_operations epoll_ops = {
+    .release = epoll_release,
+};
+
+static int file_is_epoll(struct file *file) {
+  return file && file->f_op == &epoll_ops;
+}
 
 static int init_task_cwd(struct task_struct *task) {
   if (!task)
@@ -641,6 +690,11 @@ struct linux_iovec {
   uint64_t iov_base;
   uint64_t iov_len;
 };
+
+struct linux_epoll_event {
+  uint32_t events;
+  uint64_t data;
+} __attribute__((packed));
 
 struct linux_sysinfo {
   unsigned long uptime;
@@ -1887,6 +1941,191 @@ static long sys_eventfd2(uint64_t initval, uint64_t flags, uint64_t a2,
   task->files[fd].flags = O_RDWR | (uint32_t)flags;
   strlcpy(task->files[fd].path, "anon:eventfd", sizeof(task->files[fd].path));
   return fd;
+}
+
+static long sys_epoll_create1(uint64_t flags, uint64_t a1, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)EPOLL_CLOEXEC)
+    return -EINVAL;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  int fd = alloc_fd(task);
+  if (fd < 0)
+    return fd;
+
+  struct epoll_ctx *ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+  struct file *file = kzalloc(sizeof(*file), GFP_KERNEL);
+  if (!ctx || !file) {
+    kfree(ctx);
+    kfree(file);
+    free_fd(task, fd);
+    return -ENOMEM;
+  }
+
+  ctx->lock = 0;
+  file->f_op = &epoll_ops;
+  file->f_flags = O_RDWR;
+  file->f_mode = O_RDWR;
+  file->private_data = ctx;
+  file->f_count.counter = 1;
+
+  task->files[fd].file = file;
+  task->files[fd].flags = O_RDWR | (uint32_t)flags;
+  strlcpy(task->files[fd].path, "anon:epoll", sizeof(task->files[fd].path));
+  return fd;
+}
+
+static int epoll_find_watch(struct epoll_ctx *ctx, int fd) {
+  for (int i = 0; i < EPOLL_MAX_WATCHES; i++) {
+    if (ctx->watches[i].used && ctx->watches[i].fd == fd)
+      return i;
+  }
+  return -1;
+}
+
+static long sys_epoll_ctl(uint64_t epfd, uint64_t op, uint64_t fd,
+                          uint64_t event, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (epfd >= TASK_MAX_FDS || fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (!task->files[fd].in_use)
+    return -EBADF;
+
+  struct file *epfile = get_file(task, (int)epfd);
+  if (!file_is_epoll(epfile))
+    return -EINVAL;
+  if (epfd == fd || file_is_epoll(get_file(task, (int)fd)))
+    return -EINVAL;
+
+  struct linux_epoll_event ev;
+  if (op != EPOLL_CTL_DEL) {
+    if (!is_valid_user_ptr(event, sizeof(ev)))
+      return -EFAULT;
+    ev = *(const struct linux_epoll_event *)(uintptr_t)event;
+  } else {
+    memset(&ev, 0, sizeof(ev));
+  }
+
+  struct epoll_ctx *ctx = (struct epoll_ctx *)epfile->private_data;
+  if (!ctx)
+    return -EIO;
+
+  epoll_lock(ctx);
+  int index = epoll_find_watch(ctx, (int)fd);
+  long ret = 0;
+  switch (op) {
+  case EPOLL_CTL_ADD:
+    if (index >= 0) {
+      ret = -EEXIST;
+      break;
+    }
+    for (int i = 0; i < EPOLL_MAX_WATCHES; i++) {
+      if (!ctx->watches[i].used) {
+        ctx->watches[i].fd = (int)fd;
+        ctx->watches[i].events = ev.events;
+        ctx->watches[i].data = ev.data;
+        ctx->watches[i].used = 1;
+        ret = 0;
+        break;
+      }
+    }
+    if (ret == 0 && epoll_find_watch(ctx, (int)fd) < 0)
+      ret = -ENOSPC;
+    break;
+  case EPOLL_CTL_MOD:
+    if (index < 0) {
+      ret = -ENOENT;
+      break;
+    }
+    ctx->watches[index].events = ev.events;
+    ctx->watches[index].data = ev.data;
+    break;
+  case EPOLL_CTL_DEL:
+    if (index < 0) {
+      ret = -ENOENT;
+      break;
+    }
+    memset(&ctx->watches[index], 0, sizeof(ctx->watches[index]));
+    break;
+  default:
+    ret = -EINVAL;
+    break;
+  }
+  epoll_unlock(ctx);
+  return ret;
+}
+
+static long sys_epoll_pwait(uint64_t epfd, uint64_t events, uint64_t maxevents,
+                            uint64_t timeout, uint64_t sigmask,
+                            uint64_t sigsetsize) {
+  (void)sigmask;
+  (void)sigsetsize;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (epfd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (maxevents == 0 || maxevents > EPOLL_MAX_WATCHES)
+    return -EINVAL;
+  if (!is_valid_user_ptr(events,
+                         sizeof(struct linux_epoll_event) * (size_t)maxevents))
+    return -EFAULT;
+
+  struct file *epfile = get_file(task, (int)epfd);
+  if (!file_is_epoll(epfile))
+    return -EINVAL;
+  struct epoll_ctx *ctx = (struct epoll_ctx *)epfile->private_data;
+  if (!ctx)
+    return -EIO;
+
+  int infinite = ((int64_t)timeout < 0);
+  uint64_t deadline = 0;
+  if (!infinite)
+    deadline = arch_timer_get_ms() + timeout;
+  struct linux_epoll_event *out =
+      (struct linux_epoll_event *)(uintptr_t)events;
+
+  for (;;) {
+    long ready_count = 0;
+    epoll_lock(ctx);
+    for (int i = 0; i < EPOLL_MAX_WATCHES &&
+                    ready_count < (long)maxevents;
+         i++) {
+      if (!ctx->watches[i].used)
+        continue;
+      uint32_t requested = ctx->watches[i].events;
+      int ready = fd_readiness(task, ctx->watches[i].fd, (short)requested);
+      if (ready & POLLNVAL)
+        ready = POLLERR;
+      if (ready == 0)
+        continue;
+      out[ready_count].events = (uint32_t)ready;
+      out[ready_count].data = ctx->watches[i].data;
+      ready_count++;
+    }
+    epoll_unlock(ctx);
+
+    if (ready_count > 0 || (!infinite && arch_timer_get_ms() >= deadline))
+      return ready_count;
+
+    extern void process_yield(void);
+    process_yield();
+  }
 }
 
 extern int do_pipe(struct file **read_file, struct file **write_file);
@@ -4314,6 +4553,9 @@ void syscall_init(void) {
   /* Register implemented syscalls */
   syscall_table[SYS_getcwd] = sys_getcwd;
   syscall_table[SYS_eventfd2] = sys_eventfd2;
+  syscall_table[SYS_epoll_create1] = sys_epoll_create1;
+  syscall_table[SYS_epoll_ctl] = sys_epoll_ctl;
+  syscall_table[SYS_epoll_pwait] = sys_epoll_pwait;
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;
