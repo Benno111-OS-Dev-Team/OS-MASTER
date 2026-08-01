@@ -69,6 +69,7 @@
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 #define KERNEL_NSIG 32
+#define SI_USER 0
 #define SCHED_OTHER 0
 #define SCHED_FIFO 1
 #define SCHED_RR 2
@@ -385,6 +386,18 @@ struct linux_signalfd_siginfo {
   uint8_t __pad[28];
 };
 
+struct linux_siginfo {
+  int32_t si_signo;
+  int32_t si_errno;
+  int32_t si_code;
+  int32_t si_pid;
+  uint32_t si_uid;
+  int32_t si_status;
+  uint64_t si_addr;
+  uint64_t si_value;
+  uint8_t __pad[88];
+};
+
 static void eventfd_lock(struct eventfd_ctx *ctx) {
   while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
 #ifdef ARCH_ARM64
@@ -504,6 +517,15 @@ static void signalfd_fill_info(struct task_struct *task, int sig,
   info->ssi_signo = (uint32_t)sig;
   info->ssi_pid = task ? (uint32_t)task->pid : 0;
   info->ssi_uid = task ? (uint32_t)task->uid : 0;
+}
+
+static void signal_fill_siginfo(struct task_struct *task, int sig,
+                                struct linux_siginfo *info) {
+  memset(info, 0, sizeof(*info));
+  info->si_signo = sig;
+  info->si_code = SI_USER;
+  info->si_pid = task ? task->pid : 0;
+  info->si_uid = task ? (uint32_t)task->uid : 0;
 }
 
 static ssize_t signalfd_read(struct file *file, char *buf, size_t count,
@@ -5103,6 +5125,91 @@ static long sys_rt_sigpending(uint64_t set, uint64_t sigsetsize, uint64_t a2,
   return 0;
 }
 
+static long sys_rt_sigtimedwait(uint64_t set, uint64_t info, uint64_t timeout,
+                                uint64_t sigsetsize, uint64_t a4,
+                                uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  ksigset_t mask;
+  struct task_struct *task;
+  uint64_t timeout_ns = 0;
+  uint64_t deadline_ns = 0;
+  int has_timeout = 0;
+
+  if (sigsetsize < sizeof(ksigset_t))
+    return -EINVAL;
+  if (!is_valid_user_ptr(set, sizeof(ksigset_t)))
+    return -EFAULT;
+  if (info && !is_valid_user_ptr(info, sizeof(struct linux_siginfo)))
+    return -EFAULT;
+
+  mask = *(const ksigset_t *)(uintptr_t)set;
+  mask &= ~((1ULL << 9) | (1ULL << 19));
+  if (!mask)
+    return -EAGAIN;
+
+  if (timeout) {
+    const struct timespec *ts;
+    if (!is_valid_user_ptr(timeout, sizeof(struct timespec)))
+      return -EFAULT;
+    ts = (const struct timespec *)(uintptr_t)timeout;
+    if (timespec_to_ns(ts, &timeout_ns) != 0)
+      return -EINVAL;
+    has_timeout = 1;
+    deadline_ns = kernel_time_ns() + timeout_ns;
+    if (deadline_ns < timeout_ns)
+      deadline_ns = UINT64_MAX;
+  }
+
+  task = get_current();
+  if (!task)
+    return -ESRCH;
+
+  for (;;) {
+    int sig = signal_dequeue_pending_mask(task, mask);
+    if (sig < 0)
+      return -EIO;
+    if (sig > 0) {
+      if (info)
+        signal_fill_siginfo(task, sig, (struct linux_siginfo *)(uintptr_t)info);
+      return sig;
+    }
+    if (has_timeout && kernel_time_ns() >= deadline_ns)
+      return -EAGAIN;
+
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
+static long sys_rt_sigqueueinfo(uint64_t tgid, uint64_t sig, uint64_t uinfo,
+                                uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct linux_siginfo source_info;
+  struct task_struct *task;
+
+  if ((pid_t)tgid <= 0)
+    return -EINVAL;
+  if (sig == 0 || sig >= KERNEL_NSIG)
+    return -EINVAL;
+  if (!is_valid_user_ptr(uinfo, sizeof(source_info)))
+    return -EFAULT;
+
+  source_info = *(const struct linux_siginfo *)(uintptr_t)uinfo;
+  if (source_info.si_signo != 0 && source_info.si_signo != (int32_t)sig)
+    return -EINVAL;
+
+  task = get_task_by_pid((pid_t)tgid);
+  if (!task)
+    return -ESRCH;
+
+  return kill_task(task, (int)sig) == 0 ? 0 : -EINVAL;
+}
+
 static long sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oldact,
                              uint64_t sigsetsize, uint64_t a4, uint64_t a5) {
   (void)a4;
@@ -6897,6 +7004,8 @@ void syscall_init(void) {
   syscall_table[SYS_rt_sigaction] = sys_rt_sigaction;
   syscall_table[SYS_rt_sigprocmask] = sys_rt_sigprocmask;
   syscall_table[SYS_rt_sigpending] = sys_rt_sigpending;
+  syscall_table[SYS_rt_sigtimedwait] = sys_rt_sigtimedwait;
+  syscall_table[SYS_rt_sigqueueinfo] = sys_rt_sigqueueinfo;
   syscall_table[SYS_setpriority] = sys_setpriority;
   syscall_table[SYS_getpriority] = sys_getpriority;
   syscall_table[SYS_nanosleep] = sys_nanosleep;
