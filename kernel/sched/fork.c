@@ -136,6 +136,7 @@ long do_fork(unsigned long flags) {
   }
   child->pdeath_signal = current_task->pdeath_signal;
   child->no_new_privs = current_task->no_new_privs;
+  child->seccomp_mode = current_task->seccomp_mode;
   child->personality = current_task->personality;
   for (int cap = 0; cap < 2; cap++) {
     child->cap_effective[cap] = current_task->cap_effective[cap];

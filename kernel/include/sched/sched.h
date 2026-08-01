@@ -162,6 +162,7 @@ struct task_struct {
   uint64_t blocked_signals;
   int pdeath_signal;
   uint8_t no_new_privs;
+  uint8_t seccomp_mode;
 
   /* Flags */
   uint32_t flags;

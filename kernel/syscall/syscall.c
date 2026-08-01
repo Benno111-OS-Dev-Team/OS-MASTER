@@ -76,6 +76,8 @@
 #define PR_GET_PDEATHSIG 2
 #define PR_SET_NAME 15
 #define PR_GET_NAME 16
+#define PR_GET_SECCOMP 21
+#define PR_SET_SECCOMP 22
 #define PR_SET_NO_NEW_PRIVS 38
 #define PR_GET_NO_NEW_PRIVS 39
 #define CLOCK_REALTIME 0
@@ -203,6 +205,12 @@
 #define FUTEX_CLOCK_REALTIME 256
 #define FUTEX_CMD_MASK (~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME))
 #define FUTEX_MAX_WAITERS 64
+#define SECCOMP_MODE_DISABLED 0
+#define SECCOMP_MODE_STRICT 1
+#define SECCOMP_MODE_FILTER 2
+#define SECCOMP_SET_MODE_STRICT 0
+#define SECCOMP_SET_MODE_FILTER 1
+#define SIGSYS_NUM 31
 #define LINUX_CAPABILITY_VERSION_1 0x19980330U
 #define LINUX_CAPABILITY_VERSION_2 0x20071026U
 #define LINUX_CAPABILITY_VERSION_3 0x20080522U
@@ -4559,6 +4567,28 @@ static long sys_umask(uint64_t mask, uint64_t a1, uint64_t a2, uint64_t a3,
   return old;
 }
 
+static long set_seccomp_mode(struct task_struct *task, uint64_t mode,
+                             uint64_t flags, uint64_t args) {
+  if (!task)
+    return -ESRCH;
+  if (flags != 0)
+    return -EINVAL;
+
+  switch (mode) {
+  case SECCOMP_MODE_STRICT:
+    if (args != 0)
+      return -EINVAL;
+    if (!task->no_new_privs && task->euid != 0)
+      return -EACCES;
+    task->seccomp_mode = SECCOMP_MODE_STRICT;
+    return 0;
+  case SECCOMP_MODE_FILTER:
+    return -ENOSYS;
+  default:
+    return -EINVAL;
+  }
+}
+
 static long sys_prctl(uint64_t option, uint64_t arg2, uint64_t arg3,
                       uint64_t arg4, uint64_t arg5, uint64_t a5) {
   (void)arg4;
@@ -4588,6 +4618,14 @@ static long sys_prctl(uint64_t option, uint64_t arg2, uint64_t arg3,
     return 0;
   case PR_GET_NO_NEW_PRIVS:
     return current->no_new_privs ? 1 : 0;
+  case PR_SET_SECCOMP:
+    if (arg4 || arg5)
+      return -EINVAL;
+    return set_seccomp_mode(current, arg2, 0, arg3);
+  case PR_GET_SECCOMP:
+    if (arg2 || arg3 || arg4 || arg5)
+      return -EINVAL;
+    return current->seccomp_mode;
   case PR_SET_PDEATHSIG:
     if (arg2 >= KERNEL_NSIG)
       return -EINVAL;
@@ -6663,6 +6701,26 @@ static long sys_getrandom(uint64_t buf, uint64_t buflen, uint64_t flags,
   return (long)done;
 }
 
+static long sys_seccomp(uint64_t operation, uint64_t flags, uint64_t args,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+
+  switch (operation) {
+  case SECCOMP_SET_MODE_STRICT:
+    return set_seccomp_mode(task, SECCOMP_MODE_STRICT, flags, args);
+  case SECCOMP_SET_MODE_FILTER:
+    return set_seccomp_mode(task, SECCOMP_MODE_FILTER, flags, args);
+  default:
+    return -EINVAL;
+  }
+}
+
 static long sys_not_implemented(uint64_t a0, uint64_t a1, uint64_t a2,
                                 uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a0;
@@ -6871,8 +6929,14 @@ void syscall_init(void) {
   syscall_table[SYS_sched_get_priority_min] = sys_sched_get_priority_min;
   syscall_table[SYS_sched_rr_get_interval] = sys_sched_rr_get_interval;
   syscall_table[SYS_syncfs] = sys_syncfs;
+  syscall_table[SYS_seccomp] = sys_seccomp;
 
   printk(KERN_INFO "SYSCALL: System call table initialized\n");
+}
+
+static int seccomp_strict_syscall_allowed(uint64_t nr) {
+  return nr == SYS_read || nr == SYS_write || nr == SYS_exit ||
+         nr == SYS_exit_group || nr == SYS_rt_sigreturn;
 }
 
 /* ===================================================================== */
@@ -6887,12 +6951,21 @@ long handle_syscall(struct pt_regs *regs) {
    */
 
   uint64_t nr = regs->regs[8];
-  task_process_itimers(get_current());
+  struct task_struct *task = get_current();
+  task_process_itimers(task);
 
   if (nr >= NR_syscalls) {
     printk(KERN_WARNING "SYSCALL: Invalid syscall number %llu\n",
            (unsigned long long)nr);
     return -ENOSYS;
+  }
+
+  if (task && task->seccomp_mode == SECCOMP_MODE_STRICT &&
+      !seccomp_strict_syscall_allowed(nr)) {
+    printk(KERN_WARNING "SYSCALL: seccomp strict blocked syscall %llu\n",
+           (unsigned long long)nr);
+    kill_task(task, SIGSYS_NUM);
+    return -EPERM;
   }
 
   syscall_fn_t fn = syscall_table[nr];
