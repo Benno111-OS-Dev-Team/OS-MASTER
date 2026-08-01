@@ -26,6 +26,16 @@
 #define F_GETFL 3
 #define F_SETFL 4
 #define F_DUPFD_CLOEXEC 1030
+#define F_ADD_SEALS 1033
+#define F_GET_SEALS 1034
+#define F_SEAL_SEAL 0x0001
+#define F_SEAL_SHRINK 0x0002
+#define F_SEAL_GROW 0x0004
+#define F_SEAL_WRITE 0x0008
+#define F_SEAL_FUTURE_WRITE 0x0010
+#define F_SEAL_MASK                                                           \
+  (F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE |                \
+   F_SEAL_FUTURE_WRITE)
 #define AT_FDCWD (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR 0x200
@@ -130,6 +140,9 @@
 #define GRND_NONBLOCK 0x0001
 #define GRND_RANDOM 0x0002
 #define GRND_INSECURE 0x0004
+#define MFD_CLOEXEC 0x0001
+#define MFD_ALLOW_SEALING 0x0002
+#define MEMFD_NAME_MAX 249
 #define EFD_SEMAPHORE 1
 #define EFD_CLOEXEC O_CLOEXEC
 #define EFD_NONBLOCK O_NONBLOCK
@@ -160,6 +173,7 @@
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
 static uint64_t kernel_time_ns(void);
+static struct timespec current_timespec(void);
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -283,6 +297,15 @@ struct eventfd_ctx {
   volatile int lock;
 };
 
+struct memfd_ctx {
+  char *name;
+  uint8_t *data;
+  size_t size;
+  size_t capacity;
+  uint32_t seals;
+  struct inode *inode;
+};
+
 static void eventfd_lock(struct eventfd_ctx *ctx) {
   while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
 #ifdef ARCH_ARM64
@@ -395,6 +418,145 @@ static const struct file_operations eventfd_ops = {
     .release = eventfd_release,
     .poll = eventfd_poll,
 };
+
+static ino_t next_memfd_ino = 0x6d000000;
+
+static int memfd_resize(struct memfd_ctx *ctx, size_t new_size) {
+  uint8_t *new_data;
+  size_t new_capacity;
+
+  if (!ctx)
+    return -EINVAL;
+  if (new_size > ctx->size && (ctx->seals & F_SEAL_GROW))
+    return -EPERM;
+  if (new_size < ctx->size && (ctx->seals & F_SEAL_SHRINK))
+    return -EPERM;
+  if (new_size <= ctx->capacity) {
+    if (new_size > ctx->size && ctx->data)
+      memset(ctx->data + ctx->size, 0, new_size - ctx->size);
+    ctx->size = new_size;
+    if (ctx->inode) {
+      ctx->inode->i_size = (loff_t)new_size;
+      ctx->inode->i_blocks = (blkcnt_t)((new_size + 511U) / 512U);
+    }
+    return 0;
+  }
+  if (new_size > (size_t)-1 - (PAGE_SIZE - 1))
+    return -EFBIG;
+
+  new_capacity = (new_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  new_data = krealloc(ctx->data, new_capacity, GFP_KERNEL);
+  if (!new_data)
+    return -ENOMEM;
+
+  memset(new_data + ctx->size, 0, new_capacity - ctx->size);
+  ctx->data = new_data;
+  ctx->capacity = new_capacity;
+  ctx->size = new_size;
+  if (ctx->inode) {
+    ctx->inode->i_size = (loff_t)new_size;
+    ctx->inode->i_blocks = (blkcnt_t)((new_size + 511U) / 512U);
+  }
+  return 0;
+}
+
+static ssize_t memfd_read(struct file *file, char *buf, size_t count,
+                          loff_t *pos) {
+  struct memfd_ctx *ctx = file ? (struct memfd_ctx *)file->private_data : NULL;
+  size_t offset;
+  size_t avail;
+  size_t n;
+
+  if (!ctx || !buf || !pos)
+    return -EINVAL;
+  if (*pos < 0)
+    return -EINVAL;
+  offset = (size_t)*pos;
+  if (offset >= ctx->size)
+    return 0;
+
+  avail = ctx->size - offset;
+  n = count < avail ? count : avail;
+  if (n > 0)
+    memcpy(buf, ctx->data + offset, n);
+  *pos += (loff_t)n;
+  if (ctx->inode)
+    ctx->inode->i_atime = current_timespec();
+  return (ssize_t)n;
+}
+
+static ssize_t memfd_write(struct file *file, const char *buf, size_t count,
+                           loff_t *pos) {
+  struct memfd_ctx *ctx = file ? (struct memfd_ctx *)file->private_data : NULL;
+  size_t offset;
+  size_t end;
+  int ret;
+
+  if (!ctx || !buf || !pos)
+    return -EINVAL;
+  if (*pos < 0)
+    return -EINVAL;
+  if (file->f_flags & O_APPEND)
+    *pos = (loff_t)ctx->size;
+  if (ctx->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE))
+    return -EPERM;
+
+  offset = (size_t)*pos;
+  if (count > (size_t)-1 - offset)
+    return -EFBIG;
+  end = offset + count;
+  ret = memfd_resize(ctx, end);
+  if (ret < 0)
+    return ret;
+
+  if (count > 0)
+    memcpy(ctx->data + offset, buf, count);
+  *pos = (loff_t)end;
+  if (ctx->inode) {
+    struct timespec now = current_timespec();
+    ctx->inode->i_mtime = now;
+    ctx->inode->i_ctime = now;
+  }
+  return (ssize_t)count;
+}
+
+static int memfd_release(struct inode *inode, struct file *file) {
+  struct memfd_ctx *ctx = file ? (struct memfd_ctx *)file->private_data : NULL;
+
+  (void)inode;
+  if (!ctx)
+    return 0;
+  kfree(ctx->data);
+  kfree(ctx->name);
+  kfree(ctx->inode);
+  kfree(ctx);
+  file->private_data = NULL;
+  return 0;
+}
+
+static int memfd_poll(struct file *file, short events) {
+  struct memfd_ctx *ctx = file ? (struct memfd_ctx *)file->private_data : NULL;
+  short ready = 0;
+
+  if (!ctx)
+    return POLLERR;
+  if ((events & (POLLIN | POLLRDNORM)) && file->f_pos < (loff_t)ctx->size)
+    ready |= events & (POLLIN | POLLRDNORM);
+  if (events & (POLLOUT | POLLWRNORM))
+    ready |= events & (POLLOUT | POLLWRNORM);
+  return ready;
+}
+
+static const struct file_operations memfd_ops = {
+    .read = memfd_read,
+    .write = memfd_write,
+    .release = memfd_release,
+    .poll = memfd_poll,
+};
+
+static int file_is_memfd(struct file *file) {
+  return file && file->f_op == &memfd_ops;
+}
 
 struct epoll_watch {
   int fd;
@@ -2160,6 +2322,100 @@ static long sys_close(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
   return close_fd_entry(task, (int)fd);
 }
 
+static long sys_memfd_create(uint64_t name, uint64_t flags, uint64_t a2,
+                             uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task;
+  char user_name[MEMFD_NAME_MAX + 1];
+  size_t name_len;
+  int fd;
+  struct memfd_ctx *ctx;
+  struct inode *inode;
+  struct dentry *dentry;
+  struct file *file;
+  int ret;
+
+  if (flags & ~(uint64_t)(MFD_CLOEXEC | MFD_ALLOW_SEALING))
+    return -EINVAL;
+  if (!name)
+    return -EFAULT;
+  ret = copy_user_string(name, user_name, sizeof(user_name));
+  if (ret < 0)
+    return ret;
+  name_len = strlen(user_name);
+  if (name_len > MEMFD_NAME_MAX)
+    return -ENAMETOOLONG;
+
+  task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  fd = alloc_fd(task);
+  if (fd < 0)
+    return fd;
+
+  ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+  inode = kzalloc(sizeof(*inode), GFP_KERNEL);
+  dentry = kzalloc(sizeof(*dentry), GFP_KERNEL);
+  file = kzalloc(sizeof(*file), GFP_KERNEL);
+  if (!ctx || !inode || !dentry || !file) {
+    kfree(ctx);
+    kfree(inode);
+    kfree(dentry);
+    kfree(file);
+    free_fd(task, fd);
+    return -ENOMEM;
+  }
+
+  ctx->name = kzalloc(name_len + 1, GFP_KERNEL);
+  if (!ctx->name) {
+    kfree(ctx);
+    kfree(inode);
+    kfree(dentry);
+    kfree(file);
+    free_fd(task, fd);
+    return -ENOMEM;
+  }
+  strlcpy(ctx->name, user_name, name_len + 1);
+  ctx->seals = (flags & MFD_ALLOW_SEALING) ? 0 : F_SEAL_SEAL;
+  ctx->inode = inode;
+
+  struct timespec now = current_timespec();
+  inode->i_ino = next_memfd_ino++;
+  inode->i_mode = S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH |
+                  S_IWOTH;
+  inode->i_nlink = 0;
+  inode->i_uid = task->euid;
+  inode->i_gid = task->egid;
+  inode->i_blksize = PAGE_SIZE;
+  inode->i_atime = now;
+  inode->i_mtime = now;
+  inode->i_ctime = now;
+  inode->i_fop = &memfd_ops;
+  inode->i_private = ctx;
+  inode->i_count.counter = 1;
+
+  strlcpy(dentry->d_name, user_name, sizeof(dentry->d_name));
+  dentry->d_inode = inode;
+  dentry->d_parent = dentry;
+  dentry->d_count.counter = 1;
+
+  file->f_dentry = dentry;
+  file->f_op = &memfd_ops;
+  file->f_flags = O_RDWR;
+  file->f_mode = O_RDWR;
+  file->private_data = ctx;
+  file->f_count.counter = 1;
+
+  task->files[fd].file = file;
+  task->files[fd].flags = O_RDWR | ((flags & MFD_CLOEXEC) ? O_CLOEXEC : 0);
+  strlcpy(task->files[fd].path, "anon:memfd", sizeof(task->files[fd].path));
+  return fd;
+}
+
 static long sys_eventfd2(uint64_t initval, uint64_t flags, uint64_t a2,
                          uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a2;
@@ -2692,6 +2948,31 @@ static long sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t a3,
       task->files[fd_i].file->f_flags = access_mode | ((int)arg & ~O_CLOEXEC);
     }
     return 0;
+  case F_ADD_SEALS: {
+    struct file *file = task->files[fd_i].file;
+    struct memfd_ctx *ctx;
+
+    if (!file_is_memfd(file))
+      return -EINVAL;
+    if (arg & ~(uint64_t)F_SEAL_MASK)
+      return -EINVAL;
+    ctx = (struct memfd_ctx *)file->private_data;
+    if (!ctx)
+      return -EINVAL;
+    if (ctx->seals & F_SEAL_SEAL)
+      return -EPERM;
+    ctx->seals |= (uint32_t)arg;
+    return 0;
+  }
+  case F_GET_SEALS: {
+    struct file *file = task->files[fd_i].file;
+    struct memfd_ctx *ctx;
+
+    if (!file_is_memfd(file))
+      return -EINVAL;
+    ctx = (struct memfd_ctx *)file->private_data;
+    return ctx ? (long)ctx->seals : -EINVAL;
+  }
   default:
     return -EINVAL;
   }
@@ -3002,7 +3283,13 @@ static long sys_ftruncate(uint64_t fd, uint64_t length, uint64_t a2,
   if (!f)
     return -EBADF;
 
-  long ret = vfs_truncate_file(f, (loff_t)length);
+  long ret;
+  if (file_is_memfd(f)) {
+    struct memfd_ctx *ctx = (struct memfd_ctx *)f->private_data;
+    ret = memfd_resize(ctx, (size_t)length);
+  } else {
+    ret = vfs_truncate_file(f, (loff_t)length);
+  }
   if (ret == 0 && f->f_dentry && f->f_dentry->d_inode) {
     struct timespec now = current_timespec();
     f->f_dentry->d_inode->i_mtime = now;
@@ -5134,6 +5421,7 @@ void syscall_init(void) {
   syscall_table[SYS_gettimeofday] = sys_gettimeofday;
   syscall_table[SYS_sysinfo] = sys_sysinfo;
   syscall_table[SYS_getrandom] = sys_getrandom;
+  syscall_table[SYS_memfd_create] = sys_memfd_create;
   syscall_table[SYS_sched_setparam] = sys_sched_setparam;
   syscall_table[SYS_sched_setscheduler] = sys_sched_setscheduler;
   syscall_table[SYS_sched_getscheduler] = sys_sched_getscheduler;
