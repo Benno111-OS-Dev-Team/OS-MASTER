@@ -1166,6 +1166,19 @@ struct linux_sched_param {
   int __reserved3;
 };
 
+struct linux_sched_attr {
+  uint32_t size;
+  uint32_t sched_policy;
+  uint64_t sched_flags;
+  int32_t sched_nice;
+  uint32_t sched_priority;
+  uint64_t sched_runtime;
+  uint64_t sched_deadline;
+  uint64_t sched_period;
+  uint32_t sched_util_min;
+  uint32_t sched_util_max;
+};
+
 struct linux_pollfd {
   int fd;
   short events;
@@ -4286,6 +4299,86 @@ static long sys_sched_setscheduler(uint64_t pid, uint64_t policy,
   return sys_sched_setparam(pid, param, 0, 0, 0, 0);
 }
 
+static struct task_struct *sched_task_from_pid(uint64_t pid) {
+  struct task_struct *current = get_current();
+
+  if (!current)
+    return NULL;
+  if (pid == 0)
+    return current;
+  return get_task_by_pid((pid_t)pid);
+}
+
+static long sys_sched_getattr(uint64_t pid, uint64_t attr, uint64_t size,
+                              uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  if (flags != 0)
+    return -EINVAL;
+  if ((int64_t)pid < 0)
+    return -EINVAL;
+  if (size < sizeof(struct linux_sched_attr))
+    return -EINVAL;
+  if (!is_valid_user_ptr(attr, (size_t)size))
+    return -EFAULT;
+
+  struct task_struct *task = sched_task_from_pid(pid);
+  if (!task)
+    return -ESRCH;
+
+  memset((void *)(uintptr_t)attr, 0, (size_t)size);
+  struct linux_sched_attr *sa =
+      (struct linux_sched_attr *)(uintptr_t)attr;
+  sa->size = sizeof(struct linux_sched_attr);
+  sa->sched_policy = SCHED_OTHER;
+  sa->sched_nice = task->nice;
+  sa->sched_priority = 0;
+  return 0;
+}
+
+static long sys_sched_setattr(uint64_t pid, uint64_t attr, uint64_t flags,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct linux_sched_attr sa;
+  size_t copy_size;
+
+  if (flags != 0)
+    return -EINVAL;
+  if ((int64_t)pid < 0)
+    return -EINVAL;
+  if (!is_valid_user_ptr(attr, sizeof(uint32_t)))
+    return -EFAULT;
+
+  uint32_t user_size = *(const uint32_t *)(uintptr_t)attr;
+  if (user_size < offsetof(struct linux_sched_attr, sched_runtime))
+    return -EINVAL;
+  copy_size = user_size < sizeof(sa) ? user_size : sizeof(sa);
+  if (!is_valid_user_ptr(attr, copy_size))
+    return -EFAULT;
+
+  memset(&sa, 0, sizeof(sa));
+  memcpy(&sa, (const void *)(uintptr_t)attr, copy_size);
+  if (sa.sched_policy != SCHED_OTHER)
+    return -EINVAL;
+  if (sa.sched_flags != 0)
+    return -EINVAL;
+  if (sa.sched_priority != 0)
+    return -EINVAL;
+  if (sa.sched_nice < PRIO_MIN || sa.sched_nice > PRIO_MAX)
+    return -EINVAL;
+
+  struct task_struct *task = sched_task_from_pid(pid);
+  if (!task)
+    return -ESRCH;
+  task->nice = sa.sched_nice;
+  task->static_prio = sa.sched_nice;
+  return 0;
+}
+
 static long sys_sched_get_priority_max(uint64_t policy, uint64_t a1,
                                        uint64_t a2, uint64_t a3, uint64_t a4,
                                        uint64_t a5) {
@@ -5879,6 +5972,8 @@ void syscall_init(void) {
   syscall_table[SYS_sched_setscheduler] = sys_sched_setscheduler;
   syscall_table[SYS_sched_getscheduler] = sys_sched_getscheduler;
   syscall_table[SYS_sched_getparam] = sys_sched_getparam;
+  syscall_table[SYS_sched_setattr] = sys_sched_setattr;
+  syscall_table[SYS_sched_getattr] = sys_sched_getattr;
   syscall_table[SYS_sched_setaffinity] = sys_sched_setaffinity;
   syscall_table[SYS_sched_getaffinity] = sys_sched_getaffinity;
   syscall_table[SYS_sched_get_priority_max] = sys_sched_get_priority_max;
