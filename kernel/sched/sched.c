@@ -147,12 +147,13 @@ static void close_task_files(struct task_struct *task)
         return;
     }
 
-    for (int fd = 3; fd < TASK_MAX_FDS; fd++) {
+    for (int fd = 0; fd < TASK_MAX_FDS; fd++) {
         if (task->files[fd].in_use && task->files[fd].file) {
             vfs_close(task->files[fd].file);
         }
         task->files[fd].file = NULL;
         task->files[fd].flags = 0;
+        task->files[fd].path[0] = '\0';
         task->files[fd].in_use = 0;
     }
 }

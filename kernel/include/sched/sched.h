@@ -73,6 +73,7 @@ struct file;
 struct task_fd_entry {
   struct file *file;
   int flags;
+  char path[TASK_CWD_MAX];
   uint8_t in_use;
 };
 

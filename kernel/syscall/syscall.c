@@ -23,6 +23,18 @@
 #define F_GETFL 3
 #define F_SETFL 4
 #define F_DUPFD_CLOEXEC 1030
+#define AT_FDCWD (-100)
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_REMOVEDIR 0x200
+#define AT_EACCESS 0x200
+#define AT_EMPTY_PATH 0x1000
+#define F_OK 0
+#define X_OK 1
+#define W_OK 2
+#define R_OK 4
+#define TCGETS 0x5401
+#define TIOCGWINSZ 0x5413
+#define TIOCSWINSZ 0x5414
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -33,6 +45,7 @@ static int init_task_files(struct task_struct *task) {
   for (int i = 0; i < TASK_MAX_FDS; i++) {
     task->files[i].file = NULL;
     task->files[i].flags = 0;
+    task->files[i].path[0] = '\0';
     task->files[i].in_use = 0;
   }
 
@@ -73,6 +86,7 @@ static void free_fd(struct task_struct *task, int fd) {
   if (task && fd >= 0 && fd < TASK_MAX_FDS) {
     task->files[fd].file = NULL;
     task->files[fd].flags = 0;
+    task->files[fd].path[0] = '\0';
     task->files[fd].in_use = 0;
   }
 }
@@ -112,6 +126,8 @@ static int duplicate_fd(struct task_struct *task, int oldfd, int newfd,
     file->f_count.counter++;
   task->files[newfd].file = file;
   task->files[newfd].flags = task->files[oldfd].flags | extra_flags;
+  strlcpy(task->files[newfd].path, task->files[oldfd].path,
+          sizeof(task->files[newfd].path));
   task->files[newfd].in_use = 1;
   return newfd;
 }
@@ -211,6 +227,37 @@ static int resolve_task_path(struct task_struct *task, const char *path,
   return append_normalized_components(dst, dst_size, &len, path);
 }
 
+static int resolve_at_path(struct task_struct *task, int dirfd,
+                           const char *path, char *dst, size_t dst_size) {
+  size_t len;
+
+  if (!path || !dst)
+    return -EINVAL;
+  if (path[0] == '/' || dirfd == AT_FDCWD)
+    return resolve_task_path(task, path, dst, dst_size);
+  if (path[0] == '\0')
+    return -ENOENT;
+  if (!task || dirfd < 0 || dirfd >= TASK_MAX_FDS ||
+      !task->files[dirfd].in_use)
+    return -EBADF;
+  if (!task->files[dirfd].file || !task->files[dirfd].file->f_dentry ||
+      !task->files[dirfd].file->f_dentry->d_inode ||
+      !S_ISDIR(task->files[dirfd].file->f_dentry->d_inode->i_mode))
+    return -ENOTDIR;
+  if (task->files[dirfd].path[0] == '\0')
+    return -EINVAL;
+
+  dst[0] = '/';
+  dst[1] = '\0';
+  len = 1;
+
+  int ret = append_normalized_components(dst, dst_size, &len,
+                                         task->files[dirfd].path);
+  if (ret < 0)
+    return ret;
+  return append_normalized_components(dst, dst_size, &len, path);
+}
+
 /* ===================================================================== */
 /* User Pointer Validation */
 /* ===================================================================== */
@@ -269,10 +316,6 @@ static int copy_user_string(uint64_t user_ptr, char *dst, size_t dst_size) {
 /* File metadata helpers */
 /* ===================================================================== */
 
-#define AT_FDCWD (-100)
-#define AT_SYMLINK_NOFOLLOW 0x100
-#define AT_EMPTY_PATH 0x1000
-
 struct linux_stat {
   dev_t st_dev;
   ino_t st_ino;
@@ -328,6 +371,40 @@ static long copy_file_stat(const struct file *file, uint64_t statbuf) {
   if (!file || !file->f_dentry)
     return -EBADF;
   return copy_inode_stat(file->f_dentry->d_inode, statbuf);
+}
+
+static long check_inode_access(const struct inode *inode, int mode) {
+  mode_t allowed;
+  struct task_struct *task;
+
+  if (!inode)
+    return -ENOENT;
+  if (mode == F_OK)
+    return 0;
+  if (mode & ~(R_OK | W_OK | X_OK))
+    return -EINVAL;
+
+  task = get_current();
+  if (task && task->uid == 0) {
+    if ((mode & X_OK) && !(inode->i_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+      return -EACCES;
+    return 0;
+  }
+
+  if (task && task->uid == inode->i_uid)
+    allowed = (inode->i_mode & S_IRWXU) >> 6;
+  else if (task && task->gid == inode->i_gid)
+    allowed = (inode->i_mode & S_IRWXG) >> 3;
+  else
+    allowed = inode->i_mode & S_IRWXO;
+
+  if ((mode & R_OK) && !(allowed & 4))
+    return -EACCES;
+  if ((mode & W_OK) && !(allowed & 2))
+    return -EACCES;
+  if ((mode & X_OK) && !(allowed & 1))
+    return -EACCES;
+  return 0;
 }
 
 struct linux_dirent64 {
@@ -515,7 +592,6 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
                        uint64_t mode, uint64_t a4, uint64_t a5) {
   (void)a4;
   (void)a5;
-  (void)dirfd;
 
   struct task_struct *task = current_task_with_files();
   if (!task)
@@ -526,7 +602,7 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   if (ret < 0) {
     return ret;
   }
-  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
   if (ret < 0)
     return ret;
 
@@ -545,6 +621,7 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
 
   task->files[fd].file = f;
   task->files[fd].flags = (int)flags;
+  strlcpy(task->files[fd].path, path, sizeof(task->files[fd].path));
 
   return fd;
 }
@@ -672,6 +749,54 @@ static long sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t a3,
   }
 }
 
+static long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct winsize {
+    uint16_t ws_row;
+    uint16_t ws_col;
+    uint16_t ws_xpixel;
+    uint16_t ws_ypixel;
+  };
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (!task->files[(int)fd].in_use)
+    return -EBADF;
+  if (task->files[(int)fd].file)
+    return -ENOTTY;
+
+  switch (request) {
+  case TCGETS:
+    if (!is_valid_user_ptr(arg, 60))
+      return -EFAULT;
+    memset((void *)(uintptr_t)arg, 0, 60);
+    return 0;
+  case TIOCGWINSZ: {
+    if (!is_valid_user_ptr(arg, sizeof(struct winsize)))
+      return -EFAULT;
+    struct winsize *ws = (struct winsize *)(uintptr_t)arg;
+    ws->ws_row = 25;
+    ws->ws_col = 80;
+    ws->ws_xpixel = 0;
+    ws->ws_ypixel = 0;
+    return 0;
+  }
+  case TIOCSWINSZ:
+    if (!is_valid_user_ptr(arg, sizeof(struct winsize)))
+      return -EFAULT;
+    return 0;
+  default:
+    return -ENOTTY;
+  }
+}
+
 static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
                       uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -794,10 +919,7 @@ static long sys_newfstatat(uint64_t dirfd, uint64_t pathname, uint64_t statbuf,
     return copy_file_stat(f, statbuf);
   }
 
-  if (user_path[0] != '/' && (int64_t)dirfd != AT_FDCWD)
-    return -ENOSYS;
-
-  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
   if (ret < 0)
     return ret;
 
@@ -953,6 +1075,188 @@ static long sys_chdir(uint64_t pathname, uint64_t a1, uint64_t a2, uint64_t a3,
   strlcpy(task->cwd, path, sizeof(task->cwd));
   task->cwd_initialized = 1;
   return 0;
+}
+
+static long sys_fchdir(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+
+  struct file *dir = get_file(task, (int)fd);
+  if (!dir)
+    return -EBADF;
+  if (!dir->f_dentry || !dir->f_dentry->d_inode ||
+      !S_ISDIR(dir->f_dentry->d_inode->i_mode))
+    return -ENOTDIR;
+  if (task->files[(int)fd].path[0] == '\0')
+    return -EINVAL;
+
+  strlcpy(task->cwd, task->files[(int)fd].path, sizeof(task->cwd));
+  task->cwd_initialized = 1;
+  return 0;
+}
+
+static long sys_mkdirat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  return vfs_mkdir(path, (mode_t)mode);
+}
+
+static long sys_unlinkat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)AT_REMOVEDIR)
+    return -EINVAL;
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  return (flags & AT_REMOVEDIR) ? vfs_rmdir(path) : vfs_unlink(path);
+}
+
+static long sys_renameat(uint64_t olddirfd, uint64_t oldpath_ptr,
+                         uint64_t newdirfd, uint64_t newpath_ptr, uint64_t a4,
+                         uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char old_user_path[PATH_MAX];
+  char new_user_path[PATH_MAX];
+  char old_path[PATH_MAX];
+  char new_path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  ret = copy_user_string(oldpath_ptr, old_user_path, sizeof(old_user_path));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_string(newpath_ptr, new_user_path, sizeof(new_user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)olddirfd, old_user_path, old_path,
+                        sizeof(old_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)newdirfd, new_user_path, new_path,
+                        sizeof(new_path));
+  if (ret < 0)
+    return ret;
+  return vfs_rename(old_path, new_path);
+}
+
+static long sys_faccessat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
+                          uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  struct file *file;
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)AT_EACCESS)
+    return -EINVAL;
+  if (mode & ~(uint64_t)(R_OK | W_OK | X_OK))
+    return -EINVAL;
+
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  file = vfs_open(path, O_RDONLY, 0);
+  if (!file)
+    return -ENOENT;
+  ret = file->f_dentry ? check_inode_access(file->f_dentry->d_inode, (int)mode)
+                       : -ENOENT;
+  vfs_close(file);
+  return ret;
+}
+
+static long sys_readlinkat(uint64_t dirfd, uint64_t pathname, uint64_t buf,
+                           uint64_t bufsiz, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  struct file *file;
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (bufsiz == 0)
+    return -EINVAL;
+  if (!is_valid_user_ptr(buf, (size_t)bufsiz))
+    return -EFAULT;
+
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  file = vfs_open(path, O_RDONLY, 0);
+  if (!file)
+    return -ENOENT;
+  if (!file->f_dentry || !file->f_dentry->d_inode ||
+      !S_ISLNK(file->f_dentry->d_inode->i_mode) ||
+      !file->f_dentry->d_inode->i_op ||
+      !file->f_dentry->d_inode->i_op->readlink) {
+    vfs_close(file);
+    return -EINVAL;
+  }
+
+  ret = file->f_dentry->d_inode->i_op->readlink(
+      file->f_dentry, (char *)(uintptr_t)buf, (int)bufsiz);
+  vfs_close(file);
+  return ret;
 }
 
 /* Userspace heap management - dedicated region for userspace processes */
@@ -1278,12 +1582,19 @@ void syscall_init(void) {
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;
+  syscall_table[SYS_ioctl] = sys_ioctl;
+  syscall_table[SYS_mkdirat] = sys_mkdirat;
+  syscall_table[SYS_unlinkat] = sys_unlinkat;
+  syscall_table[SYS_renameat] = sys_renameat;
+  syscall_table[SYS_faccessat] = sys_faccessat;
+  syscall_table[SYS_fchdir] = sys_fchdir;
   syscall_table[SYS_read] = sys_read;
   syscall_table[SYS_write] = sys_write;
   syscall_table[SYS_openat] = sys_openat;
   syscall_table[SYS_close] = sys_close;
   syscall_table[SYS_getdents64] = sys_getdents64;
   syscall_table[SYS_lseek] = sys_lseek;
+  syscall_table[SYS_readlinkat] = sys_readlinkat;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
   syscall_table[SYS_fstat] = sys_fstat;
   syscall_table[SYS_exit] = sys_exit;
