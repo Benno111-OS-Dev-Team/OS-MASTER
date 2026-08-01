@@ -105,6 +105,17 @@
 #define LINUX_REBOOT_CMD_CAD_ON 0x89ABCDEFU
 #define LINUX_REBOOT_CMD_CAD_OFF 0x00000000U
 #define LINUX_REBOOT_CMD_POWER_OFF 0x4321FEDCU
+#define CLONE_NEWNS_LINUX 0x00020000UL
+#define CLONE_NEWCGROUP 0x02000000UL
+#define CLONE_NEWUTS 0x04000000UL
+#define CLONE_NEWIPC 0x08000000UL
+#define CLONE_NEWUSER 0x10000000UL
+#define CLONE_NEWPID 0x20000000UL
+#define CLONE_NEWNET 0x40000000UL
+#define UNSHARE_SUPPORTED_FLAGS (CLONE_FS | CLONE_FILES)
+#define UNSHARE_NAMESPACE_FLAGS                                                \
+  (CLONE_NEWNS_LINUX | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC |         \
+   CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET)
 #define CLOCK_REALTIME 0
 #define CLOCK_MONOTONIC 1
 #define CLOCK_PROCESS_CPUTIME_ID 2
@@ -6252,6 +6263,46 @@ static long sys_clone(uint64_t flags, uint64_t stack, uint64_t ptid,
   return do_fork((unsigned long)flags);
 }
 
+static long sys_unshare(uint64_t flags, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  uint64_t unsupported;
+
+  if (!task)
+    return -ESRCH;
+
+  unsupported = flags & ~(uint64_t)(UNSHARE_SUPPORTED_FLAGS |
+                                    UNSHARE_NAMESPACE_FLAGS);
+  if (unsupported)
+    return -EINVAL;
+  if (flags & UNSHARE_NAMESPACE_FLAGS)
+    return -ENOSYS;
+
+  if (flags & CLONE_FILES) {
+    int ret = init_task_files(task);
+    if (ret != 0)
+      return ret;
+  }
+  if (flags & CLONE_FS) {
+    if (!task->cwd_initialized) {
+      strlcpy(task->cwd, "/", sizeof(task->cwd));
+      task->cwd_initialized = 1;
+    }
+    if (!task->root_initialized) {
+      strlcpy(task->root, "/", sizeof(task->root));
+      task->root_initialized = 1;
+    }
+  }
+
+  return 0;
+}
+
 static long sys_set_tid_address(uint64_t tidptr, uint64_t a1, uint64_t a2,
                                 uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -7223,6 +7274,7 @@ void syscall_init(void) {
   syscall_table[SYS_preadv2] = sys_preadv2;
   syscall_table[SYS_pwritev2] = sys_pwritev2;
   syscall_table[SYS_clone] = sys_clone;
+  syscall_table[SYS_unshare] = sys_unshare;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
   syscall_table[SYS_sethostname] = sys_sethostname;
