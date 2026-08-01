@@ -1109,6 +1109,83 @@ static long do_fd_iov(uint64_t fd, uint64_t iov, uint64_t iovcnt,
   return total;
 }
 
+static long validate_iov(uint64_t iov, uint64_t iovcnt,
+                         const struct linux_iovec **vec_out) {
+  if (iovcnt == 0) {
+    *vec_out = NULL;
+    return 0;
+  }
+  if (iovcnt > 1024)
+    return -EINVAL;
+  if (!is_valid_user_ptr(iov, sizeof(struct linux_iovec) * (size_t)iovcnt))
+    return -EFAULT;
+
+  const struct linux_iovec *vec = (const struct linux_iovec *)(uintptr_t)iov;
+  uint64_t requested = 0;
+  for (size_t i = 0; i < (size_t)iovcnt; i++) {
+    if (vec[i].iov_len > (uint64_t)SSIZE_MAX ||
+        requested > (uint64_t)SSIZE_MAX - vec[i].iov_len)
+      return -EINVAL;
+    if (vec[i].iov_len > 0 &&
+        !is_valid_user_ptr(vec[i].iov_base, (size_t)vec[i].iov_len))
+      return -EFAULT;
+    requested += vec[i].iov_len;
+  }
+
+  *vec_out = vec;
+  return 0;
+}
+
+static long do_fd_piov(uint64_t fd, uint64_t iov, uint64_t iovcnt,
+                       uint64_t offset, int write_side) {
+  if (offset > (uint64_t)INT64_MAX)
+    return -EINVAL;
+
+  const struct linux_iovec *vec = NULL;
+  long ret = validate_iov(iov, iovcnt, &vec);
+  if (ret < 0 || iovcnt == 0)
+    return ret;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+
+  loff_t saved_pos = f->f_pos;
+  f->f_pos = (loff_t)offset;
+
+  long total = 0;
+  for (size_t i = 0; i < (size_t)iovcnt; i++) {
+    if (vec[i].iov_len == 0)
+      continue;
+
+    long part = write_side ? vfs_write(f, (const char *)(uintptr_t)vec[i].iov_base,
+                                       (size_t)vec[i].iov_len)
+                           : vfs_read(f, (char *)(uintptr_t)vec[i].iov_base,
+                                      (size_t)vec[i].iov_len);
+    if (part < 0) {
+      ret = total > 0 ? total : part;
+      goto out;
+    }
+    total += part;
+    if ((uint64_t)part != vec[i].iov_len) {
+      ret = total;
+      goto out;
+    }
+  }
+
+  ret = total;
+
+out:
+  f->f_pos = saved_pos;
+  return ret;
+}
+
 static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
                      uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -1159,6 +1236,40 @@ static long sys_pwrite64(uint64_t fd, uint64_t buf, uint64_t count,
   (void)a5;
 
   return do_fd_pwrite(fd, buf, count, offset);
+}
+
+static long sys_preadv(uint64_t fd, uint64_t iov, uint64_t iovcnt,
+                       uint64_t offset, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  return do_fd_piov(fd, iov, iovcnt, offset, 0);
+}
+
+static long sys_pwritev(uint64_t fd, uint64_t iov, uint64_t iovcnt,
+                        uint64_t offset, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  return do_fd_piov(fd, iov, iovcnt, offset, 1);
+}
+
+static long sys_preadv2(uint64_t fd, uint64_t iov, uint64_t iovcnt,
+                        uint64_t offset, uint64_t flags, uint64_t a5) {
+  (void)a5;
+
+  if (flags != 0)
+    return -EINVAL;
+  return do_fd_piov(fd, iov, iovcnt, offset, 0);
+}
+
+static long sys_pwritev2(uint64_t fd, uint64_t iov, uint64_t iovcnt,
+                         uint64_t offset, uint64_t flags, uint64_t a5) {
+  (void)a5;
+
+  if (flags != 0)
+    return -EINVAL;
+  return do_fd_piov(fd, iov, iovcnt, offset, 1);
 }
 
 static long write_kernel_to_fd(struct task_struct *task, uint64_t fd,
@@ -4014,6 +4125,8 @@ void syscall_init(void) {
   syscall_table[SYS_writev] = sys_writev;
   syscall_table[SYS_pread64] = sys_pread64;
   syscall_table[SYS_pwrite64] = sys_pwrite64;
+  syscall_table[SYS_preadv] = sys_preadv;
+  syscall_table[SYS_pwritev] = sys_pwritev;
   syscall_table[SYS_sendfile] = sys_sendfile;
   syscall_table[SYS_readahead] = sys_readahead;
   syscall_table[SYS_fadvise64] = sys_fadvise64;
@@ -4063,6 +4176,8 @@ void syscall_init(void) {
   syscall_table[SYS_mincore] = sys_mincore;
   syscall_table[SYS_madvise] = sys_madvise;
   syscall_table[SYS_copy_file_range] = sys_copy_file_range;
+  syscall_table[SYS_preadv2] = sys_preadv2;
+  syscall_table[SYS_pwritev2] = sys_pwritev2;
   syscall_table[SYS_clone] = sys_clone;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
