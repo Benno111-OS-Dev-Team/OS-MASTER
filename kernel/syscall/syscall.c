@@ -29,6 +29,8 @@
 #define AT_REMOVEDIR 0x200
 #define AT_EACCESS 0x200
 #define AT_EMPTY_PATH 0x1000
+#define UTIME_NOW 1073741823L
+#define UTIME_OMIT 1073741822L
 #define MS_RDONLY 1
 #define ST_RDONLY 1
 #define F_OK 0
@@ -487,6 +489,15 @@ static void runtime_to_timeval(uint64_t runtime, struct timeval *tv) {
   tv->tv_usec = (suseconds_t)((runtime % 1000000000ULL) / 1000ULL);
 }
 
+static struct timespec current_timespec(void) {
+  uint64_t ns = kernel_time_ns();
+  struct timespec ts;
+
+  ts.tv_sec = (time_t)(ns / 1000000000ULL);
+  ts.tv_nsec = (long)(ns % 1000000000ULL);
+  return ts;
+}
+
 static void init_resource_limits_once(void) {
   if (resource_limits_initialized)
     return;
@@ -617,18 +628,29 @@ static long check_inode_access(const struct inode *inode, int mode) {
     return -EINVAL;
 
   task = get_current();
-  if (task && task->uid == 0) {
+  if (task && task->euid == 0) {
     if ((mode & X_OK) && !(inode->i_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
       return -EACCES;
     return 0;
   }
 
-  if (task && task->uid == inode->i_uid)
+  if (task && task->euid == inode->i_uid) {
     allowed = (inode->i_mode & S_IRWXU) >> 6;
-  else if (task && task->gid == inode->i_gid)
+  } else if (task && task->egid == inode->i_gid) {
     allowed = (inode->i_mode & S_IRWXG) >> 3;
-  else
+  } else if (task) {
+    int in_group = 0;
+    for (int i = 0; i < task->group_count; i++) {
+      if (task->groups[i] == inode->i_gid) {
+        in_group = 1;
+        break;
+      }
+    }
+    allowed = in_group ? ((inode->i_mode & S_IRWXG) >> 3)
+                       : (inode->i_mode & S_IRWXO);
+  } else {
     allowed = inode->i_mode & S_IRWXO;
+  }
 
   if ((mode & R_OK) && !(allowed & 4))
     return -EACCES;
@@ -636,6 +658,82 @@ static long check_inode_access(const struct inode *inode, int mode) {
     return -EACCES;
   if ((mode & X_OK) && !(allowed & 1))
     return -EACCES;
+  return 0;
+}
+
+static long chmod_inode(struct inode *inode, mode_t mode) {
+  struct task_struct *task = get_current();
+
+  if (!inode)
+    return -ENOENT;
+  if (!task)
+    return -ESRCH;
+  if (task->euid != 0 && task->euid != inode->i_uid)
+    return -EPERM;
+
+  inode->i_mode = (inode->i_mode & S_IFMT) | (mode & 07777);
+  inode->i_ctime = current_timespec();
+  return 0;
+}
+
+static long chown_inode(struct inode *inode, uint64_t owner, uint64_t group) {
+  struct task_struct *task = get_current();
+
+  if (!inode)
+    return -ENOENT;
+  if (!task)
+    return -ESRCH;
+  if (task->euid != 0)
+    return -EPERM;
+
+  if ((int64_t)owner != -1) {
+    if (owner > UINT32_MAX)
+      return -EINVAL;
+    inode->i_uid = (uid_t)owner;
+  }
+  if ((int64_t)group != -1) {
+    if (group > UINT32_MAX)
+      return -EINVAL;
+    inode->i_gid = (gid_t)group;
+  }
+  inode->i_ctime = current_timespec();
+  return 0;
+}
+
+static long utimens_inode(struct inode *inode, const struct timespec *times) {
+  struct task_struct *task = get_current();
+  struct timespec now;
+
+  if (!inode)
+    return -ENOENT;
+  if (!task)
+    return -ESRCH;
+  if (task->euid != 0 && task->euid != inode->i_uid)
+    return -EPERM;
+
+  now = current_timespec();
+  if (!times) {
+    inode->i_atime = now;
+    inode->i_mtime = now;
+  } else {
+    if ((times[0].tv_nsec < 0 || times[0].tv_nsec >= 1000000000L) &&
+        times[0].tv_nsec != UTIME_NOW && times[0].tv_nsec != UTIME_OMIT)
+      return -EINVAL;
+    if ((times[1].tv_nsec < 0 || times[1].tv_nsec >= 1000000000L) &&
+        times[1].tv_nsec != UTIME_NOW && times[1].tv_nsec != UTIME_OMIT)
+      return -EINVAL;
+
+    if (times[0].tv_nsec == UTIME_NOW)
+      inode->i_atime = now;
+    else if (times[0].tv_nsec != UTIME_OMIT)
+      inode->i_atime = times[0];
+
+    if (times[1].tv_nsec == UTIME_NOW)
+      inode->i_mtime = now;
+    else if (times[1].tv_nsec != UTIME_OMIT)
+      inode->i_mtime = times[1];
+  }
+  inode->i_ctime = now;
   return 0;
 }
 
@@ -886,7 +984,10 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   }
 
   /* Open the file */
-  struct file *f = vfs_open(path, (int)flags, (mode_t)mode);
+  mode_t create_mode = (mode_t)mode;
+  if (flags & O_CREAT)
+    create_mode &= ~(task->umask);
+  struct file *f = vfs_open(path, (int)flags, create_mode);
   if (!f) {
     free_fd(task, fd);
     return -ENOENT;
@@ -1301,6 +1402,135 @@ static long sys_fstatfs(uint64_t fd, uint64_t statbuf, uint64_t a2,
   if (!f)
     return -EBADF;
   return copy_file_statfs(f, statbuf);
+}
+
+static long sys_fchmod(uint64_t fd, uint64_t mode, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f || !f->f_dentry)
+    return -EBADF;
+  return chmod_inode(f->f_dentry->d_inode, (mode_t)mode);
+}
+
+static long sys_fchmodat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
+                         uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW)
+    return -EINVAL;
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_RDONLY, 0);
+  if (!f)
+    return -ENOENT;
+  ret = f->f_dentry ? chmod_inode(f->f_dentry->d_inode, (mode_t)mode) : -ENOENT;
+  vfs_close(f);
+  return ret;
+}
+
+static long sys_fchown(uint64_t fd, uint64_t owner, uint64_t group, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f || !f->f_dentry)
+    return -EBADF;
+  return chown_inode(f->f_dentry->d_inode, owner, group);
+}
+
+static long sys_fchownat(uint64_t dirfd, uint64_t pathname, uint64_t owner,
+                         uint64_t group, uint64_t flags, uint64_t a5) {
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW)
+    return -EINVAL;
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_RDONLY, 0);
+  if (!f)
+    return -ENOENT;
+  ret = f->f_dentry ? chown_inode(f->f_dentry->d_inode, owner, group) : -ENOENT;
+  vfs_close(f);
+  return ret;
+}
+
+static long sys_utimensat(uint64_t dirfd, uint64_t pathname, uint64_t times,
+                          uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  struct timespec kernel_times[2];
+  const struct timespec *times_ptr = NULL;
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW)
+    return -EINVAL;
+  if (times) {
+    if (!is_valid_user_ptr(times, sizeof(kernel_times)))
+      return -EFAULT;
+    kernel_times[0] = ((const struct timespec *)(uintptr_t)times)[0];
+    kernel_times[1] = ((const struct timespec *)(uintptr_t)times)[1];
+    times_ptr = kernel_times;
+  }
+
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_RDONLY, 0);
+  if (!f)
+    return -ENOENT;
+  ret = f->f_dentry ? utimens_inode(f->f_dentry->d_inode, times_ptr) : -ENOENT;
+  vfs_close(f);
+  return ret;
 }
 
 static long sys_exit(uint64_t error_code, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -2220,7 +2450,7 @@ static long sys_mkdirat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
   ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
   if (ret < 0)
     return ret;
-  return vfs_mkdir(path, (mode_t)mode);
+  return vfs_mkdir(path, (mode_t)mode & ~(task->umask));
 }
 
 static long sys_unlinkat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
@@ -2887,6 +3117,10 @@ void syscall_init(void) {
   syscall_table[SYS_mount] = sys_mount;
   syscall_table[SYS_statfs] = sys_statfs;
   syscall_table[SYS_fstatfs] = sys_fstatfs;
+  syscall_table[SYS_fchmod] = sys_fchmod;
+  syscall_table[SYS_fchmodat] = sys_fchmodat;
+  syscall_table[SYS_fchownat] = sys_fchownat;
+  syscall_table[SYS_fchown] = sys_fchown;
   syscall_table[SYS_mkdirat] = sys_mkdirat;
   syscall_table[SYS_unlinkat] = sys_unlinkat;
   syscall_table[SYS_renameat] = sys_renameat;
@@ -2902,6 +3136,7 @@ void syscall_init(void) {
   syscall_table[SYS_readlinkat] = sys_readlinkat;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
   syscall_table[SYS_fstat] = sys_fstat;
+  syscall_table[SYS_utimensat] = sys_utimensat;
   syscall_table[SYS_sync] = sys_sync;
   syscall_table[SYS_fsync] = sys_fsync;
   syscall_table[SYS_fdatasync] = sys_fdatasync;
