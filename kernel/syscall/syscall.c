@@ -8,6 +8,7 @@
 #include "drivers/uart.h"
 #include "fs/vfs.h"
 #include "mm/kmalloc.h"
+#include "mm/vmm.h"
 #include "printk.h"
 #include "sched/sched.h"
 #include "sched/signal.h"
@@ -94,6 +95,17 @@
 #define RLIMIT_RTTIME 15
 #define RLIMIT_NLIMITS 16
 #define RLIM_INFINITY UINT64_MAX
+#define PROT_NONE 0x0
+#define PROT_READ 0x1
+#define PROT_WRITE 0x2
+#define PROT_EXEC 0x4
+#define MAP_SHARED 0x01
+#define MAP_PRIVATE 0x02
+#define MAP_FIXED 0x10
+#define MAP_ANONYMOUS 0x20
+#define MAP_FIXED_NOREPLACE 0x100000
+#define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
+#define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -122,6 +134,26 @@ static struct task_struct *current_task_with_files(void) {
   if (init_task_files(task) != 0)
     return NULL;
   return task;
+}
+
+static struct mm_struct *ensure_task_mm(struct task_struct *task) {
+  if (!task)
+    return NULL;
+  if (!task->mm) {
+    task->mm = vmm_create_address_space();
+    if (!task->mm)
+      return NULL;
+    task->active_mm = task->mm;
+  }
+  if (task->mm->start_brk == 0) {
+    task->mm->start_brk = USER_HEAP_BASE;
+    task->mm->brk = USER_HEAP_BASE;
+  }
+  if (task->mm->mmap_base == 0) {
+    task->mm->mmap_base = USER_MMAP_BASE;
+    task->mm->mmap_next = USER_MMAP_BASE;
+  }
+  return task->mm;
 }
 
 static int alloc_fd_from(struct task_struct *task, int min_fd) {
@@ -2895,12 +2927,17 @@ static long sys_readlinkat(uint64_t dirfd, uint64_t pathname, uint64_t buf,
   return ret;
 }
 
-/* Userspace heap management - dedicated region for userspace processes */
-#define USER_HEAP_START 0x10000000UL /* 256MB mark */
-#define USER_HEAP_SIZE 0x04000000UL  /* 64MB heap */
-static uint64_t user_brk_current = USER_HEAP_START;
-static uint64_t user_mmap_current =
-    USER_HEAP_START + USER_HEAP_SIZE / 2; /* mmap from middle */
+static uint32_t mmap_prot_to_vm_flags(uint64_t prot) {
+  uint32_t vm_flags = VM_USER;
+
+  if (prot & PROT_READ)
+    vm_flags |= VM_READ;
+  if (prot & PROT_WRITE)
+    vm_flags |= VM_WRITE;
+  if (prot & PROT_EXEC)
+    vm_flags |= VM_EXEC;
+  return vm_flags;
+}
 
 static long sys_brk(uint64_t brk, uint64_t a1, uint64_t a2, uint64_t a3,
                     uint64_t a4, uint64_t a5) {
@@ -2910,55 +2947,77 @@ static long sys_brk(uint64_t brk, uint64_t a1, uint64_t a2, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  /* If brk is 0 or less than start, return current brk */
-  if (brk == 0 || brk < USER_HEAP_START) {
-    return user_brk_current;
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+
+  if (brk == 0)
+    return mm->brk;
+  if (brk < mm->start_brk)
+    return mm->brk;
+
+  if (brk > USER_HEAP_LIMIT)
+    return mm->brk;
+
+  if (brk > mm->brk) {
+    uint64_t map_start = (mm->brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t map_end = (brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    if (map_end > map_start &&
+        vmm_map_user_range(mm, map_start, (size_t)(map_end - map_start),
+                           VM_USER | VM_READ | VM_WRITE) != 0) {
+      return mm->brk;
+    }
   }
 
-  /* Check bounds */
-  if (brk > USER_HEAP_START + USER_HEAP_SIZE / 2) {
-    /* Would overlap with mmap region */
-    return user_brk_current;
-  }
-
-  /* Extend brk */
-  user_brk_current = brk;
-  return user_brk_current;
+  mm->brk = brk;
+  return mm->brk;
 }
 
 static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
                      uint64_t fd, uint64_t offset) {
-  (void)addr;
-  (void)prot;
   (void)offset;
-
-/* Only support anonymous mappings for now */
-#define MAP_ANONYMOUS 0x20
-  if (!(flags & MAP_ANONYMOUS) || (int64_t)fd != -1) {
-    printk(KERN_DEBUG "sys_mmap: only anonymous mappings supported\n");
-    return -ENOSYS;
-  }
 
   if (len == 0 || len > UINT64_MAX - (PAGE_SIZE - 1))
     return -EINVAL;
-
-/* Align len to page size */
-  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-
-  /* Check bounds */
-  if (len > (USER_HEAP_START + USER_HEAP_SIZE) - user_mmap_current) {
-    printk(KERN_WARNING "sys_mmap: out of memory\n");
-    return -ENOMEM;
+  if (prot & ~(uint64_t)(PROT_READ | PROT_WRITE | PROT_EXEC))
+    return -EINVAL;
+  if ((flags & (MAP_PRIVATE | MAP_SHARED)) == 0 ||
+      (flags & (MAP_PRIVATE | MAP_SHARED)) == (MAP_PRIVATE | MAP_SHARED))
+    return -EINVAL;
+  if (!(flags & MAP_ANONYMOUS) || (int64_t)fd != -1) {
+    printk(KERN_DEBUG "sys_mmap: file-backed mappings unsupported\n");
+    return -ENOSYS;
   }
 
-  /* Allocate from mmap region */
-  uint64_t result = user_mmap_current;
-  user_mmap_current += len;
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
 
-  /* Zero the memory */
-  uint8_t *p = (uint8_t *)result;
-  for (size_t i = 0; i < len; i++)
-    p[i] = 0;
+  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  if (len > USER_MMAP_LIMIT - mm->mmap_base)
+    return -ENOMEM;
+
+  uint64_t result;
+  if (flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) {
+    if ((addr & (PAGE_SIZE - 1)) != 0 || addr < USER_MMAP_BASE ||
+        len > USER_MMAP_LIMIT - addr)
+      return -EINVAL;
+    result = addr;
+  } else {
+    result = (mm->mmap_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    if (len > USER_MMAP_LIMIT - result)
+      return -ENOMEM;
+  }
+
+  uint32_t vm_flags = mmap_prot_to_vm_flags(prot);
+  if (flags & MAP_SHARED)
+    vm_flags |= VM_SHARED;
+  if (vmm_map_user_range(mm, result, (size_t)len, vm_flags) != 0)
+    return (flags & MAP_FIXED_NOREPLACE) ? -EEXIST : -ENOMEM;
+  if (!(flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)))
+    mm->mmap_next = result + len;
 
   return result;
 }
@@ -2972,8 +3031,40 @@ static long sys_munmap(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  /* Current heap allocator does not reclaim individual mappings yet. */
-  return 0;
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  if ((addr & (PAGE_SIZE - 1)) != 0 || len == 0)
+    return -EINVAL;
+  if (len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  return vmm_unmap_user_range(mm, addr, (size_t)len) == 0 ? 0 : -EINVAL;
+}
+
+static long sys_mprotect(uint64_t addr, uint64_t len, uint64_t prot,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if ((addr & (PAGE_SIZE - 1)) != 0 || len == 0)
+    return -EINVAL;
+  if (prot & ~(uint64_t)(PROT_READ | PROT_WRITE | PROT_EXEC))
+    return -EINVAL;
+  if (len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  return vmm_protect_user_range(mm, addr, (size_t)len,
+                                mmap_prot_to_vm_flags(prot)) == 0
+             ? 0
+             : -ENOMEM;
 }
 
 extern long do_fork(unsigned long flags);
@@ -3484,6 +3575,7 @@ void syscall_init(void) {
   syscall_table[SYS_brk] = sys_brk;
   syscall_table[SYS_mmap] = sys_mmap;
   syscall_table[SYS_munmap] = sys_munmap;
+  syscall_table[SYS_mprotect] = sys_mprotect;
   syscall_table[SYS_clone] = sys_clone;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;

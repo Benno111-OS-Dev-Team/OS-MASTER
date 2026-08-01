@@ -121,6 +121,10 @@ struct mm_struct {
     /* Heap (brk) */
     uint64_t start_brk;         /* Start of heap */
     uint64_t brk;               /* Current program break */
+
+    /* Anonymous mmap allocator */
+    uint64_t mmap_base;         /* Start of mmap region */
+    uint64_t mmap_next;         /* Next free mmap address */
     
     /* Stack */
     uint64_t start_stack;       /* Start of user stack */
@@ -197,6 +201,40 @@ phys_addr_t vmm_virt_to_phys(virt_addr_t vaddr);
  * Return: Pointer to mm_struct, or NULL on failure
  */
 struct mm_struct *vmm_create_address_space(void);
+
+/**
+ * vmm_map_user_range - Allocate and map a user range
+ * @mm: Address space to modify
+ * @vaddr: Requested virtual address
+ * @size: Size in bytes
+ * @flags: Protection flags
+ *
+ * Return: 0 on success, negative on error
+ */
+int vmm_map_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
+                       uint32_t flags);
+
+/**
+ * vmm_unmap_user_range - Unmap and forget a user range
+ * @mm: Address space to modify
+ * @vaddr: Starting virtual address
+ * @size: Size in bytes
+ *
+ * Return: 0 on success, negative on error
+ */
+int vmm_unmap_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size);
+
+/**
+ * vmm_protect_user_range - Change VMA protection metadata
+ * @mm: Address space to modify
+ * @vaddr: Starting virtual address
+ * @size: Size in bytes
+ * @flags: New VM_* protection flags
+ *
+ * Return: 0 on success, negative on error
+ */
+int vmm_protect_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
+                           uint32_t flags);
 
 /**
  * vmm_destroy_address_space - Free an address space
