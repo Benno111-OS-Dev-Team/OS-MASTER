@@ -121,6 +121,9 @@ struct task_struct {
   uint8_t files_initialized;
   char cwd[TASK_CWD_MAX];
   uint8_t cwd_initialized;
+  uint64_t clear_child_tid;
+  uint64_t robust_list;
+  size_t robust_list_len;
 
   /* Kernel stack */
   void *stack;

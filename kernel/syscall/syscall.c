@@ -195,6 +195,7 @@
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 #define UTS_NAME_LEN 64
+#define ROBUST_LIST_HEAD_LEN 24
 
 static uint64_t kernel_time_ns(void);
 static struct timespec current_timespec(void);
@@ -1218,6 +1219,12 @@ struct linux_itimerspec {
 struct linux_itimerval {
   struct timeval it_interval;
   struct timeval it_value;
+};
+
+struct linux_robust_list_head {
+  uint64_t list_next;
+  long futex_offset;
+  uint64_t list_op_pending;
 };
 
 struct linux_sysinfo {
@@ -5569,6 +5576,66 @@ static long sys_clone(uint64_t flags, uint64_t stack, uint64_t ptid,
   return do_fork((unsigned long)flags);
 }
 
+static long sys_set_tid_address(uint64_t tidptr, uint64_t a1, uint64_t a2,
+                                uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+  if (tidptr && !is_valid_user_ptr(tidptr, sizeof(uint32_t)))
+    return -EFAULT;
+
+  task->clear_child_tid = tidptr;
+  return task->pid;
+}
+
+static long sys_set_robust_list(uint64_t head, uint64_t len, uint64_t a2,
+                                uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+  if (len != sizeof(struct linux_robust_list_head) &&
+      len != ROBUST_LIST_HEAD_LEN)
+    return -EINVAL;
+  if (head && !is_valid_user_ptr(head, (size_t)len))
+    return -EFAULT;
+
+  task->robust_list = head;
+  task->robust_list_len = (size_t)len;
+  return 0;
+}
+
+static long sys_get_robust_list(uint64_t pid, uint64_t head_ptr,
+                                uint64_t len_ptr, uint64_t a3, uint64_t a4,
+                                uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(head_ptr, sizeof(uint64_t)) ||
+      !is_valid_user_ptr(len_ptr, sizeof(size_t)))
+    return -EFAULT;
+
+  struct task_struct *task =
+      pid ? get_task_by_pid((pid_t)pid) : get_current();
+  if (!task)
+    return -ESRCH;
+
+  *(uint64_t *)(uintptr_t)head_ptr = task->robust_list;
+  *(size_t *)(uintptr_t)len_ptr = task->robust_list_len;
+  return 0;
+}
+
 static long sys_wait4(uint64_t pid, uint64_t status, uint64_t options,
                       uint64_t rusage, uint64_t a4, uint64_t a5) {
   (void)rusage;
@@ -6314,6 +6381,9 @@ void syscall_init(void) {
   syscall_table[SYS_fdatasync] = sys_fdatasync;
   syscall_table[SYS_exit] = sys_exit;
   syscall_table[SYS_exit_group] = sys_exit_group;
+  syscall_table[SYS_set_tid_address] = sys_set_tid_address;
+  syscall_table[SYS_set_robust_list] = sys_set_robust_list;
+  syscall_table[SYS_get_robust_list] = sys_get_robust_list;
   syscall_table[SYS_wait4] = sys_wait4;
   syscall_table[SYS_getpid] = sys_getpid;
   syscall_table[SYS_getppid] = sys_getppid;

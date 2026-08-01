@@ -6,6 +6,7 @@
 #include "sched/signal.h"
 #include "fs/vfs.h"
 #include "mm/pmm.h"
+#include "mm/vmm.h"
 #include "printk.h"
 #include "string.h"
 
@@ -230,6 +231,22 @@ static void reparent_children(struct task_struct *exiting)
     }
 }
 
+static void clear_child_tid_on_exit(struct task_struct *task)
+{
+    struct mm_struct *mm;
+
+    if (!task || task->clear_child_tid == 0) {
+        return;
+    }
+
+    mm = task->mm ? task->mm : task->active_mm;
+    if (mm && vmm_user_range_mapped(mm, (virt_addr_t)task->clear_child_tid,
+                                    sizeof(uint32_t)) > 0) {
+        *(uint32_t *)(uintptr_t)task->clear_child_tid = 0;
+    }
+    task->clear_child_tid = 0;
+}
+
 /* ===================================================================== */
 /* Public functions */
 /* ===================================================================== */
@@ -390,6 +407,7 @@ void exit_task(int code)
     current->exit_code = code;
     current->state = TASK_ZOMBIE;
     current->flags |= PF_EXITING;
+    clear_child_tid_on_exit(current);
     close_task_files(current);
     
     /* Remove from run queue */
