@@ -117,6 +117,13 @@
 #define MADV_NOHUGEPAGE 15
 #define MADV_DONTDUMP 16
 #define MADV_DODUMP 17
+#define POSIX_FADV_NORMAL 0
+#define POSIX_FADV_RANDOM 1
+#define POSIX_FADV_SEQUENTIAL 2
+#define POSIX_FADV_WILLNEED 3
+#define POSIX_FADV_DONTNEED 4
+#define POSIX_FADV_NOREUSE 5
+#define FILE_COPY_CHUNK 4096
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
@@ -1152,6 +1159,215 @@ static long sys_pwrite64(uint64_t fd, uint64_t buf, uint64_t count,
   (void)a5;
 
   return do_fd_pwrite(fd, buf, count, offset);
+}
+
+static long write_kernel_to_fd(struct task_struct *task, uint64_t fd,
+                               const char *buf, size_t count) {
+  if (!task || fd >= TASK_MAX_FDS)
+    return -EBADF;
+
+  if (task->files[fd].in_use && !task->files[fd].file &&
+      (task->files[fd].flags & O_ACCMODE) != O_RDONLY) {
+    for (size_t i = 0; i < count; i++)
+      uart_putc(buf[i]);
+    return (long)count;
+  }
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+  return vfs_write(f, buf, count);
+}
+
+static long copy_between_fds(struct task_struct *task, uint64_t out_fd,
+                             uint64_t in_fd, loff_t *in_pos, loff_t *out_pos,
+                             size_t count) {
+  if (!task)
+    return -ESRCH;
+  if (in_fd >= TASK_MAX_FDS || out_fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (count == 0)
+    return 0;
+  if (count > (size_t)SSIZE_MAX)
+    count = (size_t)SSIZE_MAX;
+
+  struct file *in = get_file(task, (int)in_fd);
+  if (!in)
+    return -EBADF;
+  if (!in->f_op || !in->f_op->read)
+    return -EINVAL;
+
+  char *buf = (char *)kmalloc(FILE_COPY_CHUNK, GFP_KERNEL);
+  if (!buf)
+    return -ENOMEM;
+
+  loff_t saved_in = in->f_pos;
+  loff_t saved_out = 0;
+  struct file *out_file = NULL;
+  if (in_pos)
+    in->f_pos = *in_pos;
+  if (out_pos) {
+    out_file = get_file(task, (int)out_fd);
+    if (!out_file) {
+      kfree(buf);
+      if (in_pos)
+        in->f_pos = saved_in;
+      return -EBADF;
+    }
+    saved_out = out_file->f_pos;
+    out_file->f_pos = *out_pos;
+  }
+
+  size_t copied = 0;
+  long ret = 0;
+  while (copied < count) {
+    size_t chunk = count - copied;
+    if (chunk > FILE_COPY_CHUNK)
+      chunk = FILE_COPY_CHUNK;
+
+    ssize_t bytes_read = vfs_read(in, buf, chunk);
+    if (bytes_read < 0) {
+      ret = copied > 0 ? (long)copied : bytes_read;
+      break;
+    }
+    if (bytes_read == 0) {
+      ret = (long)copied;
+      break;
+    }
+
+    long bytes_written = write_kernel_to_fd(task, out_fd, buf,
+                                            (size_t)bytes_read);
+    if (bytes_written < 0) {
+      ret = copied > 0 ? (long)copied : bytes_written;
+      break;
+    }
+
+    copied += (size_t)bytes_written;
+    if (bytes_written != bytes_read) {
+      ret = (long)copied;
+      break;
+    }
+  }
+
+  if (ret == 0)
+    ret = (long)copied;
+  if (in_pos) {
+    *in_pos = in->f_pos;
+    in->f_pos = saved_in;
+  }
+  if (out_pos && out_file) {
+    *out_pos = out_file->f_pos;
+    out_file->f_pos = saved_out;
+  }
+  kfree(buf);
+  return ret;
+}
+
+static long sys_sendfile(uint64_t out_fd, uint64_t in_fd, uint64_t offset,
+                         uint64_t count, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  if (count > (uint64_t)SSIZE_MAX)
+    count = (uint64_t)SSIZE_MAX;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  loff_t pos;
+  loff_t *pos_ptr = NULL;
+  if (offset) {
+    if (!is_valid_user_ptr(offset, sizeof(loff_t)))
+      return -EFAULT;
+    pos = *(loff_t *)(uintptr_t)offset;
+    if (pos < 0)
+      return -EINVAL;
+    pos_ptr = &pos;
+  }
+
+  long ret = copy_between_fds(task, out_fd, in_fd, pos_ptr, NULL,
+                              (size_t)count);
+  if (ret >= 0 && offset && pos_ptr)
+    *(loff_t *)(uintptr_t)offset = *pos_ptr;
+  return ret;
+}
+
+static long sys_copy_file_range(uint64_t fd_in, uint64_t off_in,
+                                uint64_t fd_out, uint64_t off_out,
+                                uint64_t len, uint64_t flags) {
+  if (flags != 0)
+    return -EINVAL;
+  if (len > (uint64_t)SSIZE_MAX)
+    len = (uint64_t)SSIZE_MAX;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  loff_t in_pos;
+  loff_t out_pos;
+  loff_t *in_ptr = NULL;
+  loff_t *out_ptr = NULL;
+  if (off_in) {
+    if (!is_valid_user_ptr(off_in, sizeof(loff_t)))
+      return -EFAULT;
+    in_pos = *(loff_t *)(uintptr_t)off_in;
+    if (in_pos < 0)
+      return -EINVAL;
+    in_ptr = &in_pos;
+  }
+  if (off_out) {
+    if (!is_valid_user_ptr(off_out, sizeof(loff_t)))
+      return -EFAULT;
+    out_pos = *(loff_t *)(uintptr_t)off_out;
+    if (out_pos < 0)
+      return -EINVAL;
+    out_ptr = &out_pos;
+  }
+
+  long ret = copy_between_fds(task, fd_out, fd_in, in_ptr, out_ptr,
+                              (size_t)len);
+  if (ret >= 0) {
+    if (off_in && in_ptr)
+      *(loff_t *)(uintptr_t)off_in = *in_ptr;
+    if (off_out && out_ptr)
+      *(loff_t *)(uintptr_t)off_out = *out_ptr;
+  }
+  return ret;
+}
+
+static long sys_readahead(uint64_t fd, uint64_t offset, uint64_t count,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)offset;
+  (void)count;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  return get_file(task, (int)fd) ? 0 : -EBADF;
+}
+
+static long sys_fadvise64(uint64_t fd, uint64_t offset, uint64_t len,
+                          uint64_t advice, uint64_t a4, uint64_t a5) {
+  (void)offset;
+  (void)len;
+  (void)a4;
+  (void)a5;
+
+  if (advice > POSIX_FADV_NOREUSE)
+    return -EINVAL;
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  return get_file(task, (int)fd) ? 0 : -EBADF;
 }
 
 static long sys_fsync(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -3798,6 +4014,9 @@ void syscall_init(void) {
   syscall_table[SYS_writev] = sys_writev;
   syscall_table[SYS_pread64] = sys_pread64;
   syscall_table[SYS_pwrite64] = sys_pwrite64;
+  syscall_table[SYS_sendfile] = sys_sendfile;
+  syscall_table[SYS_readahead] = sys_readahead;
+  syscall_table[SYS_fadvise64] = sys_fadvise64;
   syscall_table[SYS_openat] = sys_openat;
   syscall_table[SYS_close] = sys_close;
   syscall_table[SYS_getdents64] = sys_getdents64;
@@ -3843,6 +4062,7 @@ void syscall_init(void) {
   syscall_table[SYS_msync] = sys_msync;
   syscall_table[SYS_mincore] = sys_mincore;
   syscall_table[SYS_madvise] = sys_madvise;
+  syscall_table[SYS_copy_file_range] = sys_copy_file_range;
   syscall_table[SYS_clone] = sys_clone;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
