@@ -503,6 +503,11 @@ struct linux_pollfd {
   short revents;
 };
 
+struct linux_iovec {
+  uint64_t iov_base;
+  uint64_t iov_len;
+};
+
 struct linux_sysinfo {
   unsigned long uptime;
   unsigned long loads[3];
@@ -909,17 +914,16 @@ static syscall_fn_t syscall_table[NR_syscalls];
 /* System call implementations */
 /* ===================================================================== */
 
-static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
-                     uint64_t a4, uint64_t a5) {
-  (void)a3;
-  (void)a4;
-  (void)a5;
-
+static long do_fd_read(uint64_t fd, uint64_t buf, uint64_t count) {
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
   if (fd >= TASK_MAX_FDS)
     return -EBADF;
+  if (count > (uint64_t)SSIZE_MAX)
+    return -EINVAL;
+  if (count == 0)
+    return 0;
 
   /* Validate user buffer */
   if (!is_valid_user_ptr(buf, count)) {
@@ -973,17 +977,16 @@ static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   return vfs_read(f, (char *)buf, count);
 }
 
-static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
-                      uint64_t a4, uint64_t a5) {
-  (void)a3;
-  (void)a4;
-  (void)a5;
-
+static long do_fd_write(uint64_t fd, uint64_t buf, uint64_t count) {
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
   if (fd >= TASK_MAX_FDS)
     return -EBADF;
+  if (count > (uint64_t)SSIZE_MAX)
+    return -EINVAL;
+  if (count == 0)
+    return 0;
 
   if (count > 0 && !is_valid_user_ptr(buf, count)) {
     return -EFAULT;
@@ -1006,6 +1009,149 @@ static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   }
 
   return vfs_write(f, (const char *)buf, count);
+}
+
+static long do_fd_pread(uint64_t fd, uint64_t buf, uint64_t count,
+                        uint64_t offset) {
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (offset > (uint64_t)INT64_MAX)
+    return -EINVAL;
+  if (count > (uint64_t)SSIZE_MAX)
+    return -EINVAL;
+  if (count == 0)
+    return 0;
+  if (!is_valid_user_ptr(buf, count))
+    return -EFAULT;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+  loff_t saved_pos = f->f_pos;
+  f->f_pos = (loff_t)offset;
+  long ret = vfs_read(f, (char *)buf, count);
+  f->f_pos = saved_pos;
+  return ret;
+}
+
+static long do_fd_pwrite(uint64_t fd, uint64_t buf, uint64_t count,
+                         uint64_t offset) {
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (offset > (uint64_t)INT64_MAX)
+    return -EINVAL;
+  if (count > (uint64_t)SSIZE_MAX)
+    return -EINVAL;
+  if (count == 0)
+    return 0;
+  if (count > 0 && !is_valid_user_ptr(buf, count))
+    return -EFAULT;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+  loff_t saved_pos = f->f_pos;
+  f->f_pos = (loff_t)offset;
+  long ret = vfs_write(f, (const char *)buf, count);
+  f->f_pos = saved_pos;
+  return ret;
+}
+
+static long do_fd_iov(uint64_t fd, uint64_t iov, uint64_t iovcnt,
+                      int write_side) {
+  if (iovcnt == 0)
+    return 0;
+  if (iovcnt > 1024)
+    return -EINVAL;
+  if (!is_valid_user_ptr(iov, sizeof(struct linux_iovec) * (size_t)iovcnt))
+    return -EFAULT;
+
+  const struct linux_iovec *vec = (const struct linux_iovec *)(uintptr_t)iov;
+  uint64_t requested = 0;
+
+  for (size_t i = 0; i < (size_t)iovcnt; i++) {
+    if (vec[i].iov_len > (uint64_t)SSIZE_MAX ||
+        requested > (uint64_t)SSIZE_MAX - vec[i].iov_len)
+      return -EINVAL;
+    if (vec[i].iov_len > 0 &&
+        !is_valid_user_ptr(vec[i].iov_base, (size_t)vec[i].iov_len))
+      return -EFAULT;
+    requested += vec[i].iov_len;
+  }
+
+  long total = 0;
+  for (size_t i = 0; i < (size_t)iovcnt; i++) {
+    if (vec[i].iov_len == 0)
+      continue;
+
+    long ret = write_side ? do_fd_write(fd, vec[i].iov_base, vec[i].iov_len)
+                          : do_fd_read(fd, vec[i].iov_base, vec[i].iov_len);
+    if (ret < 0)
+      return total > 0 ? total : ret;
+    total += ret;
+    if ((uint64_t)ret != vec[i].iov_len)
+      return total;
+  }
+
+  return total;
+}
+
+static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
+                     uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return do_fd_read(fd, buf, count);
+}
+
+static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return do_fd_write(fd, buf, count);
+}
+
+static long sys_readv(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return do_fd_iov(fd, iov, iovcnt, 0);
+}
+
+static long sys_writev(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return do_fd_iov(fd, iov, iovcnt, 1);
+}
+
+static long sys_pread64(uint64_t fd, uint64_t buf, uint64_t count,
+                        uint64_t offset, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  return do_fd_pread(fd, buf, count, offset);
+}
+
+static long sys_pwrite64(uint64_t fd, uint64_t buf, uint64_t count,
+                         uint64_t offset, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  return do_fd_pwrite(fd, buf, count, offset);
 }
 
 static long sys_fsync(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -3648,6 +3794,10 @@ void syscall_init(void) {
   syscall_table[SYS_pipe2] = sys_pipe2;
   syscall_table[SYS_read] = sys_read;
   syscall_table[SYS_write] = sys_write;
+  syscall_table[SYS_readv] = sys_readv;
+  syscall_table[SYS_writev] = sys_writev;
+  syscall_table[SYS_pread64] = sys_pread64;
+  syscall_table[SYS_pwrite64] = sys_pwrite64;
   syscall_table[SYS_openat] = sys_openat;
   syscall_table[SYS_close] = sys_close;
   syscall_table[SYS_getdents64] = sys_getdents64;
