@@ -237,6 +237,27 @@ int vmm_protect_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
                            uint32_t flags);
 
 /**
+ * vmm_user_range_mapped - Test whether a user range is covered by a VMA
+ * @mm: Address space to inspect
+ * @vaddr: Starting virtual address
+ * @size: Size in bytes
+ *
+ * Return: 1 if fully mapped, 0 if not mapped, negative on invalid input
+ */
+int vmm_user_range_mapped(struct mm_struct *mm, virt_addr_t vaddr, size_t size);
+
+/**
+ * vmm_discard_user_range - Discard anonymous user-page contents
+ * @mm: Address space to modify
+ * @vaddr: Starting virtual address
+ * @size: Size in bytes
+ *
+ * Return: 0 on success, negative on error
+ */
+int vmm_discard_user_range(struct mm_struct *mm, virt_addr_t vaddr,
+                           size_t size);
+
+/**
  * vmm_destroy_address_space - Free an address space
  * @mm: Address space to destroy
  */

@@ -725,6 +725,44 @@ int vmm_protect_user_range(struct mm_struct *mm, virt_addr_t vaddr,
     return 0;
 }
 
+int vmm_user_range_mapped(struct mm_struct *mm, virt_addr_t vaddr, size_t size)
+{
+    if (!mm) return -1;
+    virt_addr_t start;
+    virt_addr_t end;
+    if (user_range_bounds(vaddr, size, &start, &end) != 0) return -1;
+
+    struct vm_area *vma = vmm_find_vma(mm, start);
+    return vma_covers_range(vma, start, end) ? 1 : 0;
+}
+
+int vmm_discard_user_range(struct mm_struct *mm, virt_addr_t vaddr,
+                           size_t size)
+{
+    if (!mm) return -1;
+    virt_addr_t start;
+    virt_addr_t end;
+    if (user_range_bounds(vaddr, size, &start, &end) != 0) return -1;
+
+    struct vm_area *vma = vmm_find_vma(mm, start);
+    if (!vma_covers_range(vma, start, end)) return -1;
+
+    for (virt_addr_t addr = start; addr < end; addr += PAGE_SIZE) {
+        uint64_t *pte_table = walk_page_table(mm->pgd, addr, false);
+        if (!pte_table) return -1;
+        int idx = pte_index(addr, 3);
+        uint64_t pte = pte_table[idx];
+        if (!pte_is_valid(pte)) return -1;
+
+        uint8_t *page = (uint8_t *)pte_to_phys(pte);
+        for (size_t i = 0; i < PAGE_SIZE; i++) {
+            page[i] = 0;
+        }
+    }
+
+    return 0;
+}
+
 void vmm_switch_address_space(struct mm_struct *mm)
 {
     if (!mm || !mm->pgd) {

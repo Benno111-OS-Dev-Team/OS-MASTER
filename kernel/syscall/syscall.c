@@ -104,6 +104,19 @@
 #define MAP_FIXED 0x10
 #define MAP_ANONYMOUS 0x20
 #define MAP_FIXED_NOREPLACE 0x100000
+#define MS_ASYNC 1
+#define MS_INVALIDATE 2
+#define MS_SYNC 4
+#define MADV_NORMAL 0
+#define MADV_RANDOM 1
+#define MADV_SEQUENTIAL 2
+#define MADV_WILLNEED 3
+#define MADV_DONTNEED 4
+#define MADV_FREE 8
+#define MADV_HUGEPAGE 14
+#define MADV_NOHUGEPAGE 15
+#define MADV_DONTDUMP 16
+#define MADV_DODUMP 17
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
@@ -3067,6 +3080,107 @@ static long sys_mprotect(uint64_t addr, uint64_t len, uint64_t prot,
              : -ENOMEM;
 }
 
+static int user_mapping_range_valid(struct mm_struct *mm, uint64_t addr,
+                                    uint64_t len) {
+  if ((addr & (PAGE_SIZE - 1)) != 0 || len == 0)
+    return -EINVAL;
+  if (len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  int mapped = vmm_user_range_mapped(mm, addr, (size_t)len);
+  if (mapped < 0)
+    return -EINVAL;
+  return mapped ? 0 : -ENOMEM;
+}
+
+static long sys_msync(uint64_t addr, uint64_t len, uint64_t flags, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)(MS_ASYNC | MS_INVALIDATE | MS_SYNC))
+    return -EINVAL;
+  if ((flags & MS_ASYNC) && (flags & MS_SYNC))
+    return -EINVAL;
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+
+  return user_mapping_range_valid(mm, addr, len);
+}
+
+static long sys_mincore(uint64_t addr, uint64_t len, uint64_t vec, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if ((addr & (PAGE_SIZE - 1)) != 0 || len == 0)
+    return -EINVAL;
+  if (len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  uint64_t aligned_len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  size_t pages = (size_t)(aligned_len / PAGE_SIZE);
+  if (!is_valid_user_ptr(vec, pages))
+    return -EFAULT;
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  int valid = user_mapping_range_valid(mm, addr, aligned_len);
+  if (valid != 0)
+    return valid;
+
+  uint8_t *out = (uint8_t *)(uintptr_t)vec;
+  for (size_t i = 0; i < pages; i++)
+    out[i] = 1;
+  return 0;
+}
+
+static long sys_madvise(uint64_t addr, uint64_t len, uint64_t advice,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if ((addr & (PAGE_SIZE - 1)) != 0 || len == 0)
+    return -EINVAL;
+  if (len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  uint64_t aligned_len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  if (!mm)
+    return -ENOMEM;
+  int valid = user_mapping_range_valid(mm, addr, aligned_len);
+  if (valid != 0)
+    return valid;
+
+  switch (advice) {
+  case MADV_NORMAL:
+  case MADV_RANDOM:
+  case MADV_SEQUENTIAL:
+  case MADV_WILLNEED:
+  case MADV_HUGEPAGE:
+  case MADV_NOHUGEPAGE:
+  case MADV_DONTDUMP:
+  case MADV_DODUMP:
+    return 0;
+  case MADV_DONTNEED:
+  case MADV_FREE:
+    return vmm_discard_user_range(mm, addr, (size_t)aligned_len) == 0 ? 0
+                                                                      : -ENOMEM;
+  default:
+    return -EINVAL;
+  }
+}
+
 extern long do_fork(unsigned long flags);
 
 static long sys_clone(uint64_t flags, uint64_t stack, uint64_t ptid,
@@ -3576,6 +3690,9 @@ void syscall_init(void) {
   syscall_table[SYS_mmap] = sys_mmap;
   syscall_table[SYS_munmap] = sys_munmap;
   syscall_table[SYS_mprotect] = sys_mprotect;
+  syscall_table[SYS_msync] = sys_msync;
+  syscall_table[SYS_mincore] = sys_mincore;
+  syscall_table[SYS_madvise] = sys_madvise;
   syscall_table[SYS_clone] = sys_clone;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
