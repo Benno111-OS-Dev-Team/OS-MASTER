@@ -7,6 +7,7 @@
 #include "arch/arch.h"
 #include "drivers/uart.h"
 #include "fs/vfs.h"
+#include "mm/aslr.h"
 #include "mm/kmalloc.h"
 #include "mm/vmm.h"
 #include "printk.h"
@@ -124,6 +125,9 @@
 #define POSIX_FADV_DONTNEED 4
 #define POSIX_FADV_NOREUSE 5
 #define FILE_COPY_CHUNK 4096
+#define GRND_NONBLOCK 0x0001
+#define GRND_RANDOM 0x0002
+#define GRND_INSECURE 0x0004
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
@@ -4034,6 +4038,52 @@ static long sys_sysinfo(uint64_t info, uint64_t a1, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+static uint64_t random_mix64(uint64_t x) {
+  x ^= x >> 30;
+  x *= 0xbf58476d1ce4e5b9ULL;
+  x ^= x >> 27;
+  x *= 0x94d049bb133111ebULL;
+  x ^= x >> 31;
+  return x;
+}
+
+static long sys_getrandom(uint64_t buf, uint64_t buflen, uint64_t flags,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)(GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE))
+    return -EINVAL;
+  if (buflen > (uint64_t)SSIZE_MAX)
+    buflen = (uint64_t)SSIZE_MAX;
+  if (buflen == 0)
+    return 0;
+  if (!is_valid_user_ptr(buf, (size_t)buflen))
+    return -EFAULT;
+
+  struct task_struct *task = get_current();
+  uint8_t *out = (uint8_t *)(uintptr_t)buf;
+  size_t done = 0;
+
+  while (done < (size_t)buflen) {
+    uint64_t block = aslr_random();
+    block ^= kernel_time_ns();
+    block ^= arch_timer_get_ticks() + (arch_timer_get_frequency() << 17);
+    block ^= ((uint64_t)(uintptr_t)&block << 7);
+    if (task)
+      block ^= ((uint64_t)(uint32_t)task->pid << 32) ^
+               (uint64_t)(uint32_t)task->tgid;
+    block = random_mix64(block + (uint64_t)done);
+
+    for (size_t i = 0; i < sizeof(block) && done < (size_t)buflen; i++) {
+      out[done++] = (uint8_t)(block >> (i * 8));
+    }
+  }
+
+  return (long)done;
+}
+
 static long sys_not_implemented(uint64_t a0, uint64_t a1, uint64_t a2,
                                 uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a0;
@@ -4200,6 +4250,7 @@ void syscall_init(void) {
   syscall_table[SYS_getcpu] = sys_getcpu;
   syscall_table[SYS_gettimeofday] = sys_gettimeofday;
   syscall_table[SYS_sysinfo] = sys_sysinfo;
+  syscall_table[SYS_getrandom] = sys_getrandom;
   syscall_table[SYS_sched_setparam] = sys_sched_setparam;
   syscall_table[SYS_sched_setscheduler] = sys_sched_setscheduler;
   syscall_table[SYS_sched_getscheduler] = sys_sched_getscheduler;
