@@ -11,6 +11,12 @@
 /* ===================================================================== */
 
 #define PIPE_SIZE 4096 /* Pipe buffer size */
+#define PIPE_POLLIN 0x001
+#define PIPE_POLLOUT 0x004
+#define PIPE_POLLERR 0x008
+#define PIPE_POLLHUP 0x010
+#define PIPE_POLLRDNORM 0x040
+#define PIPE_POLLWRNORM 0x100
 
 struct pipe {
   uint8_t *buffer;   /* Ring buffer */
@@ -188,16 +194,54 @@ static int pipe_release_write(struct inode *inode, struct file *file) {
   return 0;
 }
 
+static int pipe_poll_read(struct file *file, short events) {
+  struct pipe *p = (struct pipe *)file->private_data;
+  short ready = 0;
+
+  if (!p)
+    return PIPE_POLLERR;
+
+  pipe_lock(p);
+  if ((events & (PIPE_POLLIN | PIPE_POLLRDNORM)) &&
+      (p->count > 0 || p->writers == 0)) {
+    ready |= events & (PIPE_POLLIN | PIPE_POLLRDNORM);
+  }
+  if (p->writers == 0)
+    ready |= PIPE_POLLHUP;
+  pipe_unlock(p);
+  return ready;
+}
+
+static int pipe_poll_write(struct file *file, short events) {
+  struct pipe *p = (struct pipe *)file->private_data;
+  short ready = 0;
+
+  if (!p)
+    return PIPE_POLLERR;
+
+  pipe_lock(p);
+  if (p->readers == 0) {
+    ready |= PIPE_POLLERR;
+  } else if ((events & (PIPE_POLLOUT | PIPE_POLLWRNORM)) &&
+             p->count < PIPE_SIZE) {
+    ready |= events & (PIPE_POLLOUT | PIPE_POLLWRNORM);
+  }
+  pipe_unlock(p);
+  return ready;
+}
+
 static const struct file_operations pipe_read_ops = {
     .read = pipe_read,
     .write = NULL,
     .release = pipe_release_read,
+    .poll = pipe_poll_read,
 };
 
 static const struct file_operations pipe_write_ops = {
     .read = NULL,
     .write = pipe_write,
     .release = pipe_release_write,
+    .poll = pipe_poll_write,
 };
 
 /* ===================================================================== */

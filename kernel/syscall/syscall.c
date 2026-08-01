@@ -34,6 +34,15 @@
 #define UTIME_OMIT 1073741822L
 #define MS_RDONLY 1
 #define ST_RDONLY 1
+#define POLLIN 0x001
+#define POLLOUT 0x004
+#define POLLERR 0x008
+#define POLLHUP 0x010
+#define POLLNVAL 0x020
+#define POLLRDNORM 0x040
+#define POLLWRNORM 0x100
+#define NFDBITS (sizeof(unsigned long) * 8)
+#define FDSET_WORDS ((TASK_MAX_FDS + NFDBITS - 1) / NFDBITS)
 #define F_OK 0
 #define X_OK 1
 #define W_OK 2
@@ -443,6 +452,12 @@ struct linux_sched_param {
   int __reserved3;
 };
 
+struct linux_pollfd {
+  int fd;
+  short events;
+  short revents;
+};
+
 struct linux_sysinfo {
   unsigned long uptime;
   unsigned long loads[3];
@@ -807,6 +822,35 @@ static int getdents64_fill(void *ctx, const char *name, int len, loff_t offset,
   return 0;
 }
 
+static int fd_readiness(struct task_struct *task, int fd, short events) {
+  short ready = 0;
+
+  if (!task || fd < 0 || fd >= TASK_MAX_FDS || !task->files[fd].in_use)
+    return POLLNVAL;
+
+  if (!task->files[fd].file) {
+    if ((events & (POLLIN | POLLRDNORM)) && fd == 0)
+      ready |= events & (POLLIN | POLLRDNORM);
+    if ((events & (POLLOUT | POLLWRNORM)) && (fd == 1 || fd == 2))
+      ready |= events & (POLLOUT | POLLWRNORM);
+    return ready;
+  }
+
+  return vfs_poll_file(task->files[fd].file, events);
+}
+
+static int fdset_isset(const unsigned long *set, int fd) {
+  return (set[fd / (int)NFDBITS] & (1UL << (fd % (int)NFDBITS))) != 0;
+}
+
+static void fdset_set(unsigned long *set, int fd) {
+  set[fd / (int)NFDBITS] |= 1UL << (fd % (int)NFDBITS);
+}
+
+static size_t fdset_bytes(int nfds) {
+  return ((size_t)nfds + NFDBITS - 1) / NFDBITS * sizeof(unsigned long);
+}
+
 /* ===================================================================== */
 /* System call table */
 /* ===================================================================== */
@@ -958,6 +1002,145 @@ static long sys_sync(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
 static long sys_syncfs(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   return sys_fsync(fd, a1, a2, a3, a4, a5);
+}
+
+static long sys_ppoll(uint64_t fds, uint64_t nfds, uint64_t timeout_ts,
+                      uint64_t sigmask, uint64_t sigsetsize, uint64_t a5) {
+  (void)sigmask;
+  (void)sigsetsize;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  uint64_t deadline = 0;
+  int infinite = 1;
+
+  if (!task)
+    return -ESRCH;
+  if (nfds > TASK_MAX_FDS)
+    return -EINVAL;
+  if (nfds &&
+      !is_valid_user_ptr(fds, sizeof(struct linux_pollfd) * (size_t)nfds))
+    return -EFAULT;
+  if (timeout_ts) {
+    if (!is_valid_user_ptr(timeout_ts, sizeof(struct timespec)))
+      return -EFAULT;
+    const struct timespec *ts = (const struct timespec *)(uintptr_t)timeout_ts;
+    if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000L)
+      return -EINVAL;
+    deadline = arch_timer_get_ms() + (uint64_t)ts->tv_sec * 1000ULL +
+               ((uint64_t)ts->tv_nsec + 999999ULL) / 1000000ULL;
+    infinite = 0;
+  }
+
+  struct linux_pollfd *pollfds = (struct linux_pollfd *)(uintptr_t)fds;
+  for (;;) {
+    long ready_count = 0;
+    for (size_t i = 0; i < (size_t)nfds; i++) {
+      short revents = 0;
+      if (pollfds[i].fd >= 0)
+        revents = (short)fd_readiness(task, pollfds[i].fd, pollfds[i].events);
+      pollfds[i].revents = revents;
+      if (revents)
+        ready_count++;
+    }
+    if (ready_count || (!infinite && arch_timer_get_ms() >= deadline))
+      return ready_count;
+
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
+static long sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds,
+                         uint64_t exceptfds, uint64_t timeout_ts,
+                         uint64_t sigmask_data) {
+  (void)sigmask_data;
+
+  struct task_struct *task = current_task_with_files();
+  size_t bytes;
+  uint64_t deadline = 0;
+  int infinite = 1;
+
+  if (!task)
+    return -ESRCH;
+  if ((int64_t)nfds < 0 || nfds > TASK_MAX_FDS)
+    return -EINVAL;
+  bytes = fdset_bytes((int)nfds);
+  if (readfds && !is_valid_user_ptr(readfds, bytes))
+    return -EFAULT;
+  if (writefds && !is_valid_user_ptr(writefds, bytes))
+    return -EFAULT;
+  if (exceptfds && !is_valid_user_ptr(exceptfds, bytes))
+    return -EFAULT;
+  if (timeout_ts) {
+    if (!is_valid_user_ptr(timeout_ts, sizeof(struct timespec)))
+      return -EFAULT;
+    const struct timespec *ts = (const struct timespec *)(uintptr_t)timeout_ts;
+    if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000L)
+      return -EINVAL;
+    deadline = arch_timer_get_ms() + (uint64_t)ts->tv_sec * 1000ULL +
+               ((uint64_t)ts->tv_nsec + 999999ULL) / 1000000ULL;
+    infinite = 0;
+  }
+
+  unsigned long *rset = (unsigned long *)(uintptr_t)readfds;
+  unsigned long *wset = (unsigned long *)(uintptr_t)writefds;
+  unsigned long *eset = (unsigned long *)(uintptr_t)exceptfds;
+  unsigned long ready_r[FDSET_WORDS];
+  unsigned long ready_w[FDSET_WORDS];
+  unsigned long ready_e[FDSET_WORDS];
+
+  for (;;) {
+    long ready_count = 0;
+    memset(ready_r, 0, sizeof(ready_r));
+    memset(ready_w, 0, sizeof(ready_w));
+    memset(ready_e, 0, sizeof(ready_e));
+
+    for (int fd = 0; fd < (int)nfds; fd++) {
+      short events = 0;
+      if (rset && fdset_isset(rset, fd))
+        events |= POLLIN | POLLRDNORM;
+      if (wset && fdset_isset(wset, fd))
+        events |= POLLOUT | POLLWRNORM;
+      if (eset && fdset_isset(eset, fd))
+        events |= POLLERR;
+      if (!events)
+        continue;
+
+      int ready = fd_readiness(task, fd, events);
+      if (ready & POLLNVAL)
+        return -EBADF;
+      int fd_is_ready = 0;
+      if (rset && (ready & (POLLIN | POLLRDNORM | POLLHUP))) {
+        fdset_set(ready_r, fd);
+        fd_is_ready = 1;
+      }
+      if (wset && (ready & (POLLOUT | POLLWRNORM))) {
+        fdset_set(ready_w, fd);
+        fd_is_ready = 1;
+      }
+      if (eset && (ready & POLLERR)) {
+        fdset_set(ready_e, fd);
+        fd_is_ready = 1;
+      }
+      if (fd_is_ready) {
+        ready_count++;
+      }
+    }
+
+    if (ready_count || (!infinite && arch_timer_get_ms() >= deadline)) {
+      if (rset)
+        memcpy(rset, ready_r, bytes);
+      if (wset)
+        memcpy(wset, ready_w, bytes);
+      if (eset)
+        memcpy(eset, ready_e, bytes);
+      return ready_count;
+    }
+
+    extern void process_yield(void);
+    process_yield();
+  }
 }
 
 static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
@@ -3264,6 +3447,8 @@ void syscall_init(void) {
   syscall_table[SYS_close] = sys_close;
   syscall_table[SYS_getdents64] = sys_getdents64;
   syscall_table[SYS_lseek] = sys_lseek;
+  syscall_table[SYS_pselect6] = sys_pselect6;
+  syscall_table[SYS_ppoll] = sys_ppoll;
   syscall_table[SYS_readlinkat] = sys_readlinkat;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
   syscall_table[SYS_fstat] = sys_fstat;

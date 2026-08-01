@@ -745,6 +745,25 @@ int vfs_truncate_file(struct file *file, loff_t length) {
   return ret;
 }
 
+int vfs_poll_file(struct file *file, short events) {
+  short ready = 0;
+
+  if (!file)
+    return -EBADF;
+  if (file->f_op && file->f_op->poll)
+    return file->f_op->poll(file, events);
+
+  if ((events & 0x001) && file->f_op && file->f_op->read)
+    ready |= 0x001;
+  if ((events & 0x004) && file->f_op && file->f_op->write)
+    ready |= 0x004;
+  if ((events & 0x040) && file->f_op && file->f_op->read)
+    ready |= 0x040;
+  if ((events & 0x100) && file->f_op && file->f_op->write)
+    ready |= 0x100;
+  return ready;
+}
+
 int vfs_sync_file(struct file *file) {
   struct inode *inode;
   struct super_block *sb;

@@ -151,6 +151,7 @@ struct file_operations {
     int (*readdir)(struct file *, void *, int (*)(void *, const char *, int, loff_t, ino_t, unsigned));
     int (*ioctl)(struct file *, unsigned int, unsigned long);
     int (*mmap)(struct file *, void *);
+    int (*poll)(struct file *, short);
 };
 
 /* ===================================================================== */
@@ -311,6 +312,11 @@ int vfs_close(struct file *file);
  * vfs_truncate_file - Resize an open regular file when the backing fs supports it
  */
 int vfs_truncate_file(struct file *file, loff_t length);
+
+/**
+ * vfs_poll_file - Test an open file for requested poll events
+ */
+int vfs_poll_file(struct file *file, short events);
 
 /**
  * vfs_sync_file - Flush a file's backing filesystem if it supports sync
