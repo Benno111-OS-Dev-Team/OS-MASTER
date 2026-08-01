@@ -61,6 +61,9 @@ typedef struct pci_device {
   uint64_t bar0;
   uint64_t bar1;
   uint64_t bar2;
+  uint64_t bar3;
+  uint64_t bar4;
+  uint64_t bar5;
   uint32_t irq;
   struct pci_device *next;
 } pci_device_t;
@@ -113,5 +116,12 @@ static inline void pci_enable_device(pci_device_t *dev) {
 
 /* Find a device by vendor/device ID */
 pci_device_t *pci_find_device(uint16_t vendor, uint16_t device);
+
+/* Iterate discovered devices and find devices by standard PCI class. */
+pci_device_t *pci_first_device(void);
+pci_device_t *pci_find_class(uint8_t class_code, uint8_t subclass,
+                             uint8_t prog_if);
+pci_device_t *pci_find_next_class(pci_device_t *after, uint8_t class_code,
+                                  uint8_t subclass, uint8_t prog_if);
 
 #endif

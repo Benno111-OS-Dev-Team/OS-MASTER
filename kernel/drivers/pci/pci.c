@@ -154,6 +154,27 @@ pci_device_t *pci_find_device(uint16_t vendor, uint16_t device) {
   return NULL;
 }
 
+pci_device_t *pci_first_device(void) { return device_list; }
+
+pci_device_t *pci_find_next_class(pci_device_t *after, uint8_t class_code,
+                                  uint8_t subclass, uint8_t prog_if) {
+  pci_device_t *dev = after ? after->next : device_list;
+  while (dev) {
+    if (dev->class_code == class_code &&
+        (subclass == 0xFF || dev->subclass == subclass) &&
+        (prog_if == 0xFF || dev->prog_if == prog_if)) {
+      return dev;
+    }
+    dev = dev->next;
+  }
+  return NULL;
+}
+
+pci_device_t *pci_find_class(uint8_t class_code, uint8_t subclass,
+                             uint8_t prog_if) {
+  return pci_find_next_class(NULL, class_code, subclass, prog_if);
+}
+
 static uint64_t pci_read_bar(uint8_t bus, uint8_t slot, uint8_t func,
                              uint8_t bar_offset) {
   uint32_t bar_raw = pci_read32(bus, slot, func, bar_offset);
@@ -237,6 +258,23 @@ static uint64_t pci_alloc_bar(uint8_t bus, uint8_t slot, uint8_t func,
 #endif
 }
 
+static void pci_populate_bars(pci_device_t *pci_dev) {
+  uint8_t bar_offsets[6] = {PCI_BAR0, PCI_BAR1, PCI_BAR2,
+                            PCI_BAR3, PCI_BAR4, PCI_BAR5};
+  uint64_t *bars[6] = {&pci_dev->bar0, &pci_dev->bar1, &pci_dev->bar2,
+                       &pci_dev->bar3, &pci_dev->bar4, &pci_dev->bar5};
+
+  for (int i = 0; i < 6; i++) {
+    uint32_t raw = pci_read32(pci_dev->bus, pci_dev->slot, pci_dev->func,
+                              bar_offsets[i]);
+    *bars[i] = pci_alloc_bar(pci_dev->bus, pci_dev->slot, pci_dev->func,
+                             bar_offsets[i]);
+    if (pci_bar_raw_is_64bit(raw) && i + 1 < 6) {
+      *bars[++i] = 0;
+    }
+  }
+}
+
 static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   uint32_t vendor_dev = pci_read32(bus, slot, func, PCI_VENDOR_ID);
   uint16_t vendor = vendor_dev & 0xFFFF;
@@ -265,19 +303,7 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   pci_dev->subclass = (class_rev >> 16) & 0xFF;
   pci_dev->prog_if = (class_rev >> 8) & 0xFF;
 
-  uint32_t bar0_raw = pci_read32(bus, slot, func, PCI_BAR0);
-  uint32_t bar1_raw = 0;
-
-  pci_dev->bar0 = pci_alloc_bar(bus, slot, func, PCI_BAR0);
-  if (pci_bar_raw_is_64bit(bar0_raw)) {
-    pci_dev->bar1 = 0;
-  } else {
-    bar1_raw = pci_read32(bus, slot, func, PCI_BAR1);
-    pci_dev->bar1 = pci_alloc_bar(bus, slot, func, PCI_BAR1);
-  }
-  pci_dev->bar2 = pci_bar_raw_is_64bit(bar1_raw)
-                      ? 0
-                      : pci_alloc_bar(bus, slot, func, PCI_BAR2);
+  pci_populate_bars(pci_dev);
 
   uint32_t irq_line = pci_read32(bus, slot, func, PCI_INTERRUPT);
   pci_dev->irq = irq_line & 0xFF;
