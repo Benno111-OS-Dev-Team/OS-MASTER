@@ -370,6 +370,7 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
         task->pdeath_signal = task->parent->pdeath_signal;
         task->no_new_privs = task->parent->no_new_privs;
         task->seccomp_mode = task->parent->seccomp_mode;
+        task->membarrier_registered = task->parent->membarrier_registered;
         task->personality = task->parent->personality;
         for (int cap = 0; cap < 2; cap++) {
             task->cap_effective[cap] = task->parent->cap_effective[cap];
@@ -491,6 +492,7 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->pdeath_signal = parent->pdeath_signal;
     task->no_new_privs = parent->no_new_privs;
     task->seccomp_mode = parent->seccomp_mode;
+    task->membarrier_registered = parent->membarrier_registered;
     task->personality = parent->personality;
     for (int cap = 0; cap < 2; cap++) {
         task->cap_effective[cap] = parent->cap_effective[cap];

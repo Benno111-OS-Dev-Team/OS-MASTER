@@ -166,6 +166,7 @@ struct task_struct {
   int pdeath_signal;
   uint8_t no_new_privs;
   uint8_t seccomp_mode;
+  uint32_t membarrier_registered;
 
   /* Flags */
   uint32_t flags;

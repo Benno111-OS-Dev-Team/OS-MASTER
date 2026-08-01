@@ -177,6 +177,22 @@
 #define MCL_FUTURE 2
 #define MCL_ONFAULT 4
 #define MLOCK_ONFAULT 1
+#define MEMBARRIER_CMD_QUERY 0
+#define MEMBARRIER_CMD_GLOBAL 1
+#define MEMBARRIER_CMD_GLOBAL_EXPEDITED 2
+#define MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED 4
+#define MEMBARRIER_CMD_PRIVATE_EXPEDITED 8
+#define MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED 16
+#define MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE 32
+#define MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE 64
+#define MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ 128
+#define MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ 256
+#define MEMBARRIER_CMD_SUPPORTED                                                \
+  (MEMBARRIER_CMD_GLOBAL | MEMBARRIER_CMD_GLOBAL_EXPEDITED |                   \
+   MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED | MEMBARRIER_CMD_PRIVATE_EXPEDITED |\
+   MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED |                                 \
+   MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE |                                \
+   MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE)
 #define MADV_NORMAL 0
 #define MADV_RANDOM 1
 #define MADV_SEQUENTIAL 2
@@ -6367,6 +6383,59 @@ static long sys_munlockall(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return vmm_lock_all_user_ranges(mm, 0) == 0 ? 0 : -ENOMEM;
 }
 
+static long sys_membarrier(uint64_t cmd, uint64_t flags, uint64_t cpu_id,
+                           uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)cpu_id;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags != 0)
+    return -EINVAL;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+
+  switch (cmd) {
+  case MEMBARRIER_CMD_QUERY:
+    return MEMBARRIER_CMD_SUPPORTED;
+  case MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED:
+  case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED:
+  case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE:
+    task->membarrier_registered |= (uint32_t)cmd;
+    arch_barrier();
+    return 0;
+  case MEMBARRIER_CMD_GLOBAL:
+    arch_barrier();
+    return 0;
+  case MEMBARRIER_CMD_GLOBAL_EXPEDITED:
+    if (!(task->membarrier_registered &
+          MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED))
+      return -EPERM;
+    arch_barrier();
+    return 0;
+  case MEMBARRIER_CMD_PRIVATE_EXPEDITED:
+    if (!(task->membarrier_registered &
+          MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED))
+      return -EPERM;
+    arch_barrier();
+    return 0;
+  case MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE:
+    if (!(task->membarrier_registered &
+          MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE))
+      return -EPERM;
+    arch_barrier();
+    arch_isb();
+    return 0;
+  case MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ:
+  case MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ:
+    return -ENOSYS;
+  default:
+    return -EINVAL;
+  }
+}
+
 static long sys_madvise(uint64_t addr, uint64_t len, uint64_t advice,
                         uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -7471,6 +7540,7 @@ void syscall_init(void) {
   syscall_table[SYS_sysinfo] = sys_sysinfo;
   syscall_table[SYS_getrandom] = sys_getrandom;
   syscall_table[SYS_memfd_create] = sys_memfd_create;
+  syscall_table[SYS_membarrier] = sys_membarrier;
   syscall_table[SYS_sched_setparam] = sys_sched_setparam;
   syscall_table[SYS_sched_setscheduler] = sys_sched_setscheduler;
   syscall_table[SYS_sched_getscheduler] = sys_sched_getscheduler;
