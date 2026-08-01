@@ -128,6 +128,10 @@
 #define GRND_NONBLOCK 0x0001
 #define GRND_RANDOM 0x0002
 #define GRND_INSECURE 0x0004
+#define EFD_SEMAPHORE 1
+#define EFD_CLOEXEC O_CLOEXEC
+#define EFD_NONBLOCK O_NONBLOCK
+#define EVENTFD_COUNTER_MAX (UINT64_MAX - 1)
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
@@ -246,6 +250,125 @@ static int duplicate_fd(struct task_struct *task, int oldfd, int newfd,
   task->files[newfd].in_use = 1;
   return newfd;
 }
+
+struct eventfd_ctx {
+  uint64_t counter;
+  uint32_t flags;
+  volatile int lock;
+};
+
+static void eventfd_lock(struct eventfd_ctx *ctx) {
+  while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
+#ifdef ARCH_ARM64
+    asm volatile("yield");
+#elif defined(ARCH_X86_64) || defined(ARCH_X86)
+    asm volatile("pause");
+#endif
+  }
+}
+
+static void eventfd_unlock(struct eventfd_ctx *ctx) {
+  __atomic_clear(&ctx->lock, __ATOMIC_RELEASE);
+}
+
+static ssize_t eventfd_read(struct file *file, char *buf, size_t count,
+                            loff_t *pos) {
+  (void)pos;
+
+  if (!file || !buf || count < sizeof(uint64_t))
+    return -EINVAL;
+  struct eventfd_ctx *ctx = (struct eventfd_ctx *)file->private_data;
+  if (!ctx)
+    return -EIO;
+
+  for (;;) {
+    eventfd_lock(ctx);
+    if (ctx->counter != 0) {
+      uint64_t value;
+      if (ctx->flags & EFD_SEMAPHORE) {
+        value = 1;
+        ctx->counter--;
+      } else {
+        value = ctx->counter;
+        ctx->counter = 0;
+      }
+      eventfd_unlock(ctx);
+      *(uint64_t *)buf = value;
+      return sizeof(uint64_t);
+    }
+    if (file->f_flags & O_NONBLOCK) {
+      eventfd_unlock(ctx);
+      return -EAGAIN;
+    }
+    eventfd_unlock(ctx);
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
+static ssize_t eventfd_write(struct file *file, const char *buf, size_t count,
+                             loff_t *pos) {
+  (void)pos;
+
+  if (!file || !buf || count < sizeof(uint64_t))
+    return -EINVAL;
+  struct eventfd_ctx *ctx = (struct eventfd_ctx *)file->private_data;
+  if (!ctx)
+    return -EIO;
+
+  uint64_t value = *(const uint64_t *)buf;
+  if (value == UINT64_MAX)
+    return -EINVAL;
+
+  for (;;) {
+    eventfd_lock(ctx);
+    if (ctx->counter <= EVENTFD_COUNTER_MAX - value) {
+      ctx->counter += value;
+      eventfd_unlock(ctx);
+      return sizeof(uint64_t);
+    }
+    if (file->f_flags & O_NONBLOCK) {
+      eventfd_unlock(ctx);
+      return -EAGAIN;
+    }
+    eventfd_unlock(ctx);
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
+static int eventfd_release(struct inode *inode, struct file *file) {
+  (void)inode;
+
+  if (file && file->private_data) {
+    kfree(file->private_data);
+    file->private_data = NULL;
+  }
+  return 0;
+}
+
+static int eventfd_poll(struct file *file, short events) {
+  struct eventfd_ctx *ctx = file ? (struct eventfd_ctx *)file->private_data : NULL;
+  short ready = 0;
+
+  if (!ctx)
+    return POLLERR;
+
+  eventfd_lock(ctx);
+  if ((events & (POLLIN | POLLRDNORM)) && ctx->counter > 0)
+    ready |= events & (POLLIN | POLLRDNORM);
+  if ((events & (POLLOUT | POLLWRNORM)) && ctx->counter < EVENTFD_COUNTER_MAX)
+    ready |= events & (POLLOUT | POLLWRNORM);
+  eventfd_unlock(ctx);
+  return ready;
+}
+
+static const struct file_operations eventfd_ops = {
+    .read = eventfd_read,
+    .write = eventfd_write,
+    .release = eventfd_release,
+    .poll = eventfd_poll,
+};
 
 static int init_task_cwd(struct task_struct *task) {
   if (!task)
@@ -1721,6 +1844,49 @@ static long sys_close(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
     return -EBADF;
 
   return close_fd_entry(task, (int)fd);
+}
+
+static long sys_eventfd2(uint64_t initval, uint64_t flags, uint64_t a2,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)(EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE))
+    return -EINVAL;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  int fd = alloc_fd(task);
+  if (fd < 0)
+    return fd;
+
+  struct eventfd_ctx *ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+  struct file *file = kzalloc(sizeof(*file), GFP_KERNEL);
+  if (!ctx || !file) {
+    kfree(ctx);
+    kfree(file);
+    free_fd(task, fd);
+    return -ENOMEM;
+  }
+
+  ctx->counter = (uint64_t)(uint32_t)initval;
+  ctx->flags = (uint32_t)flags;
+  ctx->lock = 0;
+
+  file->f_op = &eventfd_ops;
+  file->f_flags = O_RDWR | (uint32_t)(flags & EFD_NONBLOCK);
+  file->f_mode = O_RDWR;
+  file->private_data = ctx;
+  file->f_count.counter = 1;
+
+  task->files[fd].file = file;
+  task->files[fd].flags = O_RDWR | (uint32_t)flags;
+  strlcpy(task->files[fd].path, "anon:eventfd", sizeof(task->files[fd].path));
+  return fd;
 }
 
 extern int do_pipe(struct file **read_file, struct file **write_file);
@@ -4147,6 +4313,7 @@ void syscall_init(void) {
 
   /* Register implemented syscalls */
   syscall_table[SYS_getcwd] = sys_getcwd;
+  syscall_table[SYS_eventfd2] = sys_eventfd2;
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;
