@@ -283,6 +283,75 @@ static long copy_file_stat(const struct file *file, uint64_t statbuf) {
   return copy_inode_stat(file->f_dentry->d_inode, statbuf);
 }
 
+struct linux_dirent64 {
+  ino_t d_ino;
+  int64_t d_off;
+  unsigned short d_reclen;
+  unsigned char d_type;
+  char d_name[];
+};
+
+struct getdents64_ctx {
+  char *buf;
+  size_t buflen;
+  size_t bytes;
+  loff_t start_pos;
+  loff_t seen;
+  loff_t next_pos;
+  int error;
+  int full;
+};
+
+static int getdents64_fill(void *ctx, const char *name, int len, loff_t offset,
+                           ino_t ino, unsigned type) {
+  (void)offset;
+
+  struct getdents64_ctx *state = (struct getdents64_ctx *)ctx;
+  loff_t entry_pos;
+  size_t name_len;
+  size_t reclen;
+  struct linux_dirent64 *dirent;
+
+  if (!state || !name || len < 0)
+    return -EINVAL;
+
+  entry_pos = state->seen++;
+  if (entry_pos < state->start_pos)
+    return 0;
+  if (state->full)
+    return 0;
+
+  name_len = (size_t)len;
+  if (name_len > NAME_MAX) {
+    state->error = -ENAMETOOLONG;
+    state->full = 1;
+    return state->error;
+  }
+
+  reclen = ALIGN(offsetof(struct linux_dirent64, d_name) + name_len + 1,
+                 sizeof(uint64_t));
+  if (reclen > (size_t)UINT16_MAX || reclen > state->buflen - state->bytes) {
+    if (state->bytes == 0)
+      state->error = -EINVAL;
+    state->full = 1;
+    return state->error;
+  }
+
+  dirent = (struct linux_dirent64 *)(state->buf + state->bytes);
+  memset(dirent, 0, reclen);
+  dirent->d_ino = ino;
+  dirent->d_off = entry_pos + 1;
+  dirent->d_reclen = (unsigned short)reclen;
+  dirent->d_type = (unsigned char)type;
+  for (size_t i = 0; i < name_len; i++)
+    dirent->d_name[i] = name[i];
+  dirent->d_name[name_len] = '\0';
+
+  state->bytes += reclen;
+  state->next_pos = entry_pos + 1;
+  return 0;
+}
+
 /* ===================================================================== */
 /* System call table */
 /* ===================================================================== */
@@ -469,6 +538,47 @@ static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
   }
 
   return vfs_lseek(f, (loff_t)offset, (int)whence);
+}
+
+static long sys_getdents64(uint64_t fd, uint64_t dirp, uint64_t count,
+                           uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  struct getdents64_ctx ctx;
+  int ret;
+
+  if (!task)
+    return -ESRCH;
+  if (count == 0 || count > SSIZE_MAX)
+    return -EINVAL;
+  if (!is_valid_user_ptr(dirp, (size_t)count))
+    return -EFAULT;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+  if (!f->f_dentry || !f->f_dentry->d_inode ||
+      !S_ISDIR(f->f_dentry->d_inode->i_mode))
+    return -ENOTDIR;
+
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.buf = (char *)(uintptr_t)dirp;
+  ctx.buflen = (size_t)count;
+  ctx.start_pos = f->f_pos;
+  ctx.next_pos = f->f_pos;
+
+  ret = vfs_readdir(f, &ctx, getdents64_fill);
+  if (ret < 0)
+    return ret;
+  if (ctx.bytes == 0 && ctx.error < 0)
+    return ctx.error;
+  if (ctx.bytes > 0)
+    f->f_pos = ctx.next_pos;
+
+  return (long)ctx.bytes;
 }
 
 static long sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t a2, uint64_t a3,
@@ -1013,6 +1123,7 @@ void syscall_init(void) {
   syscall_table[SYS_write] = sys_write;
   syscall_table[SYS_openat] = sys_openat;
   syscall_table[SYS_close] = sys_close;
+  syscall_table[SYS_getdents64] = sys_getdents64;
   syscall_table[SYS_lseek] = sys_lseek;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
   syscall_table[SYS_fstat] = sys_fstat;
