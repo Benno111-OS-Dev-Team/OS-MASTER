@@ -9,6 +9,7 @@
 #include "printk.h"
 
 extern int ramfs_truncate_file(void *inode_private);
+extern int ramfs_resize_file(void *inode_private, size_t size);
 
 /* ===================================================================== */
 /* Static data */
@@ -101,6 +102,11 @@ static int dentry_is_mount_root(const struct dentry *dentry) {
       return 1;
   }
   return 0;
+}
+
+static int inode_is_ramfs(const struct inode *inode) {
+  return inode && inode->i_sb && inode->i_sb->s_type &&
+         path_compare(inode->i_sb->s_type->name, "ramfs") == 0;
 }
 
 static int path_has_mount_prefix(const char *path, const char *target,
@@ -595,6 +601,10 @@ struct file *vfs_open(const char *path, int flags, mode_t mode) {
   f->f_count.counter = 1;
 
   if ((flags & O_TRUNC) && child->d_inode && S_ISREG(child->d_inode->i_mode)) {
+    if (!inode_is_ramfs(child->d_inode)) {
+      vfs_close(f);
+      return NULL;
+    }
     child->d_inode->i_size = 0;
     ramfs_truncate_file(f->private_data);
   }
@@ -707,6 +717,32 @@ int vfs_close(struct file *file) {
     kfree(file);
   }
   return 0;
+}
+
+int vfs_truncate_file(struct file *file, loff_t length) {
+  struct inode *inode;
+  int ret;
+
+  if (!file)
+    return -EBADF;
+  if (length < 0)
+    return -EINVAL;
+
+  inode = file->f_dentry ? file->f_dentry->d_inode : NULL;
+  if (!inode)
+    return -ENOENT;
+  if (!S_ISREG(inode->i_mode))
+    return -EINVAL;
+  if (!inode_is_ramfs(inode))
+    return -ENOSYS;
+
+  ret = ramfs_resize_file(file->private_data, (size_t)length);
+  if (ret == 0) {
+    inode->i_size = length;
+    if (file->f_pos > length)
+      file->f_pos = length;
+  }
+  return ret;
 }
 
 int vfs_sync_file(struct file *file) {
@@ -907,6 +943,91 @@ int vfs_unlink(const char *path) {
 
   int ret = parent->d_inode->i_op->unlink(parent->d_inode, child);
   vfs_free_dentry_chain(child);
+  return ret;
+}
+
+int vfs_symlink(const char *target, const char *linkpath) {
+  char name[NAME_MAX + 1];
+  struct dentry *parent;
+  struct dentry *child;
+  int ret;
+
+  if (!target || !linkpath || target[0] == '\0' || linkpath[0] == '\0')
+    return -EINVAL;
+
+  parent = vfs_lookup_parent(linkpath, name);
+  if (!parent)
+    return -ENOENT;
+  if (name[0] == '\0') {
+    if (parent != root_dentry && !dentry_is_mount_root(parent))
+      vfs_free_dentry_chain(parent);
+    return -EINVAL;
+  }
+
+  child = kzalloc(sizeof(struct dentry), GFP_KERNEL);
+  if (!child) {
+    if (parent != root_dentry && !dentry_is_mount_root(parent))
+      vfs_free_dentry_chain(parent);
+    return -ENOMEM;
+  }
+  for (int i = 0; i < NAME_MAX && name[i]; i++)
+    child->d_name[i] = name[i];
+  child->d_parent = parent;
+  child->d_sb = parent->d_sb;
+
+  if (!parent->d_inode || !parent->d_inode->i_op ||
+      !parent->d_inode->i_op->symlink) {
+    vfs_free_dentry_chain(child);
+    return -ENOSYS;
+  }
+
+  ret = parent->d_inode->i_op->symlink(parent->d_inode, child, target);
+  vfs_free_dentry_chain(child);
+  return ret;
+}
+
+int vfs_link(const char *oldpath, const char *newpath) {
+  char name[NAME_MAX + 1];
+  struct dentry *old_dentry;
+  struct dentry *new_parent;
+  struct dentry *new_dentry;
+  int ret;
+
+  if (!oldpath || !newpath || oldpath[0] == '\0' || newpath[0] == '\0')
+    return -EINVAL;
+
+  old_dentry = vfs_lookup_path(oldpath, NULL);
+  if (!old_dentry)
+    return -ENOENT;
+  new_parent = vfs_lookup_parent(newpath, name);
+  if (!new_parent) {
+    vfs_free_dentry_chain(old_dentry);
+    return -ENOENT;
+  }
+
+  new_dentry = kzalloc(sizeof(struct dentry), GFP_KERNEL);
+  if (!new_dentry) {
+    vfs_free_dentry_chain(old_dentry);
+    if (new_parent != root_dentry && !dentry_is_mount_root(new_parent))
+      vfs_free_dentry_chain(new_parent);
+    return -ENOMEM;
+  }
+  for (int i = 0; i < NAME_MAX && name[i]; i++)
+    new_dentry->d_name[i] = name[i];
+  new_dentry->d_parent = new_parent;
+  new_dentry->d_sb = new_parent->d_sb;
+
+  if (!new_parent->d_inode || !new_parent->d_inode->i_op ||
+      !new_parent->d_inode->i_op->link) {
+    vfs_free_dentry_chain(old_dentry);
+    vfs_free_dentry_chain(new_dentry);
+    return -ENOSYS;
+  }
+
+  ret = new_parent->d_inode->i_op->link(old_dentry, new_parent->d_inode,
+                                        new_dentry);
+  vfs_free_dentry_chain(old_dentry);
+  vfs_free_dentry_chain(new_dentry);
   return ret;
 }
 int vfs_rename(const char *old, const char *new) {

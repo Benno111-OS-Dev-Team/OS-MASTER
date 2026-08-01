@@ -123,6 +123,44 @@ static int ramfs_add_child(struct ramfs_inode *dir, struct ramfs_inode *child) {
   return 0;
 }
 
+static int ramfs_resize_inode(struct ramfs_inode *inode, size_t size) {
+  if (!inode || S_ISDIR(inode->mode))
+    return -EINVAL;
+
+  if (size == 0) {
+    if (inode->data) {
+      kfree(inode->data);
+      inode->data = NULL;
+    }
+    inode->size = 0;
+    inode->data_capacity = 0;
+    return 0;
+  }
+
+  if (size > inode->data_capacity) {
+    size_t new_cap = (size + RAMFS_BLOCK_SIZE - 1) & ~(RAMFS_BLOCK_SIZE - 1);
+    uint8_t *new_data = kmalloc(new_cap, GFP_KERNEL);
+    if (!new_data)
+      return -ENOMEM;
+
+    for (size_t i = 0; i < inode->size; i++)
+      new_data[i] = inode->data ? inode->data[i] : 0;
+    for (size_t i = inode->size; i < new_cap; i++)
+      new_data[i] = 0;
+
+    if (inode->data)
+      kfree(inode->data);
+    inode->data = new_data;
+    inode->data_capacity = new_cap;
+  } else if (size > inode->size) {
+    for (size_t i = inode->size; i < size; i++)
+      inode->data[i] = 0;
+  }
+
+  inode->size = size;
+  return 0;
+}
+
 /* ===================================================================== */
 /* File operations */
 /* ===================================================================== */
@@ -310,6 +348,9 @@ static struct dentry *ramfs_lookup(struct inode *dir, struct dentry *dentry) {
 
   inode->i_ino = ram_child->ino;
   inode->i_mode = ram_child->mode;
+  inode->i_uid = ram_child->uid;
+  inode->i_gid = ram_child->gid;
+  inode->i_nlink = 1;
   inode->i_size = ram_child->size;
   inode->i_sb = dir->i_sb;
   inode->i_op = &ramfs_inode_ops;
@@ -347,6 +388,9 @@ static int ramfs_create(struct inode *dir, struct dentry *dentry, mode_t mode) {
 
   inode->i_ino = ram_file->ino;
   inode->i_mode = ram_file->mode;
+  inode->i_uid = ram_file->uid;
+  inode->i_gid = ram_file->gid;
+  inode->i_nlink = 1;
   inode->i_size = 0;
   inode->i_sb = dir->i_sb;
   inode->i_op = &ramfs_inode_ops;
@@ -384,6 +428,9 @@ static int ramfs_mkdir(struct inode *dir, struct dentry *dentry, mode_t mode) {
 
   inode->i_ino = ram_child->ino;
   inode->i_mode = ram_child->mode;
+  inode->i_uid = ram_child->uid;
+  inode->i_gid = ram_child->gid;
+  inode->i_nlink = 1;
   inode->i_size = 0;
   inode->i_sb = dir->i_sb;
   inode->i_op = &ramfs_inode_ops;
@@ -505,13 +552,83 @@ static int ramfs_rmdir(struct inode *dir, struct dentry *dentry) {
   return 0;
 }
 
+static int ramfs_symlink(struct inode *dir, struct dentry *dentry,
+                         const char *target) {
+  struct ramfs_inode *ram_dir = (struct ramfs_inode *)dir->i_private;
+  struct ramfs_inode *ram_link;
+  size_t len;
+
+  if (!ram_dir || !dentry || !dentry->d_name[0] || !target)
+    return -EINVAL;
+  if (ramfs_lookup_child(ram_dir, dentry->d_name))
+    return -EEXIST;
+
+  len = 0;
+  while (target[len])
+    len++;
+
+  ram_link = ramfs_alloc_inode(S_IFLNK | 0777, dentry->d_name);
+  if (!ram_link)
+    return -ENOMEM;
+
+  ram_link->data = kmalloc(len + 1, GFP_KERNEL);
+  if (!ram_link->data) {
+    ramfs_free_inode(ram_link);
+    return -ENOMEM;
+  }
+  for (size_t i = 0; i < len; i++)
+    ram_link->data[i] = (uint8_t)target[i];
+  ram_link->data[len] = '\0';
+  ram_link->size = len;
+  ram_link->data_capacity = len + 1;
+
+  if (ramfs_add_child(ram_dir, ram_link) != 0) {
+    ramfs_free_inode(ram_link);
+    return -ENOTDIR;
+  }
+
+  struct inode *inode = kzalloc(sizeof(struct inode), GFP_KERNEL);
+  if (!inode)
+    return -ENOMEM;
+  inode->i_ino = ram_link->ino;
+  inode->i_mode = ram_link->mode;
+  inode->i_uid = ram_link->uid;
+  inode->i_gid = ram_link->gid;
+  inode->i_nlink = 1;
+  inode->i_size = ram_link->size;
+  inode->i_sb = dir->i_sb;
+  inode->i_op = &ramfs_inode_ops;
+  inode->i_fop = &ramfs_file_ops;
+  inode->i_private = ram_link;
+  dentry->d_inode = inode;
+  return 0;
+}
+
+static int ramfs_readlink(struct dentry *dentry, char *buf, int bufsiz) {
+  struct ramfs_inode *ram_link;
+  int len;
+
+  if (!dentry || !dentry->d_inode || !buf || bufsiz < 0)
+    return -EINVAL;
+  ram_link = (struct ramfs_inode *)dentry->d_inode->i_private;
+  if (!ram_link || !S_ISLNK(ram_link->mode))
+    return -EINVAL;
+
+  len = (ram_link->size < (size_t)bufsiz) ? (int)ram_link->size : bufsiz;
+  for (int i = 0; i < len; i++)
+    buf[i] = (char)ram_link->data[i];
+  return len;
+}
+
 static struct inode_operations ramfs_inode_ops = {
     .lookup = ramfs_lookup,
     .create = ramfs_create,
     .mkdir = ramfs_mkdir,
     .rmdir = ramfs_rmdir,
     .unlink = ramfs_unlink,
+    .symlink = ramfs_symlink,
     .rename = ramfs_rename,
+    .readlink = ramfs_readlink,
 };
 
 /* ===================================================================== */
@@ -548,6 +665,7 @@ static struct super_block *ramfs_mount(struct file_system_type *fs_type,
   static struct inode vfs_root_inode;
   vfs_root_inode.i_ino = ramfs_sb.root->ino;
   vfs_root_inode.i_mode = S_IFDIR | 0755;
+  vfs_root_inode.i_nlink = 1;
   vfs_root_inode.i_size = 0;
   vfs_root_inode.i_sb = &sb;
   vfs_root_inode.i_op = &ramfs_inode_ops;
@@ -659,14 +777,11 @@ int ramfs_create_file(const char *path, mode_t mode, const char *content) {
 }
 
 int ramfs_truncate_file(void *inode_private) {
-  struct ramfs_inode *inode = (struct ramfs_inode *)inode_private;
+  return ramfs_resize_inode((struct ramfs_inode *)inode_private, 0);
+}
 
-  if (!inode || S_ISDIR(inode->mode)) {
-    return -EINVAL;
-  }
-
-  inode->size = 0;
-  return 0;
+int ramfs_resize_file(void *inode_private, size_t size) {
+  return ramfs_resize_inode((struct ramfs_inode *)inode_private, size);
 }
 
 /* Helper to find or create parent directory from path */

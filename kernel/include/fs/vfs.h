@@ -308,6 +308,11 @@ struct file *vfs_open(const char *path, int flags, mode_t mode);
 int vfs_close(struct file *file);
 
 /**
+ * vfs_truncate_file - Resize an open regular file when the backing fs supports it
+ */
+int vfs_truncate_file(struct file *file, loff_t length);
+
+/**
  * vfs_sync_file - Flush a file's backing filesystem if it supports sync
  */
 int vfs_sync_file(struct file *file);
@@ -366,6 +371,16 @@ int vfs_rmdir(const char *path);
  * vfs_unlink - Remove a file
  */
 int vfs_unlink(const char *path);
+
+/**
+ * vfs_symlink - Create a symbolic link
+ */
+int vfs_symlink(const char *target, const char *linkpath);
+
+/**
+ * vfs_link - Create a hard link
+ */
+int vfs_link(const char *oldpath, const char *newpath);
 
 /**
  * vfs_rename - Rename a file or directory

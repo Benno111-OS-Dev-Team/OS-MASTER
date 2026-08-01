@@ -27,6 +27,7 @@
 #define AT_FDCWD (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR 0x200
+#define AT_SYMLINK_FOLLOW 0x400
 #define AT_EACCESS 0x200
 #define AT_EMPTY_PATH 0x1000
 #define UTIME_NOW 1073741823L
@@ -1404,6 +1405,69 @@ static long sys_fstatfs(uint64_t fd, uint64_t statbuf, uint64_t a2,
   return copy_file_statfs(f, statbuf);
 }
 
+static long sys_ftruncate(uint64_t fd, uint64_t length, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if ((int64_t)length < 0)
+    return -EINVAL;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+
+  long ret = vfs_truncate_file(f, (loff_t)length);
+  if (ret == 0 && f->f_dentry && f->f_dentry->d_inode) {
+    struct timespec now = current_timespec();
+    f->f_dentry->d_inode->i_mtime = now;
+    f->f_dentry->d_inode->i_ctime = now;
+  }
+  return ret;
+}
+
+static long sys_truncate(uint64_t pathname, uint64_t length, uint64_t a2,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if ((int64_t)length < 0)
+    return -EINVAL;
+
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_WRONLY, 0);
+  if (!f)
+    return -ENOENT;
+  ret = vfs_truncate_file(f, (loff_t)length);
+  if (ret == 0 && f->f_dentry && f->f_dentry->d_inode) {
+    struct timespec now = current_timespec();
+    f->f_dentry->d_inode->i_mtime = now;
+    f->f_dentry->d_inode->i_ctime = now;
+  }
+  vfs_close(f);
+  return ret;
+}
+
 static long sys_fchmod(uint64_t fd, uint64_t mode, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a2;
@@ -2477,6 +2541,69 @@ static long sys_unlinkat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   return (flags & AT_REMOVEDIR) ? vfs_rmdir(path) : vfs_unlink(path);
 }
 
+static long sys_symlinkat(uint64_t target, uint64_t newdirfd,
+                          uint64_t linkpath, uint64_t a3, uint64_t a4,
+                          uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char target_buf[PATH_MAX];
+  char link_user_path[PATH_MAX];
+  char link_resolved[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  ret = copy_user_string(target, target_buf, sizeof(target_buf));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_string(linkpath, link_user_path, sizeof(link_user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)newdirfd, link_user_path, link_resolved,
+                        sizeof(link_resolved));
+  if (ret < 0)
+    return ret;
+
+  return vfs_symlink(target_buf, link_resolved);
+}
+
+static long sys_linkat(uint64_t olddirfd, uint64_t oldpath_ptr,
+                       uint64_t newdirfd, uint64_t newpath_ptr,
+                       uint64_t flags, uint64_t a5) {
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char old_user_path[PATH_MAX];
+  char new_user_path[PATH_MAX];
+  char old_path[PATH_MAX];
+  char new_path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)AT_SYMLINK_FOLLOW)
+    return -EINVAL;
+  ret = copy_user_string(oldpath_ptr, old_user_path, sizeof(old_user_path));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_string(newpath_ptr, new_user_path, sizeof(new_user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)olddirfd, old_user_path, old_path,
+                        sizeof(old_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_at_path(task, (int)newdirfd, new_user_path, new_path,
+                        sizeof(new_path));
+  if (ret < 0)
+    return ret;
+
+  return vfs_link(old_path, new_path);
+}
+
 static long sys_renameat(uint64_t olddirfd, uint64_t oldpath_ptr,
                          uint64_t newdirfd, uint64_t newpath_ptr, uint64_t a4,
                          uint64_t a5) {
@@ -3117,12 +3244,16 @@ void syscall_init(void) {
   syscall_table[SYS_mount] = sys_mount;
   syscall_table[SYS_statfs] = sys_statfs;
   syscall_table[SYS_fstatfs] = sys_fstatfs;
+  syscall_table[SYS_truncate] = sys_truncate;
+  syscall_table[SYS_ftruncate] = sys_ftruncate;
   syscall_table[SYS_fchmod] = sys_fchmod;
   syscall_table[SYS_fchmodat] = sys_fchmodat;
   syscall_table[SYS_fchownat] = sys_fchownat;
   syscall_table[SYS_fchown] = sys_fchown;
   syscall_table[SYS_mkdirat] = sys_mkdirat;
   syscall_table[SYS_unlinkat] = sys_unlinkat;
+  syscall_table[SYS_symlinkat] = sys_symlinkat;
+  syscall_table[SYS_linkat] = sys_linkat;
   syscall_table[SYS_renameat] = sys_renameat;
   syscall_table[SYS_faccessat] = sys_faccessat;
   syscall_table[SYS_fchdir] = sys_fchdir;
