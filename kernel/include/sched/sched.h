@@ -139,6 +139,8 @@ struct task_struct {
   uint64_t start_time;
   uint64_t utime; /* User time */
   uint64_t stime; /* System time */
+  uint64_t itimer_value_ns[3];
+  uint64_t itimer_interval_ns[3];
 
   /* Exit info */
   int exit_code;

@@ -88,6 +88,13 @@
 #define CLOCK_BOOTTIME 7
 #define TIMER_ABSTIME 1
 #define USER_HZ 100
+#define ITIMER_REAL 0
+#define ITIMER_VIRTUAL 1
+#define ITIMER_PROF 2
+#define ITIMER_COUNT 3
+#define ITIMER_SIGALRM 14
+#define ITIMER_SIGVTALRM 26
+#define ITIMER_SIGPROF 27
 #define RUSAGE_SELF 0
 #define RUSAGE_CHILDREN (-1)
 #define RUSAGE_THREAD 1
@@ -1204,6 +1211,11 @@ struct linux_itimerspec {
   struct timespec it_value;
 };
 
+struct linux_itimerval {
+  struct timeval it_interval;
+  struct timeval it_value;
+};
+
 struct linux_sysinfo {
   unsigned long uptime;
   unsigned long loads[3];
@@ -1249,6 +1261,115 @@ static void runtime_to_timeval(uint64_t runtime, struct timeval *tv) {
 
   tv->tv_sec = (time_t)(runtime / 1000000000ULL);
   tv->tv_usec = (suseconds_t)((runtime % 1000000000ULL) / 1000ULL);
+}
+
+static int timeval_to_ns(const struct timeval *tv, uint64_t *ns_out) {
+  uint64_t sec_ns;
+  uint64_t usec_ns;
+
+  if (!tv || !ns_out || tv->tv_sec < 0 || tv->tv_usec < 0 ||
+      tv->tv_usec >= 1000000)
+    return -EINVAL;
+
+  if ((uint64_t)tv->tv_sec > UINT64_MAX / 1000000000ULL)
+    return -EINVAL;
+
+  sec_ns = (uint64_t)tv->tv_sec * 1000000000ULL;
+  usec_ns = (uint64_t)tv->tv_usec * 1000ULL;
+  if (sec_ns > UINT64_MAX - usec_ns)
+    return -EINVAL;
+
+  *ns_out = sec_ns + usec_ns;
+  return 0;
+}
+
+static struct timeval ns_to_timeval(uint64_t ns) {
+  struct timeval tv;
+
+  tv.tv_sec = (time_t)(ns / 1000000000ULL);
+  tv.tv_usec = (suseconds_t)((ns % 1000000000ULL) / 1000ULL);
+  return tv;
+}
+
+static uint64_t itimer_base_ns(struct task_struct *task, int which) {
+  if (which == ITIMER_REAL)
+    return kernel_time_ns();
+
+  if (!task)
+    return 0;
+
+  if (which == ITIMER_PROF) {
+    if (task->utime > UINT64_MAX - task->stime)
+      return UINT64_MAX;
+    return task->utime + task->stime;
+  }
+
+  return task->utime;
+}
+
+static int itimer_signal_for(int which) {
+  switch (which) {
+  case ITIMER_REAL:
+    return ITIMER_SIGALRM;
+  case ITIMER_VIRTUAL:
+    return ITIMER_SIGVTALRM;
+  case ITIMER_PROF:
+    return ITIMER_SIGPROF;
+  default:
+    return 0;
+  }
+}
+
+static void task_process_itimers(struct task_struct *task) {
+  if (!task)
+    return;
+
+  for (int which = 0; which < ITIMER_COUNT; which++) {
+    uint64_t expiry = task->itimer_value_ns[which];
+    uint64_t interval = task->itimer_interval_ns[which];
+    uint64_t base;
+
+    if (expiry == 0)
+      continue;
+
+    base = itimer_base_ns(task, which);
+    if (base < expiry)
+      continue;
+
+    kill_task(task, itimer_signal_for(which));
+
+    if (interval == 0) {
+      task->itimer_value_ns[which] = 0;
+      continue;
+    }
+
+    do {
+      if (expiry > UINT64_MAX - interval) {
+        expiry = UINT64_MAX;
+        break;
+      }
+      expiry += interval;
+    } while (expiry <= base);
+
+    task->itimer_value_ns[which] = expiry;
+  }
+}
+
+static void fill_itimerval(struct task_struct *task, int which,
+                           struct linux_itimerval *value) {
+  uint64_t expiry = task->itimer_value_ns[which];
+  uint64_t base;
+
+  value->it_interval = ns_to_timeval(task->itimer_interval_ns[which]);
+  value->it_value.tv_sec = 0;
+  value->it_value.tv_usec = 0;
+
+  if (expiry == 0)
+    return;
+
+  base = itimer_base_ns(task, which);
+  if (expiry > base)
+    value->it_value = ns_to_timeval(expiry - base);
 }
 
 static struct timespec current_timespec(void) {
@@ -5640,6 +5761,76 @@ static long sys_clock_nanosleep(uint64_t clockid, uint64_t flags, uint64_t req,
   return 0;
 }
 
+static long sys_getitimer(uint64_t which, uint64_t curr_value, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (which >= ITIMER_COUNT)
+    return -EINVAL;
+  if (!is_valid_user_ptr(curr_value, sizeof(struct linux_itimerval)))
+    return -EFAULT;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+
+  task_process_itimers(task);
+  fill_itimerval(task, (int)which,
+                 (struct linux_itimerval *)(uintptr_t)curr_value);
+  return 0;
+}
+
+static long sys_setitimer(uint64_t which, uint64_t new_value, uint64_t old_value,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (which >= ITIMER_COUNT)
+    return -EINVAL;
+  if (!is_valid_user_ptr(new_value, sizeof(struct linux_itimerval)))
+    return -EFAULT;
+  if (old_value &&
+      !is_valid_user_ptr(old_value, sizeof(struct linux_itimerval)))
+    return -EFAULT;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+
+  const struct linux_itimerval *new_timer =
+      (const struct linux_itimerval *)(uintptr_t)new_value;
+  uint64_t value_ns;
+  uint64_t interval_ns;
+  int ret = timeval_to_ns(&new_timer->it_value, &value_ns);
+  if (ret != 0)
+    return ret;
+  ret = timeval_to_ns(&new_timer->it_interval, &interval_ns);
+  if (ret != 0)
+    return ret;
+
+  task_process_itimers(task);
+
+  if (old_value) {
+    fill_itimerval(task, (int)which,
+                   (struct linux_itimerval *)(uintptr_t)old_value);
+  }
+
+  task->itimer_interval_ns[which] = interval_ns;
+  if (value_ns == 0) {
+    task->itimer_value_ns[which] = 0;
+  } else {
+    uint64_t base = itimer_base_ns(task, (int)which);
+    task->itimer_value_ns[which] =
+        (value_ns > UINT64_MAX - base) ? UINT64_MAX : base + value_ns;
+  }
+
+  return 0;
+}
+
 static long sys_clock_gettime(uint64_t clockid, uint64_t tp, uint64_t a2,
                               uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a2;
@@ -6089,6 +6280,8 @@ void syscall_init(void) {
   syscall_table[SYS_setpriority] = sys_setpriority;
   syscall_table[SYS_getpriority] = sys_getpriority;
   syscall_table[SYS_nanosleep] = sys_nanosleep;
+  syscall_table[SYS_getitimer] = sys_getitimer;
+  syscall_table[SYS_setitimer] = sys_setitimer;
   syscall_table[SYS_clock_gettime] = sys_clock_gettime;
   syscall_table[SYS_clock_getres] = sys_clock_getres;
   syscall_table[SYS_clock_nanosleep] = sys_clock_nanosleep;
@@ -6132,6 +6325,7 @@ long handle_syscall(struct pt_regs *regs) {
    */
 
   uint64_t nr = regs->regs[8];
+  task_process_itimers(get_current());
 
   if (nr >= NR_syscalls) {
     printk(KERN_WARNING "SYSCALL: Invalid syscall number %llu\n",
