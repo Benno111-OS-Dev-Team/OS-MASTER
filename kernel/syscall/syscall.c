@@ -137,8 +137,13 @@
 #define EPOLL_CTL_MOD 3
 #define EPOLL_CLOEXEC O_CLOEXEC
 #define EPOLL_MAX_WATCHES 64
+#define TFD_CLOEXEC O_CLOEXEC
+#define TFD_NONBLOCK O_NONBLOCK
+#define TFD_TIMER_ABSTIME 1
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
+
+static uint64_t kernel_time_ns(void);
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -419,6 +424,151 @@ static int file_is_epoll(struct file *file) {
   return file && file->f_op == &epoll_ops;
 }
 
+struct timerfd_ctx {
+  int clockid;
+  uint64_t interval_ns;
+  uint64_t next_expiry_ns;
+  uint64_t expirations;
+  volatile int lock;
+};
+
+static void timerfd_lock(struct timerfd_ctx *ctx) {
+  while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
+#ifdef ARCH_ARM64
+    asm volatile("yield");
+#elif defined(ARCH_X86_64) || defined(ARCH_X86)
+    asm volatile("pause");
+#endif
+  }
+}
+
+static void timerfd_unlock(struct timerfd_ctx *ctx) {
+  __atomic_clear(&ctx->lock, __ATOMIC_RELEASE);
+}
+
+static int timespec_valid(const struct timespec *ts) {
+  return ts && ts->tv_sec >= 0 && ts->tv_nsec >= 0 &&
+         ts->tv_nsec < 1000000000L;
+}
+
+static int timespec_to_ns(const struct timespec *ts, uint64_t *ns_out) {
+  if (!timespec_valid(ts) || !ns_out)
+    return -EINVAL;
+  if ((uint64_t)ts->tv_sec > UINT64_MAX / 1000000000ULL)
+    return -EINVAL;
+  uint64_t sec_ns = (uint64_t)ts->tv_sec * 1000000000ULL;
+  if (sec_ns > UINT64_MAX - (uint64_t)ts->tv_nsec)
+    return -EINVAL;
+  *ns_out = sec_ns + (uint64_t)ts->tv_nsec;
+  return 0;
+}
+
+static struct timespec ns_to_timespec(uint64_t ns) {
+  struct timespec ts;
+  ts.tv_sec = (time_t)(ns / 1000000000ULL);
+  ts.tv_nsec = (long)(ns % 1000000000ULL);
+  return ts;
+}
+
+static int timerfd_clock_valid(int clockid) {
+  return clockid == CLOCK_REALTIME || clockid == CLOCK_MONOTONIC ||
+         clockid == CLOCK_MONOTONIC_RAW || clockid == CLOCK_REALTIME_COARSE ||
+         clockid == CLOCK_MONOTONIC_COARSE || clockid == CLOCK_BOOTTIME;
+}
+
+static void timerfd_update_locked(struct timerfd_ctx *ctx) {
+  if (!ctx || ctx->next_expiry_ns == 0)
+    return;
+
+  uint64_t now = kernel_time_ns();
+  if (now < ctx->next_expiry_ns)
+    return;
+
+  uint64_t elapsed = now - ctx->next_expiry_ns;
+  uint64_t count = 1;
+  if (ctx->interval_ns != 0)
+    count += elapsed / ctx->interval_ns;
+  if (ctx->expirations > UINT64_MAX - count)
+    ctx->expirations = UINT64_MAX;
+  else
+    ctx->expirations += count;
+
+  if (ctx->interval_ns != 0) {
+    if (count > (UINT64_MAX - ctx->next_expiry_ns) / ctx->interval_ns)
+      ctx->next_expiry_ns = now;
+    else
+      ctx->next_expiry_ns += count * ctx->interval_ns;
+  } else {
+    ctx->next_expiry_ns = 0;
+  }
+}
+
+static ssize_t timerfd_read(struct file *file, char *buf, size_t count,
+                            loff_t *pos) {
+  (void)pos;
+
+  if (!file || !buf || count < sizeof(uint64_t))
+    return -EINVAL;
+  struct timerfd_ctx *ctx = (struct timerfd_ctx *)file->private_data;
+  if (!ctx)
+    return -EIO;
+
+  for (;;) {
+    timerfd_lock(ctx);
+    timerfd_update_locked(ctx);
+    if (ctx->expirations != 0) {
+      uint64_t value = ctx->expirations;
+      ctx->expirations = 0;
+      timerfd_unlock(ctx);
+      *(uint64_t *)buf = value;
+      return sizeof(uint64_t);
+    }
+    if (file->f_flags & O_NONBLOCK) {
+      timerfd_unlock(ctx);
+      return -EAGAIN;
+    }
+    timerfd_unlock(ctx);
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
+static int timerfd_release(struct inode *inode, struct file *file) {
+  (void)inode;
+
+  if (file && file->private_data) {
+    kfree(file->private_data);
+    file->private_data = NULL;
+  }
+  return 0;
+}
+
+static int timerfd_poll(struct file *file, short events) {
+  struct timerfd_ctx *ctx =
+      file ? (struct timerfd_ctx *)file->private_data : NULL;
+  short ready = 0;
+
+  if (!ctx)
+    return POLLERR;
+
+  timerfd_lock(ctx);
+  timerfd_update_locked(ctx);
+  if ((events & (POLLIN | POLLRDNORM)) && ctx->expirations != 0)
+    ready |= events & (POLLIN | POLLRDNORM);
+  timerfd_unlock(ctx);
+  return ready;
+}
+
+static const struct file_operations timerfd_ops = {
+    .read = timerfd_read,
+    .release = timerfd_release,
+    .poll = timerfd_poll,
+};
+
+static int file_is_timerfd(struct file *file) {
+  return file && file->f_op == &timerfd_ops;
+}
+
 static int init_task_cwd(struct task_struct *task) {
   if (!task)
     return -ESRCH;
@@ -695,6 +845,11 @@ struct linux_epoll_event {
   uint32_t events;
   uint64_t data;
 } __attribute__((packed));
+
+struct linux_itimerspec {
+  struct timespec it_interval;
+  struct timespec it_value;
+};
 
 struct linux_sysinfo {
   unsigned long uptime;
@@ -2126,6 +2281,154 @@ static long sys_epoll_pwait(uint64_t epfd, uint64_t events, uint64_t maxevents,
     extern void process_yield(void);
     process_yield();
   }
+}
+
+static long sys_timerfd_create(uint64_t clockid, uint64_t flags, uint64_t a2,
+                               uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!timerfd_clock_valid((int)clockid))
+    return -EINVAL;
+  if (flags & ~(uint64_t)(TFD_CLOEXEC | TFD_NONBLOCK))
+    return -EINVAL;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  int fd = alloc_fd(task);
+  if (fd < 0)
+    return fd;
+
+  struct timerfd_ctx *ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+  struct file *file = kzalloc(sizeof(*file), GFP_KERNEL);
+  if (!ctx || !file) {
+    kfree(ctx);
+    kfree(file);
+    free_fd(task, fd);
+    return -ENOMEM;
+  }
+
+  ctx->clockid = (int)clockid;
+  ctx->lock = 0;
+
+  file->f_op = &timerfd_ops;
+  file->f_flags = O_RDONLY | (uint32_t)(flags & TFD_NONBLOCK);
+  file->f_mode = O_RDONLY;
+  file->private_data = ctx;
+  file->f_count.counter = 1;
+
+  task->files[fd].file = file;
+  task->files[fd].flags = O_RDONLY | (uint32_t)flags;
+  strlcpy(task->files[fd].path, "anon:timerfd", sizeof(task->files[fd].path));
+  return fd;
+}
+
+static void timerfd_remaining_locked(struct timerfd_ctx *ctx,
+                                     struct linux_itimerspec *spec) {
+  memset(spec, 0, sizeof(*spec));
+  if (!ctx)
+    return;
+
+  timerfd_update_locked(ctx);
+  spec->it_interval = ns_to_timespec(ctx->interval_ns);
+  if (ctx->expirations != 0) {
+    spec->it_value.tv_nsec = 1;
+  } else if (ctx->next_expiry_ns != 0) {
+    uint64_t now = kernel_time_ns();
+    uint64_t remaining = ctx->next_expiry_ns > now ? ctx->next_expiry_ns - now
+                                                   : 1;
+    spec->it_value = ns_to_timespec(remaining);
+  }
+}
+
+static long sys_timerfd_settime(uint64_t fd, uint64_t flags, uint64_t new_value,
+                                uint64_t old_value, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)TFD_TIMER_ABSTIME)
+    return -EINVAL;
+  if (!is_valid_user_ptr(new_value, sizeof(struct linux_itimerspec)))
+    return -EFAULT;
+  if (old_value && !is_valid_user_ptr(old_value, sizeof(struct linux_itimerspec)))
+    return -EFAULT;
+
+  const struct linux_itimerspec *new_spec =
+      (const struct linux_itimerspec *)(uintptr_t)new_value;
+  uint64_t interval_ns;
+  uint64_t value_ns;
+  if (timespec_to_ns(&new_spec->it_interval, &interval_ns) != 0 ||
+      timespec_to_ns(&new_spec->it_value, &value_ns) != 0)
+    return -EINVAL;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  struct file *file = get_file(task, (int)fd);
+  if (!file_is_timerfd(file))
+    return -EINVAL;
+
+  struct timerfd_ctx *ctx = (struct timerfd_ctx *)file->private_data;
+  if (!ctx)
+    return -EIO;
+
+  timerfd_lock(ctx);
+  if (old_value) {
+    struct linux_itimerspec *old_spec =
+        (struct linux_itimerspec *)(uintptr_t)old_value;
+    timerfd_remaining_locked(ctx, old_spec);
+  } else {
+    timerfd_update_locked(ctx);
+  }
+
+  ctx->interval_ns = interval_ns;
+  ctx->expirations = 0;
+  if (value_ns == 0) {
+    ctx->next_expiry_ns = 0;
+  } else if (flags & TFD_TIMER_ABSTIME) {
+    ctx->next_expiry_ns = value_ns;
+  } else {
+    uint64_t now = kernel_time_ns();
+    ctx->next_expiry_ns = now > UINT64_MAX - value_ns ? UINT64_MAX
+                                                      : now + value_ns;
+  }
+  timerfd_unlock(ctx);
+  return 0;
+}
+
+static long sys_timerfd_gettime(uint64_t fd, uint64_t curr_value, uint64_t a2,
+                                uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(curr_value, sizeof(struct linux_itimerspec)))
+    return -EFAULT;
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  struct file *file = get_file(task, (int)fd);
+  if (!file_is_timerfd(file))
+    return -EINVAL;
+
+  struct timerfd_ctx *ctx = (struct timerfd_ctx *)file->private_data;
+  if (!ctx)
+    return -EIO;
+
+  timerfd_lock(ctx);
+  timerfd_remaining_locked(ctx,
+                           (struct linux_itimerspec *)(uintptr_t)curr_value);
+  timerfd_unlock(ctx);
+  return 0;
 }
 
 extern int do_pipe(struct file **read_file, struct file **write_file);
@@ -4556,6 +4859,9 @@ void syscall_init(void) {
   syscall_table[SYS_epoll_create1] = sys_epoll_create1;
   syscall_table[SYS_epoll_ctl] = sys_epoll_ctl;
   syscall_table[SYS_epoll_pwait] = sys_epoll_pwait;
+  syscall_table[SYS_timerfd_create] = sys_timerfd_create;
+  syscall_table[SYS_timerfd_settime] = sys_timerfd_settime;
+  syscall_table[SYS_timerfd_gettime] = sys_timerfd_gettime;
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;
