@@ -30,8 +30,10 @@
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR 0x200
 #define AT_SYMLINK_FOLLOW 0x400
+#define AT_NO_AUTOMOUNT 0x800
 #define AT_EACCESS 0x200
 #define AT_EMPTY_PATH 0x1000
+#define AT_STATX_SYNC_TYPE 0x6000
 #define UTIME_NOW 1073741823L
 #define UTIME_OMIT 1073741822L
 #define MS_RDONLY 1
@@ -140,6 +142,20 @@
 #define TFD_CLOEXEC O_CLOEXEC
 #define TFD_NONBLOCK O_NONBLOCK
 #define TFD_TIMER_ABSTIME 1
+#define STATX_TYPE 0x00000001U
+#define STATX_MODE 0x00000002U
+#define STATX_NLINK 0x00000004U
+#define STATX_UID 0x00000008U
+#define STATX_GID 0x00000010U
+#define STATX_ATIME 0x00000020U
+#define STATX_MTIME 0x00000040U
+#define STATX_CTIME 0x00000080U
+#define STATX_INO 0x00000100U
+#define STATX_SIZE 0x00000200U
+#define STATX_BLOCKS 0x00000400U
+#define STATX_BASIC_STATS 0x000007ffU
+#define STATX_BTIME 0x00000800U
+#define STATX__RESERVED 0x80000000U
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 
@@ -772,6 +788,36 @@ struct linux_stat {
   unsigned __stat_unused[2];
 };
 
+struct linux_statx_timestamp {
+  int64_t tv_sec;
+  uint32_t tv_nsec;
+  int32_t __reserved;
+};
+
+struct linux_statx {
+  uint32_t stx_mask;
+  uint32_t stx_blksize;
+  uint64_t stx_attributes;
+  uint32_t stx_nlink;
+  uint32_t stx_uid;
+  uint32_t stx_gid;
+  uint16_t stx_mode;
+  uint16_t __spare0[1];
+  uint64_t stx_ino;
+  uint64_t stx_size;
+  uint64_t stx_blocks;
+  uint64_t stx_attributes_mask;
+  struct linux_statx_timestamp stx_atime;
+  struct linux_statx_timestamp stx_btime;
+  struct linux_statx_timestamp stx_ctime;
+  struct linux_statx_timestamp stx_mtime;
+  uint32_t stx_rdev_major;
+  uint32_t stx_rdev_minor;
+  uint32_t stx_dev_major;
+  uint32_t stx_dev_minor;
+  uint64_t __spare2[14];
+};
+
 struct linux_fsid {
   int __val[2];
 };
@@ -959,6 +1005,65 @@ static long copy_inode_stat(const struct inode *inode, uint64_t statbuf) {
   st->st_mtim = inode->i_mtime;
   st->st_ctim = inode->i_ctime;
   return 0;
+}
+
+static void statx_set_time(struct linux_statx_timestamp *dst,
+                           struct timespec src) {
+  if (!dst)
+    return;
+  dst->tv_sec = (int64_t)src.tv_sec;
+  dst->tv_nsec = (uint32_t)src.tv_nsec;
+  dst->__reserved = 0;
+}
+
+static void statx_set_device(uint64_t dev, uint32_t *major, uint32_t *minor) {
+  if (!major || !minor)
+    return;
+  *major = (uint32_t)((dev >> 20) & 0xfffU);
+  *minor = (uint32_t)((dev & 0xffU) | ((dev >> 12) & 0xffffff00U));
+}
+
+static long copy_inode_statx(const struct inode *inode, uint64_t statxbuf) {
+  struct linux_statx *stx;
+  blksize_t blksize = 512;
+  uint64_t dev = 0;
+
+  if (!inode)
+    return -ENOENT;
+  if (!is_valid_user_ptr(statxbuf, sizeof(struct linux_statx)))
+    return -EFAULT;
+
+  if (inode->i_blksize > 0)
+    blksize = inode->i_blksize;
+  else if (inode->i_sb && inode->i_sb->s_blocksize > 0)
+    blksize = inode->i_sb->s_blocksize;
+  if (inode->i_sb)
+    dev = (uint64_t)inode->i_sb->s_dev;
+
+  stx = (struct linux_statx *)(uintptr_t)statxbuf;
+  memset(stx, 0, sizeof(*stx));
+  stx->stx_mask = STATX_BASIC_STATS;
+  stx->stx_blksize = (uint32_t)blksize;
+  stx->stx_nlink = (uint32_t)inode->i_nlink;
+  stx->stx_uid = (uint32_t)inode->i_uid;
+  stx->stx_gid = (uint32_t)inode->i_gid;
+  stx->stx_mode = (uint16_t)inode->i_mode;
+  stx->stx_ino = (uint64_t)inode->i_ino;
+  stx->stx_size = (uint64_t)inode->i_size;
+  stx->stx_blocks = (uint64_t)inode->i_blocks;
+  statx_set_time(&stx->stx_atime, inode->i_atime);
+  statx_set_time(&stx->stx_ctime, inode->i_ctime);
+  statx_set_time(&stx->stx_mtime, inode->i_mtime);
+  statx_set_device((uint64_t)inode->i_rdev, &stx->stx_rdev_major,
+                   &stx->stx_rdev_minor);
+  statx_set_device(dev, &stx->stx_dev_major, &stx->stx_dev_minor);
+  return 0;
+}
+
+static long copy_file_statx(const struct file *file, uint64_t statxbuf) {
+  if (!file || !file->f_dentry)
+    return -EBADF;
+  return copy_inode_statx(file->f_dentry->d_inode, statxbuf);
 }
 
 static long copy_file_stat(const struct file *file, uint64_t statbuf) {
@@ -2771,6 +2876,68 @@ static long sys_newfstatat(uint64_t dirfd, uint64_t pathname, uint64_t statbuf,
     return -ENOENT;
 
   ret = copy_file_stat(f, statbuf);
+  vfs_close(f);
+  return ret;
+}
+
+static long sys_statx(uint64_t dirfd, uint64_t pathname, uint64_t flags,
+                      uint64_t mask, uint64_t statxbuf, uint64_t a5) {
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH |
+                          AT_NO_AUTOMOUNT | AT_STATX_SYNC_TYPE))
+    return -EINVAL;
+  if (mask & STATX__RESERVED)
+    return -EINVAL;
+  if (!is_valid_user_ptr(statxbuf, sizeof(struct linux_statx)))
+    return -EFAULT;
+
+  if (pathname == 0) {
+    if (!(flags & AT_EMPTY_PATH))
+      return -EFAULT;
+    user_path[0] = '\0';
+  } else {
+    ret = copy_user_string(pathname, user_path, sizeof(user_path));
+    if (ret < 0)
+      return ret;
+  }
+
+  if ((flags & AT_EMPTY_PATH) && user_path[0] == '\0') {
+    if ((int64_t)dirfd == AT_FDCWD) {
+      ret = init_task_cwd(task);
+      if (ret < 0)
+        return ret;
+
+      struct file *cwd = vfs_open(task->cwd, O_RDONLY | O_DIRECTORY, 0);
+      if (!cwd)
+        return -ENOENT;
+      ret = copy_file_statx(cwd, statxbuf);
+      vfs_close(cwd);
+      return ret;
+    }
+
+    struct file *f = get_file(task, (int)dirfd);
+    if (!f)
+      return -EBADF;
+    return copy_file_statx(f, statxbuf);
+  }
+
+  ret = resolve_at_path(task, (int)dirfd, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_RDONLY, 0);
+  if (!f)
+    return -ENOENT;
+
+  ret = copy_file_statx(f, statxbuf);
   vfs_close(f);
   return ret;
 }
@@ -4903,6 +5070,7 @@ void syscall_init(void) {
   syscall_table[SYS_ppoll] = sys_ppoll;
   syscall_table[SYS_readlinkat] = sys_readlinkat;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
+  syscall_table[SYS_statx] = sys_statx;
   syscall_table[SYS_fstat] = sys_fstat;
   syscall_table[SYS_utimensat] = sys_utimensat;
   syscall_table[SYS_sync] = sys_sync;
