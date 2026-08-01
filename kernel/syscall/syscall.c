@@ -137,6 +137,12 @@
 #define POSIX_FADV_DONTNEED 4
 #define POSIX_FADV_NOREUSE 5
 #define FILE_COPY_CHUNK 4096
+#define SPLICE_F_MOVE 0x01
+#define SPLICE_F_NONBLOCK 0x02
+#define SPLICE_F_MORE 0x04
+#define SPLICE_F_GIFT 0x08
+#define SPLICE_F_ALL                                                        \
+  (SPLICE_F_MOVE | SPLICE_F_NONBLOCK | SPLICE_F_MORE | SPLICE_F_GIFT)
 #define GRND_NONBLOCK 0x0001
 #define GRND_RANDOM 0x0002
 #define GRND_INSECURE 0x0004
@@ -2167,6 +2173,87 @@ static long sys_copy_file_range(uint64_t fd_in, uint64_t off_in,
       *(loff_t *)(uintptr_t)off_out = *out_ptr;
   }
   return ret;
+}
+
+static long sys_splice(uint64_t fd_in, uint64_t off_in, uint64_t fd_out,
+                       uint64_t off_out, uint64_t len, uint64_t flags) {
+  if (flags & ~(uint64_t)SPLICE_F_ALL)
+    return -EINVAL;
+  if (len > (uint64_t)SSIZE_MAX)
+    len = (uint64_t)SSIZE_MAX;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  loff_t in_pos;
+  loff_t out_pos;
+  loff_t *in_ptr = NULL;
+  loff_t *out_ptr = NULL;
+  if (off_in) {
+    if (!is_valid_user_ptr(off_in, sizeof(loff_t)))
+      return -EFAULT;
+    in_pos = *(loff_t *)(uintptr_t)off_in;
+    if (in_pos < 0)
+      return -EINVAL;
+    in_ptr = &in_pos;
+  }
+  if (off_out) {
+    if (!is_valid_user_ptr(off_out, sizeof(loff_t)))
+      return -EFAULT;
+    out_pos = *(loff_t *)(uintptr_t)off_out;
+    if (out_pos < 0)
+      return -EINVAL;
+    out_ptr = &out_pos;
+  }
+
+  long ret = copy_between_fds(task, fd_out, fd_in, in_ptr, out_ptr,
+                              (size_t)len);
+  if (ret >= 0) {
+    if (off_in && in_ptr)
+      *(loff_t *)(uintptr_t)off_in = *in_ptr;
+    if (off_out && out_ptr)
+      *(loff_t *)(uintptr_t)off_out = *out_ptr;
+  }
+  return ret;
+}
+
+static long sys_vmsplice(uint64_t fd, uint64_t iov, uint64_t nr_segs,
+                         uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)SPLICE_F_ALL)
+    return -EINVAL;
+
+  const struct linux_iovec *vec = NULL;
+  long ret = validate_iov(iov, nr_segs, &vec);
+  if (ret < 0 || nr_segs == 0)
+    return ret;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (!get_file(task, (int)fd) &&
+      !(task->files[fd].in_use && !task->files[fd].file))
+    return -EBADF;
+
+  long total = 0;
+  for (size_t i = 0; i < (size_t)nr_segs; i++) {
+    if (vec[i].iov_len == 0)
+      continue;
+    long part = write_kernel_to_fd(
+        task, fd, (const char *)(uintptr_t)vec[i].iov_base,
+        (size_t)vec[i].iov_len);
+    if (part < 0)
+      return total > 0 ? total : part;
+    total += part;
+    if ((uint64_t)part != vec[i].iov_len)
+      return total;
+  }
+  return total;
 }
 
 static long sys_readahead(uint64_t fd, uint64_t offset, uint64_t count,
@@ -5541,6 +5628,8 @@ void syscall_init(void) {
   syscall_table[SYS_preadv] = sys_preadv;
   syscall_table[SYS_pwritev] = sys_pwritev;
   syscall_table[SYS_sendfile] = sys_sendfile;
+  syscall_table[SYS_vmsplice] = sys_vmsplice;
+  syscall_table[SYS_splice] = sys_splice;
   syscall_table[SYS_readahead] = sys_readahead;
   syscall_table[SYS_fadvise64] = sys_fadvise64;
   syscall_table[SYS_openat] = sys_openat;
