@@ -84,6 +84,27 @@
 #define PR_SET_SECCOMP 22
 #define PR_SET_NO_NEW_PRIVS 38
 #define PR_GET_NO_NEW_PRIVS 39
+#define SYSLOG_ACTION_CLOSE 0
+#define SYSLOG_ACTION_OPEN 1
+#define SYSLOG_ACTION_READ 2
+#define SYSLOG_ACTION_READ_ALL 3
+#define SYSLOG_ACTION_READ_CLEAR 4
+#define SYSLOG_ACTION_CLEAR 5
+#define SYSLOG_ACTION_CONSOLE_OFF 6
+#define SYSLOG_ACTION_CONSOLE_ON 7
+#define SYSLOG_ACTION_CONSOLE_LEVEL 8
+#define SYSLOG_ACTION_SIZE_UNREAD 9
+#define SYSLOG_ACTION_SIZE_BUFFER 10
+#define LINUX_REBOOT_MAGIC1 0xfee1deadU
+#define LINUX_REBOOT_MAGIC2 672274793U
+#define LINUX_REBOOT_MAGIC2A 85072278U
+#define LINUX_REBOOT_MAGIC2B 369367448U
+#define LINUX_REBOOT_MAGIC2C 537993216U
+#define LINUX_REBOOT_CMD_RESTART 0x01234567U
+#define LINUX_REBOOT_CMD_HALT 0xCDEF0123U
+#define LINUX_REBOOT_CMD_CAD_ON 0x89ABCDEFU
+#define LINUX_REBOOT_CMD_CAD_OFF 0x00000000U
+#define LINUX_REBOOT_CMD_POWER_OFF 0x4321FEDCU
 #define CLOCK_REALTIME 0
 #define CLOCK_MONOTONIC 1
 #define CLOCK_PROCESS_CPUTIME_ID 2
@@ -4672,6 +4693,119 @@ static long sys_prctl(uint64_t option, uint64_t arg2, uint64_t arg3,
   }
 }
 
+static long sys_syslog(uint64_t type, uint64_t bufp, uint64_t len, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  size_t log_size = printk_log_size();
+
+  switch (type) {
+  case SYSLOG_ACTION_CLOSE:
+  case SYSLOG_ACTION_OPEN:
+  case SYSLOG_ACTION_CONSOLE_OFF:
+  case SYSLOG_ACTION_CONSOLE_ON:
+    return 0;
+  case SYSLOG_ACTION_CONSOLE_LEVEL:
+    return len <= 8 ? 0 : -EINVAL;
+  case SYSLOG_ACTION_SIZE_UNREAD:
+  case SYSLOG_ACTION_SIZE_BUFFER:
+    return (long)log_size;
+  case SYSLOG_ACTION_CLEAR: {
+    struct task_struct *task = get_current();
+    if (!task)
+      return -ESRCH;
+    if (task->euid != 0)
+      return -EPERM;
+    printk_log_clear();
+    return 0;
+  }
+  case SYSLOG_ACTION_READ:
+  case SYSLOG_ACTION_READ_ALL:
+  case SYSLOG_ACTION_READ_CLEAR: {
+    size_t read_len;
+    size_t offset = 0;
+    size_t copied;
+
+    if (type == SYSLOG_ACTION_READ_CLEAR) {
+      struct task_struct *task = get_current();
+      if (!task)
+        return -ESRCH;
+      if (task->euid != 0)
+        return -EPERM;
+    }
+    if (len > INT32_MAX)
+      return -EINVAL;
+    if (len == 0)
+      return 0;
+    if (!is_valid_user_ptr(bufp, (size_t)len))
+      return -EFAULT;
+    read_len = (size_t)len;
+    if (read_len > log_size) {
+      if (type == SYSLOG_ACTION_READ_ALL || type == SYSLOG_ACTION_READ_CLEAR)
+        offset = 0;
+      read_len = log_size;
+    } else if (type == SYSLOG_ACTION_READ_ALL ||
+               type == SYSLOG_ACTION_READ_CLEAR) {
+      offset = log_size - read_len;
+    }
+    copied = printk_log_read((char *)(uintptr_t)bufp, offset, read_len);
+    if (type == SYSLOG_ACTION_READ_CLEAR)
+      printk_log_clear();
+    return (long)copied;
+  }
+  default:
+    return -EINVAL;
+  }
+}
+
+static int reboot_magic_valid(uint64_t magic1, uint64_t magic2) {
+  if ((uint32_t)magic1 != LINUX_REBOOT_MAGIC1)
+    return 0;
+  switch ((uint32_t)magic2) {
+  case LINUX_REBOOT_MAGIC2:
+  case LINUX_REBOOT_MAGIC2A:
+  case LINUX_REBOOT_MAGIC2B:
+  case LINUX_REBOOT_MAGIC2C:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+static long sys_reboot(uint64_t magic1, uint64_t magic2, uint64_t cmd,
+                       uint64_t arg, uint64_t a4, uint64_t a5) {
+  (void)arg;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+  if (task->euid != 0)
+    return -EPERM;
+  if (!reboot_magic_valid(magic1, magic2))
+    return -EINVAL;
+
+  switch ((uint32_t)cmd) {
+  case LINUX_REBOOT_CMD_CAD_ON:
+  case LINUX_REBOOT_CMD_CAD_OFF:
+    return 0;
+  case LINUX_REBOOT_CMD_RESTART:
+    printk(KERN_INFO "reboot: restart requested by pid %d\n", task->pid);
+    arch_reboot();
+    return 0;
+  case LINUX_REBOOT_CMD_POWER_OFF:
+  case LINUX_REBOOT_CMD_HALT:
+    printk(KERN_INFO "reboot: poweroff/halt requested by pid %d\n", task->pid);
+    arch_poweroff();
+    return 0;
+  default:
+    return -EINVAL;
+  }
+}
+
 static long sys_getcpu(uint64_t cpu, uint64_t node, uint64_t cache,
                        uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)cache;
@@ -6995,6 +7129,8 @@ void syscall_init(void) {
   syscall_table[SYS_capget] = sys_capget;
   syscall_table[SYS_capset] = sys_capset;
   syscall_table[SYS_futex] = sys_futex;
+  syscall_table[SYS_syslog] = sys_syslog;
+  syscall_table[SYS_reboot] = sys_reboot;
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;

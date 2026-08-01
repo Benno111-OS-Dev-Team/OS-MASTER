@@ -320,3 +320,9 @@ size_t printk_log_read(char *buf, size_t offset, size_t size)
 
     return size;
 }
+
+void printk_log_clear(void)
+{
+    printk_log_start = 0;
+    printk_log_count = 0;
+}

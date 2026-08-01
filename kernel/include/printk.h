@@ -74,6 +74,7 @@ int early_printk(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /* Kernel log buffer access */
 size_t printk_log_size(void);
 size_t printk_log_read(char *buf, size_t offset, size_t size);
+void printk_log_clear(void);
 
 /* ===================================================================== */
 /* Kernel assertion */
