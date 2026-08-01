@@ -43,6 +43,9 @@
 
 /* Capability IDs */
 #define PCI_CAP_ID_VNDR 0x09 /* Vendor-specific */
+#define PCI_CAP_ID_MSI 0x05  /* Message Signaled Interrupts */
+#define PCI_CAP_ID_PCIE 0x10 /* PCI Express */
+#define PCI_CAP_ID_MSIX 0x11 /* MSI-X */
 
 /* Virtio vendor/device IDs */
 #define PCI_VENDOR_VIRTIO 0x1AF4
@@ -65,6 +68,9 @@ typedef struct pci_device {
   uint64_t bar4;
   uint64_t bar5;
   uint32_t irq;
+  uint8_t cap_msi;
+  uint8_t cap_msix;
+  uint8_t cap_pcie;
   struct pci_device *next;
 } pci_device_t;
 
@@ -123,5 +129,6 @@ pci_device_t *pci_find_class(uint8_t class_code, uint8_t subclass,
                              uint8_t prog_if);
 pci_device_t *pci_find_next_class(pci_device_t *after, uint8_t class_code,
                                   uint8_t subclass, uint8_t prog_if);
+uint8_t pci_find_capability(pci_device_t *dev, uint8_t cap_id);
 
 #endif

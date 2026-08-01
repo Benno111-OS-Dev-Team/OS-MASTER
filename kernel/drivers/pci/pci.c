@@ -175,6 +175,35 @@ pci_device_t *pci_find_class(uint8_t class_code, uint8_t subclass,
   return pci_find_next_class(NULL, class_code, subclass, prog_if);
 }
 
+uint8_t pci_find_capability(pci_device_t *dev, uint8_t cap_id) {
+  uint16_t status;
+  uint8_t cap_ptr;
+
+  if (!dev)
+    return 0;
+
+  status = pci_read16(dev->bus, dev->slot, dev->func, PCI_STATUS);
+  if (!(status & PCI_STATUS_CAP_LIST))
+    return 0;
+
+  cap_ptr = pci_read8(dev->bus, dev->slot, dev->func, PCI_CAPABILITIES) & 0xFC;
+  for (int depth = 0; cap_ptr >= 0x40 && depth < 48; depth++) {
+    uint8_t id = pci_read8(dev->bus, dev->slot, dev->func, cap_ptr);
+    uint8_t next = pci_read8(dev->bus, dev->slot, dev->func,
+                             (uint16_t)(cap_ptr + 1)) &
+                   0xFC;
+    if (id == 0xFF)
+      return 0;
+    if (id == cap_id)
+      return cap_ptr;
+    if (next == cap_ptr)
+      return 0;
+    cap_ptr = next;
+  }
+
+  return 0;
+}
+
 static uint64_t pci_read_bar(uint8_t bus, uint8_t slot, uint8_t func,
                              uint8_t bar_offset) {
   uint32_t bar_raw = pci_read32(bus, slot, func, bar_offset);
@@ -304,9 +333,17 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   pci_dev->prog_if = (class_rev >> 8) & 0xFF;
 
   pci_populate_bars(pci_dev);
+  pci_dev->cap_msi = pci_find_capability(pci_dev, PCI_CAP_ID_MSI);
+  pci_dev->cap_msix = pci_find_capability(pci_dev, PCI_CAP_ID_MSIX);
+  pci_dev->cap_pcie = pci_find_capability(pci_dev, PCI_CAP_ID_PCIE);
 
   uint32_t irq_line = pci_read32(bus, slot, func, PCI_INTERRUPT);
   pci_dev->irq = irq_line & 0xFF;
+
+  if (pci_dev->cap_msi || pci_dev->cap_msix || pci_dev->cap_pcie) {
+    printk("PCI:   capabilities MSI=0x%x MSI-X=0x%x PCIe=0x%x\n",
+           pci_dev->cap_msi, pci_dev->cap_msix, pci_dev->cap_pcie);
+  }
 
   pci_dev->next = device_list;
   device_list = pci_dev;
