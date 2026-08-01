@@ -667,13 +667,10 @@ int vmm_unmap_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size)
     struct vm_area **link = &mm->vma_list;
     while (*link) {
         struct vm_area *vma = *link;
-        if (vma->start == start && vma->end == end) {
-            *link = vma->next;
-            if (mm->total_vm >= (size_t)(end - start)) {
-                mm->total_vm -= (size_t)(end - start);
-            } else {
-                mm->total_vm = 0;
-            }
+        if (vma_covers_range(vma, start, end)) {
+            virt_addr_t old_end = vma->end;
+            uint32_t old_flags = vma->flags;
+
             for (virt_addr_t addr = start; addr < end; addr += PAGE_SIZE) {
                 uint64_t *pte_table = walk_page_table(mm->pgd, addr, false);
                 if (pte_table) {
@@ -684,6 +681,27 @@ int vmm_unmap_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size)
                         pte_table[idx] = 0;
                     }
                 }
+            }
+            if (vma->start == start && vma->end == end) {
+                *link = vma->next;
+            } else if (vma->start == start) {
+                vma->start = end;
+            } else if (vma->end == end) {
+                vma->end = start;
+            } else {
+                vma->end = start;
+                if (vmm_add_vma(mm, end, old_end, old_flags) != 0) {
+                    vma->end = old_end;
+                    return -1;
+                }
+                if (mm->total_vm >= (size_t)(old_end - end)) {
+                    mm->total_vm -= (size_t)(old_end - end);
+                }
+            }
+            if (mm->total_vm >= (size_t)(end - start)) {
+                mm->total_vm -= (size_t)(end - start);
+            } else {
+                mm->total_vm = 0;
             }
             vmm_flush_tlb();
             return 0;
@@ -734,6 +752,20 @@ int vmm_user_range_mapped(struct mm_struct *mm, virt_addr_t vaddr, size_t size)
 
     struct vm_area *vma = vmm_find_vma(mm, start);
     return vma_covers_range(vma, start, end) ? 1 : 0;
+}
+
+int vmm_user_range_flags(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
+                         uint32_t *flags)
+{
+    if (!mm || !flags) return -1;
+    virt_addr_t start;
+    virt_addr_t end;
+    if (user_range_bounds(vaddr, size, &start, &end) != 0) return -1;
+
+    struct vm_area *vma = vmm_find_vma(mm, start);
+    if (!vma_covers_range(vma, start, end)) return -1;
+    *flags = vma->flags;
+    return 0;
 }
 
 int vmm_discard_user_range(struct mm_struct *mm, virt_addr_t vaddr,

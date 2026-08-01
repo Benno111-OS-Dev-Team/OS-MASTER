@@ -247,6 +247,18 @@ int vmm_protect_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
 int vmm_user_range_mapped(struct mm_struct *mm, virt_addr_t vaddr, size_t size);
 
 /**
+ * vmm_user_range_flags - Return protection flags for a covered user range
+ * @mm: Address space to inspect
+ * @vaddr: Starting virtual address
+ * @size: Size in bytes
+ * @flags: Output for VM_* flags
+ *
+ * Return: 0 if fully covered, negative on invalid or unmapped input
+ */
+int vmm_user_range_flags(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
+                         uint32_t *flags);
+
+/**
  * vmm_discard_user_range - Discard anonymous user-page contents
  * @mm: Address space to modify
  * @vaddr: Starting virtual address

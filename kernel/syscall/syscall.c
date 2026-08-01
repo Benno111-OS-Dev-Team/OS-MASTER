@@ -117,6 +117,10 @@
 #define MAP_FIXED 0x10
 #define MAP_ANONYMOUS 0x20
 #define MAP_FIXED_NOREPLACE 0x100000
+#define MREMAP_MAYMOVE 1
+#define MREMAP_FIXED 2
+#define MREMAP_DONTUNMAP 4
+#define MREMAP_KNOWN_FLAGS (MREMAP_MAYMOVE | MREMAP_FIXED | MREMAP_DONTUNMAP)
 #define MS_ASYNC 1
 #define MS_INVALIDATE 2
 #define MS_SYNC 4
@@ -4976,6 +4980,123 @@ static long sys_munmap(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
   return vmm_unmap_user_range(mm, addr, (size_t)len) == 0 ? 0 : -EINVAL;
 }
 
+static uint64_t find_free_mremap_range(struct mm_struct *mm, uint64_t len) {
+  uint64_t start;
+
+  if (!mm || len == 0 || len > USER_MMAP_LIMIT - USER_MMAP_BASE)
+    return 0;
+
+  start = (mm->mmap_next + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  if (start < USER_MMAP_BASE || len > USER_MMAP_LIMIT - start)
+    start = USER_MMAP_BASE;
+
+  for (uint64_t addr = start; addr <= USER_MMAP_LIMIT - len;
+       addr += PAGE_SIZE) {
+    int overlap = 0;
+    for (struct vm_area *vma = mm->vma_list; vma; vma = vma->next) {
+      if (addr < vma->end && addr + len > vma->start) {
+        overlap = 1;
+        break;
+      }
+    }
+    if (!overlap)
+      return addr;
+  }
+  for (uint64_t addr = USER_MMAP_BASE;
+       addr < start && addr <= USER_MMAP_LIMIT - len;
+       addr += PAGE_SIZE) {
+    int overlap = 0;
+    for (struct vm_area *vma = mm->vma_list; vma; vma = vma->next) {
+      if (addr < vma->end && addr + len > vma->start) {
+        overlap = 1;
+        break;
+      }
+    }
+    if (!overlap)
+      return addr;
+  }
+  return 0;
+}
+
+static long sys_mremap(uint64_t old_addr, uint64_t old_size,
+                       uint64_t new_size, uint64_t flags, uint64_t new_addr,
+                       uint64_t a5) {
+  (void)a5;
+
+  if (flags & ~(uint64_t)MREMAP_KNOWN_FLAGS)
+    return -EINVAL;
+  if (flags & MREMAP_DONTUNMAP)
+    return -EINVAL;
+  if ((flags & MREMAP_FIXED) && !(flags & MREMAP_MAYMOVE))
+    return -EINVAL;
+  if ((old_addr & (PAGE_SIZE - 1)) != 0 || old_size == 0 || new_size == 0)
+    return -EINVAL;
+  if (old_size > UINT64_MAX - (PAGE_SIZE - 1) ||
+      new_size > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+
+  uint64_t old_len = (old_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  uint64_t new_len = (new_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  if (old_len == 0 || new_len == 0)
+    return -EINVAL;
+
+  struct task_struct *task = get_current();
+  struct mm_struct *mm = ensure_task_mm(task);
+  uint32_t vm_flags;
+  if (!mm)
+    return -ENOMEM;
+  if (vmm_user_range_flags(mm, old_addr, (size_t)old_len, &vm_flags) != 0)
+    return -EINVAL;
+
+  if (new_len == old_len)
+    return old_addr;
+  if (new_len < old_len) {
+    uint64_t tail = old_addr + new_len;
+    return vmm_unmap_user_range(mm, tail, (size_t)(old_len - new_len)) == 0
+               ? (long)old_addr
+               : -EINVAL;
+  }
+
+  uint64_t grow_addr = old_addr + old_len;
+  uint64_t grow_len = new_len - old_len;
+  if (grow_addr >= old_addr && grow_len <= USER_VMA_END - grow_addr &&
+      vmm_map_user_range(mm, grow_addr, (size_t)grow_len, vm_flags) == 0) {
+    return old_addr;
+  }
+
+  if (!(flags & MREMAP_MAYMOVE))
+    return -ENOMEM;
+
+  uint64_t target = 0;
+  if (flags & MREMAP_FIXED) {
+    if ((new_addr & (PAGE_SIZE - 1)) != 0 || new_addr < USER_MMAP_BASE ||
+        new_len > USER_MMAP_LIMIT - new_addr)
+      return -EINVAL;
+    if (new_addr < old_addr + old_len && old_addr < new_addr + new_len)
+      return -EINVAL;
+    target = new_addr;
+  } else {
+    target = find_free_mremap_range(mm, new_len);
+    if (!target)
+      return -ENOMEM;
+  }
+
+  if (vmm_map_user_range(mm, target, (size_t)new_len, vm_flags) != 0)
+    return -ENOMEM;
+
+  size_t copy_len = old_len < new_len ? (size_t)old_len : (size_t)new_len;
+  if (copy_len > 0)
+    memmove((void *)(uintptr_t)target, (const void *)(uintptr_t)old_addr,
+            copy_len);
+  if (vmm_unmap_user_range(mm, old_addr, (size_t)old_len) != 0) {
+    vmm_unmap_user_range(mm, target, (size_t)new_len);
+    return -EINVAL;
+  }
+  if (!(flags & MREMAP_FIXED) && target + new_len > mm->mmap_next)
+    mm->mmap_next = target + new_len;
+  return (long)target;
+}
+
 static long sys_mprotect(uint64_t addr, uint64_t len, uint64_t prot,
                          uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -5675,6 +5796,7 @@ void syscall_init(void) {
   syscall_table[SYS_brk] = sys_brk;
   syscall_table[SYS_mmap] = sys_mmap;
   syscall_table[SYS_munmap] = sys_munmap;
+  syscall_table[SYS_mremap] = sys_mremap;
   syscall_table[SYS_mprotect] = sys_mprotect;
   syscall_table[SYS_msync] = sys_msync;
   syscall_table[SYS_mincore] = sys_mincore;
