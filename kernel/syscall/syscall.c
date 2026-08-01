@@ -219,6 +219,71 @@ static int copy_user_string(uint64_t user_ptr, char *dst, size_t dst_size) {
 }
 
 /* ===================================================================== */
+/* File metadata helpers */
+/* ===================================================================== */
+
+#define AT_FDCWD (-100)
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_EMPTY_PATH 0x1000
+
+struct linux_stat {
+  dev_t st_dev;
+  ino_t st_ino;
+  mode_t st_mode;
+  nlink_t st_nlink;
+  uid_t st_uid;
+  gid_t st_gid;
+  dev_t st_rdev;
+  unsigned long __pad;
+  loff_t st_size;
+  blksize_t st_blksize;
+  int __pad2;
+  blkcnt_t st_blocks;
+  struct timespec st_atim;
+  struct timespec st_mtim;
+  struct timespec st_ctim;
+  unsigned __stat_unused[2];
+};
+
+static long copy_inode_stat(const struct inode *inode, uint64_t statbuf) {
+  struct linux_stat *st;
+  blksize_t blksize = 512;
+
+  if (!inode)
+    return -ENOENT;
+  if (!is_valid_user_ptr(statbuf, sizeof(struct linux_stat)))
+    return -EFAULT;
+
+  if (inode->i_blksize > 0)
+    blksize = inode->i_blksize;
+  else if (inode->i_sb && inode->i_sb->s_blocksize > 0)
+    blksize = inode->i_sb->s_blocksize;
+
+  st = (struct linux_stat *)(uintptr_t)statbuf;
+  memset(st, 0, sizeof(*st));
+  st->st_dev = inode->i_sb ? inode->i_sb->s_dev : 0;
+  st->st_ino = inode->i_ino;
+  st->st_mode = inode->i_mode;
+  st->st_nlink = inode->i_nlink;
+  st->st_uid = inode->i_uid;
+  st->st_gid = inode->i_gid;
+  st->st_rdev = inode->i_rdev;
+  st->st_size = inode->i_size;
+  st->st_blksize = blksize;
+  st->st_blocks = inode->i_blocks;
+  st->st_atim = inode->i_atime;
+  st->st_mtim = inode->i_mtime;
+  st->st_ctim = inode->i_ctime;
+  return 0;
+}
+
+static long copy_file_stat(const struct file *file, uint64_t statbuf) {
+  if (!file || !file->f_dentry)
+    return -EBADF;
+  return copy_inode_stat(file->f_dentry->d_inode, statbuf);
+}
+
+/* ===================================================================== */
 /* System call table */
 /* ===================================================================== */
 
@@ -404,6 +469,79 @@ static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
   }
 
   return vfs_lseek(f, (loff_t)offset, (int)whence);
+}
+
+static long sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+
+  return copy_file_stat(f, statbuf);
+}
+
+static long sys_newfstatat(uint64_t dirfd, uint64_t pathname, uint64_t statbuf,
+                           uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
+    return -EINVAL;
+
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+
+  if ((flags & AT_EMPTY_PATH) && user_path[0] == '\0') {
+    if ((int64_t)dirfd == AT_FDCWD) {
+      ret = init_task_cwd(task);
+      if (ret < 0)
+        return ret;
+
+      struct file *cwd = vfs_open(task->cwd, O_RDONLY | O_DIRECTORY, 0);
+      if (!cwd)
+        return -ENOENT;
+      ret = copy_file_stat(cwd, statbuf);
+      vfs_close(cwd);
+      return ret;
+    }
+
+    struct file *f = get_file(task, (int)dirfd);
+    if (!f)
+      return -EBADF;
+    return copy_file_stat(f, statbuf);
+  }
+
+  if (user_path[0] != '/' && (int64_t)dirfd != AT_FDCWD)
+    return -ENOSYS;
+
+  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_RDONLY, 0);
+  if (!f)
+    return -ENOENT;
+
+  ret = copy_file_stat(f, statbuf);
+  vfs_close(f);
+  return ret;
 }
 
 static long sys_exit(uint64_t error_code, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -876,6 +1014,8 @@ void syscall_init(void) {
   syscall_table[SYS_openat] = sys_openat;
   syscall_table[SYS_close] = sys_close;
   syscall_table[SYS_lseek] = sys_lseek;
+  syscall_table[SYS_newfstatat] = sys_newfstatat;
+  syscall_table[SYS_fstat] = sys_fstat;
   syscall_table[SYS_exit] = sys_exit;
   syscall_table[SYS_exit_group] = sys_exit_group;
   syscall_table[SYS_getpid] = sys_getpid;
