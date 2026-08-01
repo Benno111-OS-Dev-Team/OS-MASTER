@@ -35,6 +35,9 @@ static struct task_struct init_task = {
     .nice = 0,
     .pid = 0,
     .tgid = 0,
+    .pgrp = 0,
+    .sid = 0,
+    .umask = 022,
     .comm = "swapper",
     .flags = PF_KTHREAD | PF_IDLE,
 };
@@ -325,11 +328,32 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
     task->nice = 0;
     task->pid = next_pid++;
     task->tgid = task->pid;
+    task->parent = runqueue.current;
+    if (task->parent) {
+        task->uid = task->parent->uid;
+        task->euid = task->parent->euid;
+        task->suid = task->parent->suid;
+        task->gid = task->parent->gid;
+        task->egid = task->parent->egid;
+        task->sgid = task->parent->sgid;
+        task->group_count = task->parent->group_count;
+        for (int group = 0; group < TASK_MAX_GROUPS; group++) {
+            task->groups[group] = task->parent->groups[group];
+        }
+        task->pgrp = task->parent->pgrp;
+        task->sid = task->parent->sid;
+        task->umask = task->parent->umask;
+        task->pdeath_signal = task->parent->pdeath_signal;
+        task->no_new_privs = task->parent->no_new_privs;
+    } else {
+        task->pgrp = task->pid;
+        task->sid = task->pid;
+        task->umask = 022;
+    }
     task->flags = flags;
     task->stack = stack;
     task->stack_size = KERNEL_STACK_SIZE;
     stack_guard_write(task);
-    task->parent = runqueue.current;
     if (task->parent && task->parent->cwd_initialized) {
         strlcpy(task->cwd, task->parent->cwd, sizeof(task->cwd));
     } else {
@@ -410,7 +434,20 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->flags = PF_THREAD;
     task->parent = parent;
     task->uid = parent->uid;
+    task->euid = parent->euid;
+    task->suid = parent->suid;
     task->gid = parent->gid;
+    task->egid = parent->egid;
+    task->sgid = parent->sgid;
+    task->group_count = parent->group_count;
+    for (int group = 0; group < TASK_MAX_GROUPS; group++) {
+        task->groups[group] = parent->groups[group];
+    }
+    task->pgrp = parent->pgrp;
+    task->sid = parent->sid;
+    task->umask = parent->umask;
+    task->pdeath_signal = parent->pdeath_signal;
+    task->no_new_privs = parent->no_new_privs;
     if (parent->cwd_initialized) {
         strlcpy(task->cwd, parent->cwd, sizeof(task->cwd));
     } else {

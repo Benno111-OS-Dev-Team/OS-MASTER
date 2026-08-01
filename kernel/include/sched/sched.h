@@ -69,6 +69,7 @@ struct file;
 
 #define TASK_MAX_FDS 256
 #define TASK_CWD_MAX 512
+#define TASK_MAX_GROUPS 32
 
 struct task_fd_entry {
   struct file *file;
@@ -94,7 +95,16 @@ struct task_struct {
   pid_t pid;
   pid_t tgid; /* Thread group ID */
   uid_t uid;
+  uid_t euid;
+  uid_t suid;
   gid_t gid;
+  gid_t egid;
+  gid_t sgid;
+  gid_t groups[TASK_MAX_GROUPS];
+  int group_count;
+  pid_t pgrp;
+  pid_t sid;
+  mode_t umask;
 
   /* Process name */
   char comm[TASK_COMM_LEN];
@@ -138,6 +148,8 @@ struct task_struct {
   struct signal_struct *signals;
   uint64_t pending_signals;
   uint64_t blocked_signals;
+  int pdeath_signal;
+  uint8_t no_new_privs;
 
   /* Flags */
   uint32_t flags;

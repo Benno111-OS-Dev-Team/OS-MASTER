@@ -115,7 +115,20 @@ long do_fork(unsigned long flags) {
   copy_thread(child, current_task);
   child->parent = current_task;
   child->uid = current_task->uid;
+  child->euid = current_task->euid;
+  child->suid = current_task->suid;
   child->gid = current_task->gid;
+  child->egid = current_task->egid;
+  child->sgid = current_task->sgid;
+  child->group_count = current_task->group_count;
+  for (int group = 0; group < TASK_MAX_GROUPS; group++) {
+    child->groups[group] = current_task->groups[group];
+  }
+  child->pgrp = current_task->pgrp;
+  child->sid = current_task->sid;
+  child->umask = current_task->umask;
+  child->pdeath_signal = current_task->pdeath_signal;
+  child->no_new_privs = current_task->no_new_privs;
   child->state = TASK_RUNNING;
 
   return child->pid;

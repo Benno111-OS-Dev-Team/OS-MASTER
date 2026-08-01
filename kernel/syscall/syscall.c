@@ -41,6 +41,15 @@
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 #define KERNEL_NSIG 32
+#define SCHED_OTHER 0
+#define SCHED_FIFO 1
+#define SCHED_RR 2
+#define PR_SET_PDEATHSIG 1
+#define PR_GET_PDEATHSIG 2
+#define PR_SET_NAME 15
+#define PR_GET_NAME 16
+#define PR_SET_NO_NEW_PRIVS 38
+#define PR_GET_NO_NEW_PRIVS 39
 #define CLOCK_REALTIME 0
 #define CLOCK_MONOTONIC 1
 #define CLOCK_PROCESS_CPUTIME_ID 2
@@ -401,6 +410,13 @@ struct linux_tms {
   long tms_stime;
   long tms_cutime;
   long tms_cstime;
+};
+
+struct linux_sched_param {
+  int sched_priority;
+  int __reserved1;
+  long __reserved2[4];
+  int __reserved3;
 };
 
 struct linux_sysinfo {
@@ -1186,6 +1202,19 @@ static long sys_getuid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->uid : 0;
 }
 
+static long sys_geteuid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a0;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  return current ? current->euid : 0;
+}
+
 static long sys_getgid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a0;
@@ -1199,6 +1228,19 @@ static long sys_getgid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->gid : 0;
 }
 
+static long sys_getegid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a0;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  return current ? current->egid : 0;
+}
+
 static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a0;
@@ -1210,6 +1252,512 @@ static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
 
   struct task_struct *current = get_current();
   return current ? current->pid : -1;
+}
+
+static long sys_setuid(uint64_t uid, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current || uid > UINT32_MAX)
+    return -EINVAL;
+  current->uid = (uid_t)uid;
+  current->euid = (uid_t)uid;
+  current->suid = (uid_t)uid;
+  return 0;
+}
+
+static long sys_setgid(uint64_t gid, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current || gid > UINT32_MAX)
+    return -EINVAL;
+  current->gid = (gid_t)gid;
+  current->egid = (gid_t)gid;
+  current->sgid = (gid_t)gid;
+  return 0;
+}
+
+static long sys_setreuid(uint64_t ruid, uint64_t euid, uint64_t a2,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if ((int64_t)ruid != -1) {
+    if (ruid > UINT32_MAX)
+      return -EINVAL;
+    current->uid = (uid_t)ruid;
+  }
+  if ((int64_t)euid != -1) {
+    if (euid > UINT32_MAX)
+      return -EINVAL;
+    current->euid = (uid_t)euid;
+  }
+  current->suid = current->euid;
+  return 0;
+}
+
+static long sys_setregid(uint64_t rgid, uint64_t egid, uint64_t a2,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if ((int64_t)rgid != -1) {
+    if (rgid > UINT32_MAX)
+      return -EINVAL;
+    current->gid = (gid_t)rgid;
+  }
+  if ((int64_t)egid != -1) {
+    if (egid > UINT32_MAX)
+      return -EINVAL;
+    current->egid = (gid_t)egid;
+  }
+  current->sgid = current->egid;
+  return 0;
+}
+
+static long sys_setresuid(uint64_t ruid, uint64_t euid, uint64_t suid,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if ((int64_t)ruid != -1) {
+    if (ruid > UINT32_MAX)
+      return -EINVAL;
+    current->uid = (uid_t)ruid;
+  }
+  if ((int64_t)euid != -1) {
+    if (euid > UINT32_MAX)
+      return -EINVAL;
+    current->euid = (uid_t)euid;
+  }
+  if ((int64_t)suid != -1) {
+    if (suid > UINT32_MAX)
+      return -EINVAL;
+    current->suid = (uid_t)suid;
+  }
+  return 0;
+}
+
+static long sys_getresuid(uint64_t ruid, uint64_t euid, uint64_t suid,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if (!is_valid_user_ptr(ruid, sizeof(uid_t)) ||
+      !is_valid_user_ptr(euid, sizeof(uid_t)) ||
+      !is_valid_user_ptr(suid, sizeof(uid_t)))
+    return -EFAULT;
+  *(uid_t *)(uintptr_t)ruid = current->uid;
+  *(uid_t *)(uintptr_t)euid = current->euid;
+  *(uid_t *)(uintptr_t)suid = current->suid;
+  return 0;
+}
+
+static long sys_setresgid(uint64_t rgid, uint64_t egid, uint64_t sgid,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if ((int64_t)rgid != -1) {
+    if (rgid > UINT32_MAX)
+      return -EINVAL;
+    current->gid = (gid_t)rgid;
+  }
+  if ((int64_t)egid != -1) {
+    if (egid > UINT32_MAX)
+      return -EINVAL;
+    current->egid = (gid_t)egid;
+  }
+  if ((int64_t)sgid != -1) {
+    if (sgid > UINT32_MAX)
+      return -EINVAL;
+    current->sgid = (gid_t)sgid;
+  }
+  return 0;
+}
+
+static long sys_getresgid(uint64_t rgid, uint64_t egid, uint64_t sgid,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if (!is_valid_user_ptr(rgid, sizeof(gid_t)) ||
+      !is_valid_user_ptr(egid, sizeof(gid_t)) ||
+      !is_valid_user_ptr(sgid, sizeof(gid_t)))
+    return -EFAULT;
+  *(gid_t *)(uintptr_t)rgid = current->gid;
+  *(gid_t *)(uintptr_t)egid = current->egid;
+  *(gid_t *)(uintptr_t)sgid = current->sgid;
+  return 0;
+}
+
+static long sys_setpgid(uint64_t pid, uint64_t pgid, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if ((int64_t)pid < 0 || (int64_t)pgid < 0)
+    return -EINVAL;
+
+  struct task_struct *task = pid ? get_task_by_pid((pid_t)pid) : current;
+  if (!task)
+    return -ESRCH;
+
+  pid_t new_pgrp = pgid ? (pid_t)pgid : task->pid;
+  task->pgrp = new_pgrp;
+  return 0;
+}
+
+static long sys_getpgid(uint64_t pid, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  struct task_struct *task = pid ? get_task_by_pid((pid_t)pid) : current;
+  return task ? task->pgrp : -ESRCH;
+}
+
+static long sys_setsid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a0;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  current->sid = current->pid;
+  current->pgrp = current->pid;
+  return current->sid;
+}
+
+static long sys_getsid(uint64_t pid, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  struct task_struct *task = pid ? get_task_by_pid((pid_t)pid) : current;
+  return task ? task->sid : -ESRCH;
+}
+
+static long sys_getgroups(uint64_t size, uint64_t list, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if (size == 0)
+    return current->group_count;
+  if (size > TASK_MAX_GROUPS || (int)size < current->group_count)
+    return -EINVAL;
+  if (!is_valid_user_ptr(list, sizeof(gid_t) * (size_t)size))
+    return -EFAULT;
+
+  gid_t *groups = (gid_t *)(uintptr_t)list;
+  for (int i = 0; i < current->group_count; i++)
+    groups[i] = current->groups[i];
+  return current->group_count;
+}
+
+static long sys_setgroups(uint64_t size, uint64_t list, uint64_t a2,
+                          uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if (size > TASK_MAX_GROUPS)
+    return -EINVAL;
+  if (size && !is_valid_user_ptr(list, sizeof(gid_t) * (size_t)size))
+    return -EFAULT;
+
+  const gid_t *groups = (const gid_t *)(uintptr_t)list;
+  for (int i = 0; i < (int)size; i++)
+    current->groups[i] = groups[i];
+  for (int i = (int)size; i < TASK_MAX_GROUPS; i++)
+    current->groups[i] = 0;
+  current->group_count = (int)size;
+  return 0;
+}
+
+static long sys_umask(uint64_t mask, uint64_t a1, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  mode_t old = current->umask;
+  current->umask = (mode_t)(mask & 0777);
+  return old;
+}
+
+static long sys_prctl(uint64_t option, uint64_t arg2, uint64_t arg3,
+                      uint64_t arg4, uint64_t arg5, uint64_t a5) {
+  (void)arg4;
+  (void)arg5;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+
+  switch (option) {
+  case PR_SET_NAME:
+    if (!is_valid_user_ptr(arg2, 1))
+      return -EFAULT;
+    return copy_user_string(arg2, current->comm, sizeof(current->comm)) == 0
+               ? 0
+               : -EFAULT;
+  case PR_GET_NAME:
+    if (!is_valid_user_ptr(arg2, TASK_COMM_LEN))
+      return -EFAULT;
+    strlcpy((char *)(uintptr_t)arg2, current->comm, TASK_COMM_LEN);
+    return 0;
+  case PR_SET_NO_NEW_PRIVS:
+    if (arg2 != 1 || arg3 || arg4 || arg5)
+      return -EINVAL;
+    current->no_new_privs = 1;
+    return 0;
+  case PR_GET_NO_NEW_PRIVS:
+    return current->no_new_privs ? 1 : 0;
+  case PR_SET_PDEATHSIG:
+    if (arg2 >= KERNEL_NSIG)
+      return -EINVAL;
+    current->pdeath_signal = (int)arg2;
+    return 0;
+  case PR_GET_PDEATHSIG:
+    if (!is_valid_user_ptr(arg2, sizeof(int)))
+      return -EFAULT;
+    *(int *)(uintptr_t)arg2 = current->pdeath_signal;
+    return 0;
+  default:
+    return -ENOSYS;
+  }
+}
+
+static long sys_getcpu(uint64_t cpu, uint64_t node, uint64_t cache,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)cache;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (cpu) {
+    if (!is_valid_user_ptr(cpu, sizeof(uint32_t)))
+      return -EFAULT;
+    *(uint32_t *)(uintptr_t)cpu = arch_cpu_id();
+  }
+  if (node) {
+    if (!is_valid_user_ptr(node, sizeof(uint32_t)))
+      return -EFAULT;
+    *(uint32_t *)(uintptr_t)node = 0;
+  }
+  return 0;
+}
+
+static long sys_sched_getscheduler(uint64_t pid, uint64_t a1, uint64_t a2,
+                                   uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  return SCHED_OTHER;
+}
+
+static long sys_sched_getparam(uint64_t pid, uint64_t param, uint64_t a2,
+                               uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  if (!is_valid_user_ptr(param, sizeof(struct linux_sched_param)))
+    return -EFAULT;
+  struct linux_sched_param *sp = (struct linux_sched_param *)(uintptr_t)param;
+  memset(sp, 0, sizeof(*sp));
+  return 0;
+}
+
+static long sys_sched_setparam(uint64_t pid, uint64_t param, uint64_t a2,
+                               uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  if (!is_valid_user_ptr(param, sizeof(struct linux_sched_param)))
+    return -EFAULT;
+  const struct linux_sched_param *sp =
+      (const struct linux_sched_param *)(uintptr_t)param;
+  return sp->sched_priority == 0 ? 0 : -EINVAL;
+}
+
+static long sys_sched_setscheduler(uint64_t pid, uint64_t policy,
+                                   uint64_t param, uint64_t a3, uint64_t a4,
+                                   uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (policy != SCHED_OTHER)
+    return -EINVAL;
+  return sys_sched_setparam(pid, param, 0, 0, 0, 0);
+}
+
+static long sys_sched_get_priority_max(uint64_t policy, uint64_t a1,
+                                       uint64_t a2, uint64_t a3, uint64_t a4,
+                                       uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (policy != SCHED_OTHER && policy != SCHED_FIFO && policy != SCHED_RR)
+    return -EINVAL;
+  return policy == SCHED_OTHER ? 0 : PRIO_MAX;
+}
+
+static long sys_sched_get_priority_min(uint64_t policy, uint64_t a1,
+                                       uint64_t a2, uint64_t a3, uint64_t a4,
+                                       uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (policy != SCHED_OTHER && policy != SCHED_FIFO && policy != SCHED_RR)
+    return -EINVAL;
+  return policy == SCHED_OTHER ? 0 : PRIO_MIN;
+}
+
+static long sys_sched_rr_get_interval(uint64_t pid, uint64_t interval,
+                                      uint64_t a2, uint64_t a3, uint64_t a4,
+                                      uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  if (!is_valid_user_ptr(interval, sizeof(struct timespec)))
+    return -EFAULT;
+  struct timespec *ts = (struct timespec *)(uintptr_t)interval;
+  ts->tv_sec = 0;
+  ts->tv_nsec = 20000000L;
+  return 0;
+}
+
+static long sys_sched_getaffinity(uint64_t pid, uint64_t cpusetsize,
+                                  uint64_t mask, uint64_t a3, uint64_t a4,
+                                  uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  if (cpusetsize < sizeof(unsigned long))
+    return -EINVAL;
+  if (!is_valid_user_ptr(mask, (size_t)cpusetsize))
+    return -EFAULT;
+
+  memset((void *)(uintptr_t)mask, 0, (size_t)cpusetsize);
+  *(unsigned long *)(uintptr_t)mask = 1UL;
+  return sizeof(unsigned long);
+}
+
+static long sys_sched_setaffinity(uint64_t pid, uint64_t cpusetsize,
+                                  uint64_t mask, uint64_t a3, uint64_t a4,
+                                  uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  if (cpusetsize < sizeof(unsigned long))
+    return -EINVAL;
+  if (!is_valid_user_ptr(mask, (size_t)cpusetsize))
+    return -EFAULT;
+
+  const unsigned long *bits = (const unsigned long *)(uintptr_t)mask;
+  return (bits[0] & 1UL) ? 0 : -EINVAL;
 }
 
 static long send_signal_to_pid(pid_t pid, int sig) {
@@ -2139,10 +2687,24 @@ void syscall_init(void) {
   syscall_table[SYS_getpid] = sys_getpid;
   syscall_table[SYS_getppid] = sys_getppid;
   syscall_table[SYS_getuid] = sys_getuid;
-  syscall_table[SYS_geteuid] = sys_getuid;
+  syscall_table[SYS_geteuid] = sys_geteuid;
   syscall_table[SYS_getgid] = sys_getgid;
-  syscall_table[SYS_getegid] = sys_getgid;
+  syscall_table[SYS_getegid] = sys_getegid;
   syscall_table[SYS_gettid] = sys_gettid;
+  syscall_table[SYS_setregid] = sys_setregid;
+  syscall_table[SYS_setgid] = sys_setgid;
+  syscall_table[SYS_setreuid] = sys_setreuid;
+  syscall_table[SYS_setuid] = sys_setuid;
+  syscall_table[SYS_setresuid] = sys_setresuid;
+  syscall_table[SYS_getresuid] = sys_getresuid;
+  syscall_table[SYS_setresgid] = sys_setresgid;
+  syscall_table[SYS_getresgid] = sys_getresgid;
+  syscall_table[SYS_setpgid] = sys_setpgid;
+  syscall_table[SYS_getpgid] = sys_getpgid;
+  syscall_table[SYS_getsid] = sys_getsid;
+  syscall_table[SYS_setsid] = sys_setsid;
+  syscall_table[SYS_getgroups] = sys_getgroups;
+  syscall_table[SYS_setgroups] = sys_setgroups;
   syscall_table[SYS_chdir] = sys_chdir;
   syscall_table[SYS_brk] = sys_brk;
   syscall_table[SYS_mmap] = sys_mmap;
@@ -2164,8 +2726,20 @@ void syscall_init(void) {
   syscall_table[SYS_getrlimit] = sys_getrlimit;
   syscall_table[SYS_setrlimit] = sys_setrlimit;
   syscall_table[SYS_getrusage] = sys_getrusage;
+  syscall_table[SYS_umask] = sys_umask;
+  syscall_table[SYS_prctl] = sys_prctl;
+  syscall_table[SYS_getcpu] = sys_getcpu;
   syscall_table[SYS_gettimeofday] = sys_gettimeofday;
   syscall_table[SYS_sysinfo] = sys_sysinfo;
+  syscall_table[SYS_sched_setparam] = sys_sched_setparam;
+  syscall_table[SYS_sched_setscheduler] = sys_sched_setscheduler;
+  syscall_table[SYS_sched_getscheduler] = sys_sched_getscheduler;
+  syscall_table[SYS_sched_getparam] = sys_sched_getparam;
+  syscall_table[SYS_sched_setaffinity] = sys_sched_setaffinity;
+  syscall_table[SYS_sched_getaffinity] = sys_sched_getaffinity;
+  syscall_table[SYS_sched_get_priority_max] = sys_sched_get_priority_max;
+  syscall_table[SYS_sched_get_priority_min] = sys_sched_get_priority_min;
+  syscall_table[SYS_sched_rr_get_interval] = sys_sched_rr_get_interval;
 
   printk(KERN_INFO "SYSCALL: System call table initialized\n");
 }
