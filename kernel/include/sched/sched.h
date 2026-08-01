@@ -61,6 +61,20 @@ struct list_head {
   struct list_head *prev;
 };
 
+struct file;
+
+/* ===================================================================== */
+/* Per-task file descriptor table */
+/* ===================================================================== */
+
+#define TASK_MAX_FDS 256
+
+struct task_fd_entry {
+  struct file *file;
+  int flags;
+  uint8_t in_use;
+};
+
 /* ===================================================================== */
 /* Task structure */
 /* ===================================================================== */
@@ -89,6 +103,10 @@ struct task_struct {
   /* Memory management */
   struct mm_struct *mm;        /* User address space */
   struct mm_struct *active_mm; /* Current address space */
+
+  /* Unix process resources */
+  struct task_fd_entry files[TASK_MAX_FDS];
+  uint8_t files_initialized;
 
   /* Kernel stack */
   void *stack;

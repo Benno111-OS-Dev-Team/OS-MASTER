@@ -16,61 +16,57 @@
 /* File Descriptor Table */
 /* ===================================================================== */
 
-#define MAX_FDS 256
+static int init_task_files(struct task_struct *task) {
+  if (!task)
+    return -ESRCH;
+  if (task->files_initialized)
+    return 0;
 
-/* File descriptor entry */
-struct fd_entry {
-  struct file *file;
-  int flags;
-  int in_use;
-};
-
-/* Global FD table (per-process would be better, but simpler for now) */
-static struct fd_entry fd_table[MAX_FDS];
-static int fd_table_initialized = 0;
-
-static void init_fd_table(void) {
-  if (fd_table_initialized)
-    return;
-
-  for (int i = 0; i < MAX_FDS; i++) {
-    fd_table[i].file = NULL;
-    fd_table[i].flags = 0;
-    fd_table[i].in_use = 0;
+  for (int i = 0; i < TASK_MAX_FDS; i++) {
+    task->files[i].file = NULL;
+    task->files[i].flags = 0;
+    task->files[i].in_use = 0;
   }
 
-  /* Reserve stdin/stdout/stderr */
-  fd_table[0].in_use = 1; /* stdin */
-  fd_table[1].in_use = 1; /* stdout */
-  fd_table[2].in_use = 1; /* stderr */
-
-  fd_table_initialized = 1;
+  task->files[0].in_use = 1; /* stdin */
+  task->files[1].in_use = 1; /* stdout */
+  task->files[2].in_use = 1; /* stderr */
+  task->files_initialized = 1;
+  return 0;
 }
 
-static int alloc_fd(void) {
-  init_fd_table();
-  for (int i = 3; i < MAX_FDS; i++) {
-    if (!fd_table[i].in_use) {
-      fd_table[i].in_use = 1;
+static struct task_struct *current_task_with_files(void) {
+  struct task_struct *task = get_current();
+  if (init_task_files(task) != 0)
+    return NULL;
+  return task;
+}
+
+static int alloc_fd(struct task_struct *task) {
+  if (init_task_files(task) != 0)
+    return -ESRCH;
+  for (int i = 3; i < TASK_MAX_FDS; i++) {
+    if (!task->files[i].in_use) {
+      task->files[i].in_use = 1;
       return i;
     }
   }
-  return -1;
+  return -EMFILE;
 }
 
-static void free_fd(int fd) {
-  if (fd >= 0 && fd < MAX_FDS) {
-    fd_table[fd].file = NULL;
-    fd_table[fd].flags = 0;
-    fd_table[fd].in_use = 0;
+static void free_fd(struct task_struct *task, int fd) {
+  if (task && fd >= 0 && fd < TASK_MAX_FDS) {
+    task->files[fd].file = NULL;
+    task->files[fd].flags = 0;
+    task->files[fd].in_use = 0;
   }
 }
 
-static struct file *get_file(int fd) {
-  if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].in_use) {
+static struct file *get_file(struct task_struct *task, int fd) {
+  if (!task || fd < 0 || fd >= TASK_MAX_FDS || !task->files[fd].in_use) {
     return NULL;
   }
-  return fd_table[fd].file;
+  return task->files[fd].file;
 }
 
 /* ===================================================================== */
@@ -146,7 +142,9 @@ static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  init_fd_table();
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
 
   /* Validate user buffer */
   if (!is_valid_user_ptr(buf, count)) {
@@ -190,7 +188,7 @@ static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
     return n;
   }
 
-  struct file *f = get_file((int)fd);
+  struct file *f = get_file(task, (int)fd);
   if (!f) {
     return -EBADF;
   }
@@ -204,7 +202,9 @@ static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  init_fd_table();
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
 
   if (count > 0 && !is_valid_user_ptr(buf, count)) {
     return -EFAULT;
@@ -219,7 +219,7 @@ static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
     return count;
   }
 
-  struct file *f = get_file((int)fd);
+  struct file *f = get_file(task, (int)fd);
   if (!f) {
     return -EBADF;
   }
@@ -233,8 +233,9 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   (void)a5;
   (void)dirfd; /* dirfd ignored - always use absolute paths */
 
-  init_fd_table();
-
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
   char path[256];
   long ret = copy_user_string(pathname, path, sizeof(path));
   if (ret < 0) {
@@ -242,20 +243,20 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   }
 
   /* Allocate file descriptor */
-  int fd = alloc_fd();
+  int fd = alloc_fd(task);
   if (fd < 0) {
-    return -EMFILE; /* Too many open files */
+    return fd;
   }
 
   /* Open the file */
   struct file *f = vfs_open(path, (int)flags, (mode_t)mode);
   if (!f) {
-    free_fd(fd);
+    free_fd(task, fd);
     return -ENOENT;
   }
 
-  fd_table[fd].file = f;
-  fd_table[fd].flags = (int)flags;
+  task->files[fd].file = f;
+  task->files[fd].flags = (int)flags;
 
   return fd;
 }
@@ -268,20 +269,22 @@ static long sys_close(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
   (void)a4;
   (void)a5;
 
-  init_fd_table();
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
 
   /* Don't close stdin/stdout/stderr */
   if (fd < 3) {
     return 0;
   }
 
-  struct file *f = get_file((int)fd);
+  struct file *f = get_file(task, (int)fd);
   if (!f) {
     return -EBADF;
   }
 
   vfs_close(f);
-  free_fd((int)fd);
+  free_fd(task, (int)fd);
 
   return 0;
 }
@@ -292,9 +295,11 @@ static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
   (void)a4;
   (void)a5;
 
-  init_fd_table();
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
 
-  struct file *f = get_file((int)fd);
+  struct file *f = get_file(task, (int)fd);
   if (!f) {
     return -EBADF;
   }

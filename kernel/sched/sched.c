@@ -3,6 +3,7 @@
  */
 
 #include "sched/sched.h"
+#include "fs/vfs.h"
 #include "mm/pmm.h"
 #include "printk.h"
 
@@ -139,6 +140,22 @@ static struct task_struct *pick_next_task(void)
     return next;
 }
 
+static void close_task_files(struct task_struct *task)
+{
+    if (!task || !task->files_initialized) {
+        return;
+    }
+
+    for (int fd = 3; fd < TASK_MAX_FDS; fd++) {
+        if (task->files[fd].in_use && task->files[fd].file) {
+            vfs_close(task->files[fd].file);
+        }
+        task->files[fd].file = NULL;
+        task->files[fd].flags = 0;
+        task->files[fd].in_use = 0;
+    }
+}
+
 /* ===================================================================== */
 /* Public functions */
 /* ===================================================================== */
@@ -260,6 +277,7 @@ void exit_task(int code)
     current->exit_code = code;
     current->state = TASK_ZOMBIE;
     current->flags |= PF_EXITING;
+    close_task_files(current);
     
     /* Remove from run queue */
     dequeue_task(current);
