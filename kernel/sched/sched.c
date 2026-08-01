@@ -582,6 +582,32 @@ struct task_struct *get_task_by_pid(pid_t pid)
     return NULL;
 }
 
+int for_each_task(task_iter_cb_t cb, void *ctx)
+{
+    int ret;
+
+    if (!cb) {
+        return -1;
+    }
+
+    ret = cb(&init_task, ctx);
+    if (ret) {
+        return ret;
+    }
+
+    for (int i = 0; i < task_pool_index; i++) {
+        if (task_pool[i].state == TASK_DEAD) {
+            continue;
+        }
+        ret = cb(&task_pool[i], ctx);
+        if (ret) {
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
 int sched_kill_task(pid_t pid)
 {
     struct task_struct *task = get_task_by_pid(pid);

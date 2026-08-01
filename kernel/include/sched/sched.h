@@ -248,6 +248,17 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack,
  */
 struct task_struct *get_task_by_pid(pid_t pid);
 
+typedef int (*task_iter_cb_t)(struct task_struct *task, void *ctx);
+
+/**
+ * for_each_task - Visit live tasks known to the scheduler
+ * @cb: Callback invoked for each live task
+ * @ctx: Caller context passed through to the callback
+ *
+ * Return: 0 after all tasks are visited, or the first non-zero callback value.
+ */
+int for_each_task(task_iter_cb_t cb, void *ctx);
+
 /**
  * sched_kill_task - Send termination signal to a task (scheduler API)
  * @pid: Task ID to kill

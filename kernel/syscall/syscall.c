@@ -4659,6 +4659,34 @@ static long sys_sched_setaffinity(uint64_t pid, uint64_t cpusetsize,
   return (bits[0] & 1UL) ? 0 : -EINVAL;
 }
 
+struct signal_group_ctx {
+  pid_t pgrp;
+  int sig;
+  int delivered;
+};
+
+static int send_signal_to_group_task(struct task_struct *task, void *ctx_ptr) {
+  struct signal_group_ctx *ctx = (struct signal_group_ctx *)ctx_ptr;
+
+  if (!task || task->pid == 0 || task->pgrp != ctx->pgrp)
+    return 0;
+  if (ctx->sig != 0 && kill_task(task, ctx->sig) != 0)
+    return 0;
+  ctx->delivered++;
+  return 0;
+}
+
+static int send_signal_to_all_task(struct task_struct *task, void *ctx_ptr) {
+  struct signal_group_ctx *ctx = (struct signal_group_ctx *)ctx_ptr;
+
+  if (!task || task->pid == 0)
+    return 0;
+  if (ctx->sig != 0 && kill_task(task, ctx->sig) != 0)
+    return 0;
+  ctx->delivered++;
+  return 0;
+}
+
 static long send_signal_to_pid(pid_t pid, int sig) {
   struct task_struct *task;
 
@@ -4666,15 +4694,27 @@ static long send_signal_to_pid(pid_t pid, int sig) {
     return -EINVAL;
   if (pid == 0) {
     task = get_current();
+    if (!task)
+      return -ESRCH;
+    struct signal_group_ctx ctx = {.pgrp = task->pgrp, .sig = sig};
+    for_each_task(send_signal_to_group_task, &ctx);
+    return ctx.delivered > 0 ? 0 : -ESRCH;
   } else if (pid > 0) {
     task = get_task_by_pid(pid);
+    if (!task)
+      return -ESRCH;
+    return (sig == 0 || kill_task(task, sig) == 0) ? 0 : -EINVAL;
+  } else if (pid == -1) {
+    struct signal_group_ctx ctx = {.sig = sig};
+    for_each_task(send_signal_to_all_task, &ctx);
+    return ctx.delivered > 0 ? 0 : -ESRCH;
   } else {
-    return -ENOSYS;
+    if (pid == (pid_t)INT32_MIN)
+      return -EINVAL;
+    struct signal_group_ctx ctx = {.pgrp = (pid_t)-pid, .sig = sig};
+    for_each_task(send_signal_to_group_task, &ctx);
+    return ctx.delivered > 0 ? 0 : -ESRCH;
   }
-
-  if (!task)
-    return -ESRCH;
-  return kill_task(task, sig) == 0 ? 0 : -EINVAL;
 }
 
 static long sys_kill(uint64_t pid, uint64_t sig, uint64_t a2, uint64_t a3,
