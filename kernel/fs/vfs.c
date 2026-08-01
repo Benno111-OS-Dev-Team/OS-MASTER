@@ -709,6 +709,34 @@ int vfs_close(struct file *file) {
   return 0;
 }
 
+int vfs_sync_file(struct file *file) {
+  struct inode *inode;
+  struct super_block *sb;
+
+  if (!file)
+    return -EBADF;
+  inode = file->f_dentry ? file->f_dentry->d_inode : NULL;
+  sb = inode ? inode->i_sb : NULL;
+  if (sb && sb->s_op && sb->s_op->sync_fs)
+    return sb->s_op->sync_fs(sb, 0);
+  return 0;
+}
+
+int vfs_sync_all(void) {
+  int ret = 0;
+
+  for (int i = 0; i < MAX_MOUNTS; i++) {
+    struct super_block *sb = mounts[i] ? mounts[i]->mnt_sb : NULL;
+    if (sb && sb->s_op && sb->s_op->sync_fs) {
+      int fs_ret = sb->s_op->sync_fs(sb, 0);
+      if (fs_ret < 0 && ret == 0)
+        ret = fs_ret;
+    }
+  }
+
+  return ret;
+}
+
 ssize_t vfs_read(struct file *file, char *buf, size_t count) {
   if (!file)
     return -EBADF;

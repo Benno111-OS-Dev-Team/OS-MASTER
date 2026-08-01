@@ -308,6 +308,16 @@ struct file *vfs_open(const char *path, int flags, mode_t mode);
 int vfs_close(struct file *file);
 
 /**
+ * vfs_sync_file - Flush a file's backing filesystem if it supports sync
+ */
+int vfs_sync_file(struct file *file);
+
+/**
+ * vfs_sync_all - Flush every mounted filesystem that supports sync
+ */
+int vfs_sync_all(void);
+
+/**
  * vfs_readdir - Read directory entries
  */
 int vfs_readdir(struct file *file, void *ctx, int (*filldir)(void *, const char *, int, loff_t, ino_t, unsigned));

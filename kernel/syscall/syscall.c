@@ -29,6 +29,8 @@
 #define AT_REMOVEDIR 0x200
 #define AT_EACCESS 0x200
 #define AT_EMPTY_PATH 0x1000
+#define MS_RDONLY 1
+#define ST_RDONLY 1
 #define F_OK 0
 #define X_OK 1
 #define W_OK 2
@@ -380,6 +382,25 @@ struct linux_stat {
   unsigned __stat_unused[2];
 };
 
+struct linux_fsid {
+  int __val[2];
+};
+
+struct linux_statfs {
+  unsigned long f_type;
+  unsigned long f_bsize;
+  uint64_t f_blocks;
+  uint64_t f_bfree;
+  uint64_t f_bavail;
+  uint64_t f_files;
+  uint64_t f_ffree;
+  struct linux_fsid f_fsid;
+  unsigned long f_namelen;
+  unsigned long f_frsize;
+  unsigned long f_flags;
+  unsigned long f_spare[4];
+};
+
 struct linux_rlimit {
   uint64_t rlim_cur;
   uint64_t rlim_max;
@@ -524,6 +545,64 @@ static long copy_file_stat(const struct file *file, uint64_t statbuf) {
   if (!file || !file->f_dentry)
     return -EBADF;
   return copy_inode_stat(file->f_dentry->d_inode, statbuf);
+}
+
+static unsigned long fs_magic_from_name(const char *name) {
+  if (!name)
+    return 0;
+  if (strcmp(name, "fat32") == 0)
+    return 0x4D44UL;
+  if (strcmp(name, "iso9660") == 0)
+    return 0x9660UL;
+  if (strcmp(name, "ramfs") == 0)
+    return 0x858458F6UL;
+  if (strcmp(name, "ext4") == 0)
+    return 0xEF53UL;
+  if (strcmp(name, "apfs") == 0)
+    return 0x4253584EUL;
+  return 0x0F5008UL;
+}
+
+static long copy_file_statfs(const struct file *file, uint64_t statbuf) {
+  const struct inode *inode;
+  const struct super_block *sb;
+  struct linux_statfs *st;
+  unsigned long block_size = 512;
+  unsigned long flags = 0;
+  uint64_t blocks = 0;
+
+  if (!file || !file->f_dentry)
+    return -EBADF;
+  if (!is_valid_user_ptr(statbuf, sizeof(struct linux_statfs)))
+    return -EFAULT;
+
+  inode = file->f_dentry->d_inode;
+  sb = inode ? inode->i_sb : NULL;
+  if (sb && sb->s_blocksize > 0)
+    block_size = sb->s_blocksize;
+  else if (inode && inode->i_blksize > 0)
+    block_size = (unsigned long)inode->i_blksize;
+
+  if (inode && inode->i_size > 0)
+    blocks = ((uint64_t)inode->i_size + block_size - 1) / block_size;
+  if (file->f_op && !file->f_op->write)
+    flags |= ST_RDONLY;
+
+  st = (struct linux_statfs *)(uintptr_t)statbuf;
+  memset(st, 0, sizeof(*st));
+  st->f_type = fs_magic_from_name(sb && sb->s_type ? sb->s_type->name : NULL);
+  st->f_bsize = block_size;
+  st->f_blocks = blocks;
+  st->f_bfree = 0;
+  st->f_bavail = 0;
+  st->f_files = 1;
+  st->f_ffree = 0;
+  st->f_fsid.__val[0] = sb ? (int)sb->s_dev : 0;
+  st->f_fsid.__val[1] = sb ? sb->s_disk_index : -1;
+  st->f_namelen = NAME_MAX;
+  st->f_frsize = block_size;
+  st->f_flags = flags;
+  return 0;
 }
 
 static long check_inode_access(const struct inode *inode, int mode) {
@@ -739,6 +818,47 @@ static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   }
 
   return vfs_write(f, (const char *)buf, count);
+}
+
+static long sys_fsync(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+  return vfs_sync_file(f);
+}
+
+static long sys_fdatasync(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
+                          uint64_t a4, uint64_t a5) {
+  return sys_fsync(fd, a1, a2, a3, a4, a5);
+}
+
+static long sys_sync(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                     uint64_t a4, uint64_t a5) {
+  (void)a0;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  vfs_sync_all();
+  return 0;
+}
+
+static long sys_syncfs(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  return sys_fsync(fd, a1, a2, a3, a4, a5);
 }
 
 static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
@@ -1138,6 +1258,49 @@ static long sys_newfstatat(uint64_t dirfd, uint64_t pathname, uint64_t statbuf,
   ret = copy_file_stat(f, statbuf);
   vfs_close(f);
   return ret;
+}
+
+static long sys_statfs(uint64_t pathname, uint64_t statbuf, uint64_t a2,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  char user_path[TASK_CWD_MAX];
+  char path[TASK_CWD_MAX];
+  struct task_struct *task = get_current();
+  long ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *f = vfs_open(path, O_RDONLY, 0);
+  if (!f)
+    return -ENOENT;
+
+  ret = copy_file_statfs(f, statbuf);
+  vfs_close(f);
+  return ret;
+}
+
+static long sys_fstatfs(uint64_t fd, uint64_t statbuf, uint64_t a2,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  struct file *f = get_file(task, (int)fd);
+  if (!f)
+    return -EBADF;
+  return copy_file_statfs(f, statbuf);
 }
 
 static long sys_exit(uint64_t error_code, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -1984,6 +2147,60 @@ static long sys_fchdir(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+static long sys_mount(uint64_t source, uint64_t target, uint64_t filesystemtype,
+                      uint64_t mountflags, uint64_t data, uint64_t a5) {
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  char source_buf[TASK_CWD_MAX];
+  char target_buf[TASK_CWD_MAX];
+  char fstype_buf[32];
+  char target_path[TASK_CWD_MAX];
+  long ret;
+
+  ret = copy_user_string(source, source_buf, sizeof(source_buf));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_string(target, target_buf, sizeof(target_buf));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_string(filesystemtype, fstype_buf, sizeof(fstype_buf));
+  if (ret < 0)
+    return ret;
+  ret = resolve_task_path(task, target_buf, target_path, sizeof(target_path));
+  if (ret < 0)
+    return ret;
+  if (mountflags & ~((uint64_t)MS_RDONLY))
+    return -EINVAL;
+
+  return vfs_mount(source_buf, target_path, fstype_buf,
+                   (unsigned long)mountflags, (const void *)(uintptr_t)data);
+}
+
+static long sys_umount2(uint64_t target, uint64_t flags, uint64_t a2,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  char target_buf[TASK_CWD_MAX];
+  char target_path[TASK_CWD_MAX];
+  long ret;
+
+  if (flags)
+    return -EINVAL;
+
+  ret = copy_user_string(target, target_buf, sizeof(target_buf));
+  if (ret < 0)
+    return ret;
+  ret = resolve_task_path(task, target_buf, target_path, sizeof(target_path));
+  if (ret < 0)
+    return ret;
+  return vfs_umount(target_path);
+}
+
 static long sys_mkdirat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
                         uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -2666,6 +2883,10 @@ void syscall_init(void) {
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;
   syscall_table[SYS_ioctl] = sys_ioctl;
+  syscall_table[SYS_umount2] = sys_umount2;
+  syscall_table[SYS_mount] = sys_mount;
+  syscall_table[SYS_statfs] = sys_statfs;
+  syscall_table[SYS_fstatfs] = sys_fstatfs;
   syscall_table[SYS_mkdirat] = sys_mkdirat;
   syscall_table[SYS_unlinkat] = sys_unlinkat;
   syscall_table[SYS_renameat] = sys_renameat;
@@ -2681,6 +2902,9 @@ void syscall_init(void) {
   syscall_table[SYS_readlinkat] = sys_readlinkat;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
   syscall_table[SYS_fstat] = sys_fstat;
+  syscall_table[SYS_sync] = sys_sync;
+  syscall_table[SYS_fsync] = sys_fsync;
+  syscall_table[SYS_fdatasync] = sys_fdatasync;
   syscall_table[SYS_exit] = sys_exit;
   syscall_table[SYS_exit_group] = sys_exit_group;
   syscall_table[SYS_wait4] = sys_wait4;
@@ -2740,6 +2964,7 @@ void syscall_init(void) {
   syscall_table[SYS_sched_get_priority_max] = sys_sched_get_priority_max;
   syscall_table[SYS_sched_get_priority_min] = sys_sched_get_priority_min;
   syscall_table[SYS_sched_rr_get_interval] = sys_sched_rr_get_interval;
+  syscall_table[SYS_syncfs] = sys_syncfs;
 
   printk(KERN_INFO "SYSCALL: System call table initialized\n");
 }
