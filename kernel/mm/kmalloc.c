@@ -27,6 +27,7 @@
 /* Block header */
 struct block_header {
   size_t size;               /* Size of this block (including header) */
+  size_t requested_size;     /* Bytes requested by the caller */
   uint32_t magic;            /* Magic number for validation */
   uint32_t flags;            /* Block flags */
   int32_t owner;             /* GC owner; 0 means manually managed kernel block */
@@ -36,6 +37,7 @@ struct block_header {
 
 #define BLOCK_MAGIC_FREE 0xDEADBEEF
 #define BLOCK_MAGIC_USED 0xCAFEBABE
+#define BLOCK_TAIL_CANARY 0xBADC0FFEE0DDF00DULL
 
 #define BLOCK_FLAG_FREE 0x01
 
@@ -80,10 +82,54 @@ static inline struct block_header *data_to_block(void *ptr) {
   return (struct block_header *)((uint8_t *)ptr - sizeof(struct block_header));
 }
 
+static inline uint8_t *block_tail_canary(struct block_header *block) {
+  return (uint8_t *)block_data(block) + block->requested_size;
+}
+
+static int ptr_in_heap(const void *ptr) {
+  return heap_initialized && ptr >= (const void *)heap_start &&
+         ptr < (const void *)heap_end;
+}
+
+static int block_header_valid(struct block_header *block) {
+  if (!ptr_in_heap(block))
+    return 0;
+  if (block->size < sizeof(struct block_header) + sizeof(uint64_t))
+    return 0;
+  if ((uint8_t *)block + block->size > heap_end)
+    return 0;
+  return 1;
+}
+
+static void block_write_tail_canary(struct block_header *block) {
+  uint8_t *tail = block_tail_canary(block);
+  for (size_t i = 0; i < sizeof(uint64_t); i++)
+    tail[i] = (uint8_t)(BLOCK_TAIL_CANARY >> (i * 8));
+}
+
+static int block_tail_canary_valid(struct block_header *block) {
+  uint8_t *tail = block_tail_canary(block);
+  for (size_t i = 0; i < sizeof(uint64_t); i++) {
+    if (tail[i] != (uint8_t)(BLOCK_TAIL_CANARY >> (i * 8)))
+      return 0;
+  }
+  return 1;
+}
+
+static int used_block_guard_valid(struct block_header *block) {
+  if (!block_header_valid(block) || block->magic != BLOCK_MAGIC_USED)
+    return 0;
+  if (block->requested_size >
+      block->size - sizeof(struct block_header) - sizeof(uint64_t))
+    return 0;
+  return block_tail_canary_valid(block);
+}
+
 static void kfree_block_locked(struct block_header *block) {
   heap_used -= block->size;
 
   /* Mark as free */
+  block->requested_size = 0;
   block->magic = BLOCK_MAGIC_FREE;
   block->flags = BLOCK_FLAG_FREE;
   block->owner = 0;
@@ -114,6 +160,7 @@ static void kfree_block_locked(struct block_header *block) {
     block->size += next_physical->size;
     /* Invalidate merged block's magic to prevent double-free */
     next_physical->magic = 0;
+    next_physical->requested_size = 0;
     next_physical->owner = 0;
   }
 }
@@ -137,6 +184,7 @@ void kmalloc_init(void) {
   /* Initialize single free block covering entire heap */
   free_list = (struct block_header *)heap_start;
   free_list->size = HEAP_SIZE;
+  free_list->requested_size = 0;
   free_list->magic = BLOCK_MAGIC_FREE;
   free_list->flags = BLOCK_FLAG_FREE;
   free_list->owner = 0;
@@ -166,8 +214,9 @@ void *_kmalloc(size_t size, uint32_t flags) {
     return NULL;
   }
 
-  /* Align size and add header */
-  size_t total_size = align_up(size + sizeof(struct block_header), MIN_ALLOC);
+  /* Align size and add header plus a tail canary. */
+  size_t total_size =
+      align_up(size + sizeof(struct block_header) + sizeof(uint64_t), MIN_ALLOC);
 
   uint64_t heap_flags = lock_heap();
 
@@ -203,6 +252,7 @@ void *_kmalloc(size_t size, uint32_t flags) {
     struct block_header *new_block =
         (struct block_header *)((uint8_t *)block + total_size);
     new_block->size = block->size - total_size;
+    new_block->requested_size = 0;
     new_block->magic = BLOCK_MAGIC_FREE;
     new_block->flags = BLOCK_FLAG_FREE;
     new_block->owner = 0;
@@ -229,10 +279,12 @@ void *_kmalloc(size_t size, uint32_t flags) {
   }
 
   /* Mark as used */
+  block->requested_size = size;
   block->magic = BLOCK_MAGIC_USED;
   block->flags = 0;
   block->owner = 0;
   block->next = NULL;
+  block_write_tail_canary(block);
 
   heap_used += block->size;
 
@@ -268,9 +320,9 @@ void kfree(void *ptr) {
   struct block_header *block = data_to_block(ptr);
 
   /* Validate block under the heap lock so preemption can't race the free. */
-  if (block->magic != BLOCK_MAGIC_USED) {
+  if (!used_block_guard_valid(block)) {
     printk(KERN_ERR "KMALLOC: kfree of invalid pointer %p (magic=0x%x)\n", ptr,
-           block->magic);
+           ptr_in_heap(block) ? block->magic : 0);
     unlock_heap(heap_flags);
     return;
   }
@@ -306,13 +358,24 @@ void *krealloc(void *ptr, size_t new_size, uint32_t flags) {
   }
 
   struct block_header *block = data_to_block(ptr);
-  size_t old_size = block->size - sizeof(struct block_header);
+  uint64_t heap_flags = lock_heap();
+  if (!used_block_guard_valid(block)) {
+    printk(KERN_ERR "KMALLOC: krealloc detected corrupted block %p\n", ptr);
+    unlock_heap(heap_flags);
+    return NULL;
+  }
+
+  size_t old_size = block->requested_size;
   int32_t old_owner = block->owner;
 
   /* If new size fits in current block, just return */
   if (new_size <= old_size) {
+    block->requested_size = new_size;
+    block_write_tail_canary(block);
+    unlock_heap(heap_flags);
     return ptr;
   }
+  unlock_heap(heap_flags);
 
   /* Allocate new block */
   void *new_ptr = kmalloc(new_size, flags);
@@ -345,4 +408,74 @@ void kmalloc_get_stats(size_t *total, size_t *used, size_t *free_mem) {
     *used = heap_used;
   if (free_mem)
     *free_mem = heap_total - heap_used;
+}
+
+int kmalloc_check_integrity(const char *reason) {
+  uint64_t flags;
+  uint8_t *cursor;
+  size_t walked_used = 0;
+  size_t walked_free = 0;
+  size_t blocks = 0;
+
+  if (!heap_initialized)
+    return 0;
+
+  flags = lock_heap();
+  cursor = heap_start;
+  while (cursor < heap_end) {
+    struct block_header *block = (struct block_header *)cursor;
+
+    if (!block_header_valid(block)) {
+      printk(KERN_CRIT "KMALLOC: corrupt block header at %p during %s\n",
+             block, reason ? reason : "integrity check");
+      unlock_heap(flags);
+      return -1;
+    }
+
+    if (block->magic == BLOCK_MAGIC_USED) {
+      if (!used_block_guard_valid(block)) {
+        printk(KERN_CRIT "KMALLOC: tail canary corrupted at %p during %s\n",
+               block_data(block), reason ? reason : "integrity check");
+        unlock_heap(flags);
+        return -1;
+      }
+      walked_used += block->size;
+    } else if (block->magic == BLOCK_MAGIC_FREE) {
+      if (!(block->flags & BLOCK_FLAG_FREE) || block->requested_size != 0) {
+        printk(KERN_CRIT "KMALLOC: corrupt free block at %p during %s\n",
+               block, reason ? reason : "integrity check");
+        unlock_heap(flags);
+        return -1;
+      }
+      walked_free += block->size;
+    } else {
+      printk(KERN_CRIT "KMALLOC: bad magic 0x%x at %p during %s\n",
+             block->magic, block, reason ? reason : "integrity check");
+      unlock_heap(flags);
+      return -1;
+    }
+
+    cursor += block->size;
+    blocks++;
+    if (blocks > HEAP_SIZE / MIN_ALLOC) {
+      printk(KERN_CRIT "KMALLOC: heap walk loop detected during %s\n",
+             reason ? reason : "integrity check");
+      unlock_heap(flags);
+      return -1;
+    }
+  }
+
+  if (cursor != heap_end || walked_used != heap_used ||
+      walked_used + walked_free != heap_total) {
+    printk(KERN_CRIT
+           "KMALLOC: accounting mismatch during %s (used=%lu walked=%lu total=%lu walked_total=%lu)\n",
+           reason ? reason : "integrity check", (unsigned long)heap_used,
+           (unsigned long)walked_used, (unsigned long)heap_total,
+           (unsigned long)(walked_used + walked_free));
+    unlock_heap(flags);
+    return -1;
+  }
+
+  unlock_heap(flags);
+  return 0;
 }

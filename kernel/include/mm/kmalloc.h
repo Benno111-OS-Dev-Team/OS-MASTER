@@ -87,4 +87,12 @@ void *krealloc(void *ptr, size_t new_size, uint32_t flags);
  */
 void kmalloc_get_stats(size_t *total, size_t *used, size_t *free);
 
+/**
+ * kmalloc_check_integrity - Validate heap metadata and allocation guards
+ * @reason: Short caller label for diagnostics
+ *
+ * Return: 0 when the heap is internally consistent, negative on corruption.
+ */
+int kmalloc_check_integrity(const char *reason);
+
 #endif /* _MM_KMALLOC_H */

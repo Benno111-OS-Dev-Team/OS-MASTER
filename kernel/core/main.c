@@ -16,6 +16,7 @@
 #include "drivers/wifi.h"
 #include "fs/iso9660.h"
 #include "fs/vfs.h"
+#include "integrity/integrity.h"
 #include "media/media.h"
 #include "media/seed_assets.h"
 #include "mm/pmm.h"
@@ -475,6 +476,7 @@ void kernel_main(void *dtb) {
 
   printk(KERN_INFO "[INIT] architecture early init\n");
   arch_early_init();
+  kintegrity_mark_phase(KINTEGRITY_PHASE_ARCH, "arch early init");
 
   printk(KERN_INFO "[INIT] architecture MMU init\n");
   arch_mmu_init();
@@ -1620,6 +1622,7 @@ static void init_subsystems(void *dtb) {
   printk(KERN_INFO "  Initializing kernel heap...\n");
   extern void kmalloc_init(void);
   kmalloc_init();
+  kintegrity_mark_phase(KINTEGRITY_PHASE_MEMORY, "memory managers ready");
 
   /* ================================================================= */
   /* Phase 3: Process Management */
@@ -1635,6 +1638,7 @@ static void init_subsystems(void *dtb) {
   printk(KERN_INFO "  Initializing process subsystem...\n");
   extern void process_init(void);
   process_init();
+  kintegrity_mark_phase(KINTEGRITY_PHASE_PROCESS, "process subsystem ready");
 
   /* ================================================================= */
   /* Phase 4: Filesystems */
@@ -1662,6 +1666,7 @@ static void init_subsystems(void *dtb) {
   }
 
   populate_seed_filesystem();
+  kintegrity_mark_phase(KINTEGRITY_PHASE_FS, "filesystems ready");
 
   /* Mount proc, sys, dev (placeholders) */
   printk(KERN_INFO "  Mounting procfs...\n");
@@ -1674,6 +1679,7 @@ static void init_subsystems(void *dtb) {
   /* ================================================================= */
 
   printk(KERN_INFO "[INIT] Phase 5: Device Drivers\n");
+  kintegrity_mark_phase(KINTEGRITY_PHASE_DRIVERS, "driver bringup start");
 
   /* Initialize framebuffer driver */
   printk(KERN_INFO "  Loading framebuffer driver...\n");
@@ -1861,6 +1867,7 @@ static void init_subsystems(void *dtb) {
   //pit_sleep(1000);
 
   printk(KERN_INFO "[INIT] Kernel initialization complete!\n\n");
+  kintegrity_mark_phase(KINTEGRITY_PHASE_READY, "kernel ready");
 }
 
 /*
@@ -2101,6 +2108,7 @@ static void start_init_process(void) {
         if (process_run_kernel_slice()) {
           last_kernel_slice_ms = now_for_slice;
         }
+        kintegrity_periodic();
         frame_profile.kernel_slice_us =
             gui_monotonic_us() - slice_start_us;
       }
