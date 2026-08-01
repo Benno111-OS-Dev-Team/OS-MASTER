@@ -643,6 +643,61 @@ static long sys_close(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
   return close_fd_entry(task, (int)fd);
 }
 
+extern int do_pipe(struct file **read_file, struct file **write_file);
+
+static long sys_pipe2(uint64_t pipefd, uint64_t flags, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  struct file *read_file = NULL;
+  struct file *write_file = NULL;
+  int read_fd;
+  int write_fd;
+  int ret;
+
+  if (!task)
+    return -ESRCH;
+  if (flags & ~(uint64_t)(O_CLOEXEC | O_NONBLOCK))
+    return -EINVAL;
+  if (!is_valid_user_ptr(pipefd, sizeof(int) * 2))
+    return -EFAULT;
+
+  ret = do_pipe(&read_file, &write_file);
+  if (ret < 0)
+    return ret;
+
+  read_fd = alloc_fd_from(task, 0);
+  if (read_fd < 0) {
+    vfs_close(read_file);
+    vfs_close(write_file);
+    return read_fd;
+  }
+  write_fd = alloc_fd_from(task, 0);
+  if (write_fd < 0) {
+    free_fd(task, read_fd);
+    vfs_close(read_file);
+    vfs_close(write_file);
+    return write_fd;
+  }
+
+  read_file->f_flags |= (int)(flags & O_NONBLOCK);
+  write_file->f_flags |= (int)(flags & O_NONBLOCK);
+
+  task->files[read_fd].file = read_file;
+  task->files[read_fd].flags = O_RDONLY | (int)flags;
+  task->files[write_fd].file = write_file;
+  task->files[write_fd].flags = O_WRONLY | (int)flags;
+
+  int *user_pipefd = (int *)(uintptr_t)pipefd;
+  user_pipefd[0] = read_fd;
+  user_pipefd[1] = write_fd;
+  return 0;
+}
+
 static long sys_dup(uint64_t oldfd, uint64_t a1, uint64_t a2, uint64_t a3,
                     uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -1588,6 +1643,7 @@ void syscall_init(void) {
   syscall_table[SYS_renameat] = sys_renameat;
   syscall_table[SYS_faccessat] = sys_faccessat;
   syscall_table[SYS_fchdir] = sys_fchdir;
+  syscall_table[SYS_pipe2] = sys_pipe2;
   syscall_table[SYS_read] = sys_read;
   syscall_table[SYS_write] = sys_write;
   syscall_table[SYS_openat] = sys_openat;

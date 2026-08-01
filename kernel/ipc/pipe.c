@@ -59,6 +59,10 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count,
 
   /* Wait for data (busy wait for now) */
   while (p->count == 0 && p->writers > 0) {
+    if (file->f_flags & O_NONBLOCK) {
+      pipe_unlock(p);
+      return -EAGAIN;
+    }
     pipe_unlock(p);
 #ifdef ARCH_ARM64
     asm volatile("yield");
@@ -104,6 +108,10 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count,
   while (written < count) {
     /* Wait for space */
     while (p->count >= PIPE_SIZE && p->readers > 0) {
+      if (file->f_flags & O_NONBLOCK) {
+        pipe_unlock(p);
+        return written > 0 ? (ssize_t)written : -EAGAIN;
+      }
       pipe_unlock(p);
 #ifdef ARCH_ARM64
       asm volatile("yield");

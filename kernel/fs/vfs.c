@@ -695,12 +695,12 @@ int vfs_readdir(struct file *file, void *ctx,
 int vfs_close(struct file *file) {
   if (!file)
     return -EBADF;
-  if (file->f_op && file->f_op->release) {
-    struct inode *inode = file->f_dentry ? file->f_dentry->d_inode : NULL;
-    file->f_op->release(inode, file);
-  }
   file->f_count.counter--;
   if (file->f_count.counter <= 0) {
+    if (file->f_op && file->f_op->release) {
+      struct inode *inode = file->f_dentry ? file->f_dentry->d_inode : NULL;
+      file->f_op->release(inode, file);
+    }
     if (file->f_dentry && file->f_dentry != root_dentry &&
         !dentry_is_mount_root(file->f_dentry))
       vfs_free_dentry_chain(file->f_dentry);
