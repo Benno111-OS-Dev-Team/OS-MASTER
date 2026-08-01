@@ -23,6 +23,9 @@ static int task_pool_index = 0;
 /* PID counter */
 static pid_t next_pid = 1;
 
+#define STACK_GUARD_SIZE 64
+#define STACK_GUARD_PATTERN 0x8BADF00DCAFE5A7EULL
+
 /* Init task (PID 0 / swapper) */
 static struct task_struct init_task = {
     .state = TASK_RUNNING,
@@ -70,6 +73,40 @@ static void *alloc_stack(size_t size)
     }
     
     return (void *)paddr;  /* Identity mapped for now */
+}
+
+static void stack_guard_write(struct task_struct *task)
+{
+    if (!task || !task->stack || task->stack_size < STACK_GUARD_SIZE) {
+        return;
+    }
+
+    uint64_t *guard = (uint64_t *)task->stack;
+    for (size_t i = 0; i < STACK_GUARD_SIZE / sizeof(uint64_t); i++) {
+        guard[i] = STACK_GUARD_PATTERN ^ ((uint64_t)task->pid << 32) ^ i;
+    }
+}
+
+static int stack_guard_valid(struct task_struct *task)
+{
+    if (!task || !task->stack || task->stack_size == 0) {
+        return 1;
+    }
+    if (task->stack_size < STACK_GUARD_SIZE) {
+        return 0;
+    }
+
+    uint64_t *guard = (uint64_t *)task->stack;
+    for (size_t i = 0; i < STACK_GUARD_SIZE / sizeof(uint64_t); i++) {
+        uint64_t expected = STACK_GUARD_PATTERN ^ ((uint64_t)task->pid << 32) ^ i;
+        if (guard[i] != expected) {
+            printk(KERN_CRIT
+                   "SCHED: kernel stack guard corrupted for task %d at word %lu\n",
+                   task->pid, (unsigned long)i);
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static void enqueue_task(struct task_struct *task)
@@ -213,6 +250,10 @@ void schedule(void)
     struct task_struct *prev = runqueue.current;
     struct task_struct *next;
     
+    if (!stack_guard_valid(prev)) {
+        panic("Kernel task stack integrity violation");
+    }
+
     /* Don't schedule if interrupts disabled (should check) */
 
     /* Keep runnable non-idle tasks in the queue while they are not current. */
@@ -230,6 +271,9 @@ void schedule(void)
     if (next == prev) {
         /* Same task, no switch needed */
         return;
+    }
+    if (!stack_guard_valid(next)) {
+        panic("Kernel task stack integrity violation");
     }
     
     /* Perform context switch */
@@ -280,6 +324,7 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
     task->flags = flags;
     task->stack = stack;
     task->stack_size = KERNEL_STACK_SIZE;
+    stack_guard_write(task);
     task->parent = runqueue.current;
     if (task->parent && task->parent->cwd_initialized) {
         strlcpy(task->cwd, task->parent->cwd, sizeof(task->cwd));
@@ -402,6 +447,7 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
         }
         task->stack_size = KERNEL_STACK_SIZE;
         task->cpu_context.sp = (uint64_t)task->stack + KERNEL_STACK_SIZE;
+        stack_guard_write(task);
     }
     
     task->cpu_context.pc = (uint64_t)entry;
