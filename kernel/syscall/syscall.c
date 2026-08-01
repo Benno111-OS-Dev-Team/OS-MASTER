@@ -69,6 +69,101 @@ static struct file *get_file(struct task_struct *task, int fd) {
   return task->files[fd].file;
 }
 
+static int init_task_cwd(struct task_struct *task) {
+  if (!task)
+    return -ESRCH;
+  if (!task->cwd_initialized || task->cwd[0] == '\0') {
+    strlcpy(task->cwd, "/", sizeof(task->cwd));
+    task->cwd_initialized = 1;
+  }
+  return 0;
+}
+
+static int path_push_component(char *dst, size_t dst_size, size_t *len,
+                               const char *comp, size_t comp_len) {
+  if (!dst || !len || !comp)
+    return -EINVAL;
+  if (comp_len == 0)
+    return 0;
+
+  if (comp_len == 1 && comp[0] == '.')
+    return 0;
+
+  if (comp_len == 2 && comp[0] == '.' && comp[1] == '.') {
+    if (*len > 1) {
+      while (*len > 1 && dst[*len - 1] == '/')
+        (*len)--;
+      while (*len > 1 && dst[*len - 1] != '/')
+        (*len)--;
+      if (*len > 1)
+        (*len)--;
+      dst[*len] = '\0';
+    }
+    return 0;
+  }
+
+  if (*len > 1) {
+    if (*len + 1 >= dst_size)
+      return -ENAMETOOLONG;
+    dst[(*len)++] = '/';
+  }
+
+  if (*len + comp_len >= dst_size)
+    return -ENAMETOOLONG;
+  for (size_t i = 0; i < comp_len; i++)
+    dst[(*len)++] = comp[i];
+  dst[*len] = '\0';
+  return 0;
+}
+
+static int append_normalized_components(char *dst, size_t dst_size, size_t *len,
+                                        const char *path) {
+  const char *p = path;
+
+  while (p && *p) {
+    const char *start;
+    size_t comp_len;
+
+    while (*p == '/')
+      p++;
+    start = p;
+    while (*p && *p != '/')
+      p++;
+    comp_len = (size_t)(p - start);
+    if (comp_len) {
+      int ret = path_push_component(dst, dst_size, len, start, comp_len);
+      if (ret < 0)
+        return ret;
+    }
+  }
+
+  return 0;
+}
+
+static int resolve_task_path(struct task_struct *task, const char *path,
+                             char *dst, size_t dst_size) {
+  size_t len;
+
+  if (!path || !dst || dst_size < 2)
+    return -EINVAL;
+  if (path[0] == '\0')
+    return -ENOENT;
+  if (init_task_cwd(task) != 0)
+    return -ESRCH;
+
+  dst[0] = '/';
+  dst[1] = '\0';
+  len = 1;
+
+  if (path[0] != '/') {
+    int ret = append_normalized_components(dst, dst_size, &len, task->cwd);
+    if (ret < 0)
+      return ret;
+  }
+
+  return append_normalized_components(dst, dst_size, &len, path);
+}
+
 /* ===================================================================== */
 /* User Pointer Validation */
 /* ===================================================================== */
@@ -231,16 +326,20 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
                        uint64_t mode, uint64_t a4, uint64_t a5) {
   (void)a4;
   (void)a5;
-  (void)dirfd; /* dirfd ignored - always use absolute paths */
+  (void)dirfd;
 
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
-  char path[256];
-  long ret = copy_user_string(pathname, path, sizeof(path));
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret = copy_user_string(pathname, user_path, sizeof(user_path));
   if (ret < 0) {
     return ret;
   }
+  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
 
   /* Allocate file descriptor */
   int fd = alloc_fd(task);
@@ -395,6 +494,63 @@ static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->pid : -1;
 }
 
+static long sys_getcwd(uint64_t buf, uint64_t size, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  if (init_task_cwd(task) != 0)
+    return -ESRCH;
+  if (size == 0)
+    return -EINVAL;
+  if (!is_valid_user_ptr(buf, (size_t)size))
+    return -EFAULT;
+
+  size_t len = strlen(task->cwd) + 1;
+  if (len > (size_t)size)
+    return -ENAMETOOLONG;
+
+  strlcpy((char *)(uintptr_t)buf, task->cwd, (size_t)size);
+  return (long)buf;
+}
+
+static long sys_chdir(uint64_t pathname, uint64_t a1, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *dir = vfs_open(path, O_RDONLY | O_DIRECTORY, 0);
+  if (!dir)
+    return -ENOENT;
+
+  if (!dir->f_dentry || !dir->f_dentry->d_inode ||
+      !S_ISDIR(dir->f_dentry->d_inode->i_mode)) {
+    vfs_close(dir);
+    return -ENOTDIR;
+  }
+
+  vfs_close(dir);
+  strlcpy(task->cwd, path, sizeof(task->cwd));
+  task->cwd_initialized = 1;
+  return 0;
+}
+
 /* Userspace heap management - dedicated region for userspace processes */
 #define USER_HEAP_START 0x10000000UL /* 256MB mark */
 #define USER_HEAP_SIZE 0x04000000UL  /* 64MB heap */
@@ -502,8 +658,13 @@ static long sys_execve(uint64_t filename, uint64_t argv, uint64_t envp,
   (void)a4;
   (void)a5;
 
-  char path[256];
-  long path_ret = copy_user_string(filename, path, sizeof(path));
+  struct task_struct *task = get_current();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long path_ret = copy_user_string(filename, user_path, sizeof(user_path));
+  if (path_ret < 0)
+    return path_ret;
+  path_ret = resolve_task_path(task, user_path, path, sizeof(path));
   if (path_ret < 0)
     return path_ret;
 
@@ -709,6 +870,7 @@ void syscall_init(void) {
   }
 
   /* Register implemented syscalls */
+  syscall_table[SYS_getcwd] = sys_getcwd;
   syscall_table[SYS_read] = sys_read;
   syscall_table[SYS_write] = sys_write;
   syscall_table[SYS_openat] = sys_openat;
@@ -723,6 +885,7 @@ void syscall_init(void) {
   syscall_table[SYS_getgid] = sys_getgid;
   syscall_table[SYS_getegid] = sys_getgid;
   syscall_table[SYS_gettid] = sys_gettid;
+  syscall_table[SYS_chdir] = sys_chdir;
   syscall_table[SYS_brk] = sys_brk;
   syscall_table[SYS_mmap] = sys_mmap;
   syscall_table[SYS_munmap] = sys_munmap;

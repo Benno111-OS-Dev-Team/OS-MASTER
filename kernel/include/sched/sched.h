@@ -68,6 +68,7 @@ struct file;
 /* ===================================================================== */
 
 #define TASK_MAX_FDS 256
+#define TASK_CWD_MAX 512
 
 struct task_fd_entry {
   struct file *file;
@@ -107,6 +108,8 @@ struct task_struct {
   /* Unix process resources */
   struct task_fd_entry files[TASK_MAX_FDS];
   uint8_t files_initialized;
+  char cwd[TASK_CWD_MAX];
+  uint8_t cwd_initialized;
 
   /* Kernel stack */
   void *stack;

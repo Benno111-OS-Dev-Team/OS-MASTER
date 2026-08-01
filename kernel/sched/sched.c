@@ -6,6 +6,7 @@
 #include "fs/vfs.h"
 #include "mm/pmm.h"
 #include "printk.h"
+#include "string.h"
 
 /* ===================================================================== */
 /* Static data */
@@ -248,6 +249,12 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
     task->stack = stack;
     task->stack_size = KERNEL_STACK_SIZE;
     task->parent = runqueue.current;
+    if (task->parent && task->parent->cwd_initialized) {
+        strlcpy(task->cwd, task->parent->cwd, sizeof(task->cwd));
+    } else {
+        strlcpy(task->cwd, "/", sizeof(task->cwd));
+    }
+    task->cwd_initialized = 1;
     
     /* Set up initial CPU context */
     task->cpu_context.sp = (uint64_t)stack + KERNEL_STACK_SIZE;
@@ -323,6 +330,12 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->parent = parent;
     task->uid = parent->uid;
     task->gid = parent->gid;
+    if (parent->cwd_initialized) {
+        strlcpy(task->cwd, parent->cwd, sizeof(task->cwd));
+    } else {
+        strlcpy(task->cwd, "/", sizeof(task->cwd));
+    }
+    task->cwd_initialized = 1;
     
     /* Copy name with " [thread]" suffix */
     int i;
