@@ -5,7 +5,7 @@
  */
 
 #include "printk.h"
-#include "sched/sched.h"
+#include "sched/signal.h"
 #include "types.h"
 
 /* ===================================================================== */
@@ -56,14 +56,7 @@
 
 typedef void (*sighandler_t)(int);
 
-typedef uint64_t sigset_t;
-
-struct sigaction {
-  sighandler_t sa_handler;
-  sigset_t sa_mask;
-  int sa_flags;
-  void (*sa_restorer)(void);
-};
+typedef ksigset_t sigset_t;
 
 /* Signal info for pending signals */
 struct siginfo {
@@ -78,7 +71,7 @@ struct siginfo {
 struct signal_struct {
   sigset_t pending;
   sigset_t blocked;
-  struct sigaction actions[NSIG];
+  struct k_sigaction actions[NSIG];
 };
 
 /* ===================================================================== */
@@ -132,15 +125,40 @@ void signal_init(struct task_struct *task) {
     task->signals->actions[i].sa_handler = SIG_DFL;
     task->signals->actions[i].sa_mask = 0;
     task->signals->actions[i].sa_flags = 0;
+    task->signals->actions[i].sa_restorer = NULL;
   }
+}
+
+void signal_copy_state(struct task_struct *child, struct task_struct *parent) {
+  if (!child)
+    return;
+
+  signal_init(child);
+  if (!child->signals)
+    return;
+  if (!parent || !parent->signals) {
+    child->signals->pending = 0;
+    return;
+  }
+
+  child->signals->pending = 0;
+  child->signals->blocked = parent->signals->blocked;
+  for (int i = 0; i < NSIG; i++)
+    child->signals->actions[i] = parent->signals->actions[i];
 }
 
 /* Send a signal to a task */
 int kill_task(struct task_struct *task, int sig) {
   if (sig < 0 || sig >= NSIG)
     return -1;
-  if (!task || !task->signals)
+  if (!task)
     return -1;
+  if (!task->signals)
+    signal_init(task);
+  if (!task->signals)
+    return -1;
+  if (sig == 0)
+    return 0;
 
   /* Set signal as pending */
   task->signals->pending |= (1UL << sig);
@@ -171,7 +189,7 @@ void do_signal(struct task_struct *task) {
     /* Clear pending bit */
     task->signals->pending &= ~(1UL << sig);
 
-    struct sigaction *action = &task->signals->actions[sig];
+    struct k_sigaction *action = &task->signals->actions[sig];
 
     if (action->sa_handler == SIG_IGN) {
       sig_default_ignore(sig);
@@ -207,6 +225,14 @@ void do_signal(struct task_struct *task) {
   }
 }
 
+ksigset_t signal_pending_mask(struct task_struct *task) {
+  if (!task)
+    return 0;
+  if (!task->signals)
+    signal_init(task);
+  return task->signals ? task->signals->pending : 0;
+}
+
 /* Block/unblock signals */
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
   struct task_struct *task = get_current();
@@ -240,8 +266,8 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
 }
 
 /* Install signal handler */
-int sigaction_syscall(int sig, const struct sigaction *act,
-                      struct sigaction *oldact) {
+int sigaction_syscall(int sig, const struct k_sigaction *act,
+                      struct k_sigaction *oldact) {
   struct task_struct *task = get_current();
 
   if (sig < 1 || sig >= NSIG)

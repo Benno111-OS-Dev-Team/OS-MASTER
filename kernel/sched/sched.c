@@ -3,6 +3,7 @@
  */
 
 #include "sched/sched.h"
+#include "sched/signal.h"
 #include "fs/vfs.h"
 #include "mm/pmm.h"
 #include "printk.h"
@@ -253,6 +254,9 @@ void schedule(void)
     if (!stack_guard_valid(prev)) {
         panic("Kernel task stack integrity violation");
     }
+    if (prev && prev->state == TASK_RUNNING) {
+        do_signal(prev);
+    }
 
     /* Don't schedule if interrupts disabled (should check) */
 
@@ -332,6 +336,7 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
         strlcpy(task->cwd, "/", sizeof(task->cwd));
     }
     task->cwd_initialized = 1;
+    signal_copy_state(task, task->parent);
     
     /* Set up initial CPU context */
     task->cpu_context.sp = (uint64_t)stack + KERNEL_STACK_SIZE;
@@ -412,6 +417,7 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
         strlcpy(task->cwd, "/", sizeof(task->cwd));
     }
     task->cwd_initialized = 1;
+    signal_copy_state(task, parent);
     
     /* Copy name with " [thread]" suffix */
     int i;
@@ -543,7 +549,11 @@ int sched_kill_task(pid_t pid)
     printk(KERN_INFO "SCHED: Killing task %d '%s'\n", pid, task->comm);
     
     task->flags |= PF_EXITING;
-    task->pending_signals |= (1ULL << 9);  /* SIGKILL */
+    if (task->signals) {
+        kill_task(task, 9);
+    } else {
+        task->pending_signals |= (1ULL << 9);  /* SIGKILL */
+    }
     
     /* If sleeping, wake it up */
     if (task->state == TASK_INTERRUPTIBLE || task->state == TASK_UNINTERRUPTIBLE) {

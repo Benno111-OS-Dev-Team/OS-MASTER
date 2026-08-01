@@ -10,6 +10,7 @@
 #include "mm/kmalloc.h"
 #include "printk.h"
 #include "sched/sched.h"
+#include "sched/signal.h"
 #include "string.h"
 
 /* ===================================================================== */
@@ -36,6 +37,10 @@
 #define TIOCGWINSZ 0x5413
 #define TIOCSWINSZ 0x5414
 #define WAIT_WNOHANG 1
+#define SIG_BLOCK 0
+#define SIG_UNBLOCK 1
+#define SIG_SETMASK 2
+#define KERNEL_NSIG 32
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -1076,6 +1081,145 @@ static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->pid : -1;
 }
 
+static long send_signal_to_pid(pid_t pid, int sig) {
+  struct task_struct *task;
+
+  if (sig < 0 || sig >= KERNEL_NSIG)
+    return -EINVAL;
+  if (pid == 0) {
+    task = get_current();
+  } else if (pid > 0) {
+    task = get_task_by_pid(pid);
+  } else {
+    return -ENOSYS;
+  }
+
+  if (!task)
+    return -ESRCH;
+  return kill_task(task, sig) == 0 ? 0 : -EINVAL;
+}
+
+static long sys_kill(uint64_t pid, uint64_t sig, uint64_t a2, uint64_t a3,
+                     uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return send_signal_to_pid((pid_t)(int64_t)pid, (int)sig);
+}
+
+static long sys_tkill(uint64_t tid, uint64_t sig, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if ((pid_t)tid <= 0)
+    return -EINVAL;
+  return send_signal_to_pid((pid_t)tid, (int)sig);
+}
+
+static long sys_tgkill(uint64_t tgid, uint64_t tid, uint64_t sig, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if ((pid_t)tgid <= 0 || (pid_t)tid <= 0)
+    return -EINVAL;
+
+  struct task_struct *task = get_task_by_pid((pid_t)tid);
+  if (!task)
+    return -ESRCH;
+  if (task->tgid != (pid_t)tgid)
+    return -ESRCH;
+  if (sig >= KERNEL_NSIG)
+    return -EINVAL;
+
+  return kill_task(task, (int)sig) == 0 ? 0 : -EINVAL;
+}
+
+static long sys_rt_sigprocmask(uint64_t how, uint64_t set, uint64_t oldset,
+                               uint64_t sigsetsize, uint64_t a4,
+                               uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  ksigset_t new_mask = 0;
+  ksigset_t old_mask = 0;
+  const ksigset_t *new_mask_ptr = NULL;
+
+  if (sigsetsize < sizeof(ksigset_t))
+    return -EINVAL;
+  if (set) {
+    if (!is_valid_user_ptr(set, sizeof(ksigset_t)))
+      return -EFAULT;
+    new_mask = *(const ksigset_t *)(uintptr_t)set;
+    new_mask_ptr = &new_mask;
+  }
+  if (oldset && !is_valid_user_ptr(oldset, sizeof(ksigset_t)))
+    return -EFAULT;
+  if (how > SIG_SETMASK)
+    return -EINVAL;
+
+  int ret = sigprocmask((int)how, new_mask_ptr, oldset ? &old_mask : NULL);
+  if (ret < 0)
+    return -EINVAL;
+  if (oldset)
+    *(ksigset_t *)(uintptr_t)oldset = old_mask;
+  return 0;
+}
+
+static long sys_rt_sigpending(uint64_t set, uint64_t sigsetsize, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (sigsetsize < sizeof(ksigset_t))
+    return -EINVAL;
+  if (!is_valid_user_ptr(set, sizeof(ksigset_t)))
+    return -EFAULT;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+  *(ksigset_t *)(uintptr_t)set = signal_pending_mask(task);
+  return 0;
+}
+
+static long sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oldact,
+                             uint64_t sigsetsize, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct k_sigaction new_action;
+  struct k_sigaction old_action;
+  const struct k_sigaction *new_action_ptr = NULL;
+
+  if (sigsetsize < sizeof(ksigset_t))
+    return -EINVAL;
+  if (act) {
+    if (!is_valid_user_ptr(act, sizeof(new_action)))
+      return -EFAULT;
+    new_action = *(const struct k_sigaction *)(uintptr_t)act;
+    new_action_ptr = &new_action;
+  }
+  if (oldact && !is_valid_user_ptr(oldact, sizeof(old_action)))
+    return -EFAULT;
+
+  int ret = sigaction_syscall((int)sig, new_action_ptr,
+                              oldact ? &old_action : NULL);
+  if (ret < 0)
+    return -EINVAL;
+  if (oldact)
+    *(struct k_sigaction *)(uintptr_t)oldact = old_action;
+  return 0;
+}
+
 static long sys_getcwd(uint64_t buf, uint64_t size, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a2;
@@ -1688,6 +1832,12 @@ void syscall_init(void) {
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
   syscall_table[SYS_sched_yield] = sys_sched_yield;
+  syscall_table[SYS_kill] = sys_kill;
+  syscall_table[SYS_tkill] = sys_tkill;
+  syscall_table[SYS_tgkill] = sys_tgkill;
+  syscall_table[SYS_rt_sigaction] = sys_rt_sigaction;
+  syscall_table[SYS_rt_sigprocmask] = sys_rt_sigprocmask;
+  syscall_table[SYS_rt_sigpending] = sys_rt_sigpending;
   syscall_table[SYS_nanosleep] = sys_nanosleep;
 
   printk(KERN_INFO "SYSCALL: System call table initialized\n");
