@@ -360,6 +360,13 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
         task->pgrp = task->parent->pgrp;
         task->sid = task->parent->sid;
         task->umask = task->parent->umask;
+        if (task->parent->root_initialized) {
+            strlcpy(task->root, task->parent->root, sizeof(task->root));
+            task->root_initialized = 1;
+        } else {
+            strlcpy(task->root, "/", sizeof(task->root));
+            task->root_initialized = 1;
+        }
         task->pdeath_signal = task->parent->pdeath_signal;
         task->no_new_privs = task->parent->no_new_privs;
         task->personality = task->parent->personality;
@@ -373,6 +380,8 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
         task->pgrp = task->pid;
         task->sid = task->pid;
         task->umask = 022;
+        strlcpy(task->root, "/", sizeof(task->root));
+        task->root_initialized = 1;
     }
     task->flags = flags;
     task->stack = stack;
@@ -471,6 +480,13 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->pgrp = parent->pgrp;
     task->sid = parent->sid;
     task->umask = parent->umask;
+    if (parent->root_initialized) {
+        strlcpy(task->root, parent->root, sizeof(task->root));
+        task->root_initialized = 1;
+    } else {
+        strlcpy(task->root, "/", sizeof(task->root));
+        task->root_initialized = 1;
+    }
     task->pdeath_signal = parent->pdeath_signal;
     task->no_new_privs = parent->no_new_privs;
     task->personality = parent->personality;

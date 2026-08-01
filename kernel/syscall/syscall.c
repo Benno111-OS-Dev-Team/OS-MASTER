@@ -932,11 +932,26 @@ static int file_is_timerfd(struct file *file) {
 static int init_task_cwd(struct task_struct *task) {
   if (!task)
     return -ESRCH;
+  if (!task->root_initialized || task->root[0] == '\0') {
+    strlcpy(task->root, "/", sizeof(task->root));
+    task->root_initialized = 1;
+  }
   if (!task->cwd_initialized || task->cwd[0] == '\0') {
     strlcpy(task->cwd, "/", sizeof(task->cwd));
     task->cwd_initialized = 1;
   }
   return 0;
+}
+
+static int path_within_root(const struct task_struct *task, const char *path) {
+  if (!task || !path || !task->root_initialized || task->root[0] == '\0' ||
+      (task->root[0] == '/' && task->root[1] == '\0'))
+    return 1;
+
+  size_t root_len = strlen(task->root);
+  if (strncmp(path, task->root, root_len) != 0)
+    return 0;
+  return path[root_len] == '\0' || path[root_len] == '/';
 }
 
 static int path_push_component(char *dst, size_t dst_size, size_t *len,
@@ -1015,13 +1030,20 @@ static int resolve_task_path(struct task_struct *task, const char *path,
   dst[1] = '\0';
   len = 1;
 
-  if (path[0] != '/') {
+  if (path[0] == '/') {
+    int ret = append_normalized_components(dst, dst_size, &len, task->root);
+    if (ret < 0)
+      return ret;
+  } else {
     int ret = append_normalized_components(dst, dst_size, &len, task->cwd);
     if (ret < 0)
       return ret;
   }
 
-  return append_normalized_components(dst, dst_size, &len, path);
+  int ret = append_normalized_components(dst, dst_size, &len, path);
+  if (ret < 0)
+    return ret;
+  return path_within_root(task, dst) ? 0 : -EACCES;
 }
 
 static int resolve_at_path(struct task_struct *task, int dirfd,
@@ -1043,6 +1065,8 @@ static int resolve_at_path(struct task_struct *task, int dirfd,
     return -ENOTDIR;
   if (task->files[dirfd].path[0] == '\0')
     return -EINVAL;
+  if (!path_within_root(task, task->files[dirfd].path))
+    return -EACCES;
 
   dst[0] = '/';
   dst[1] = '\0';
@@ -1052,7 +1076,10 @@ static int resolve_at_path(struct task_struct *task, int dirfd,
                                          task->files[dirfd].path);
   if (ret < 0)
     return ret;
-  return append_normalized_components(dst, dst_size, &len, path);
+  ret = append_normalized_components(dst, dst_size, &len, path);
+  if (ret < 0)
+    return ret;
+  return path_within_root(task, dst) ? 0 : -EACCES;
 }
 
 /* ===================================================================== */
@@ -5082,11 +5109,23 @@ static long sys_getcwd(uint64_t buf, uint64_t size, uint64_t a2, uint64_t a3,
   if (!is_valid_user_ptr(buf, (size_t)size))
     return -EFAULT;
 
-  size_t len = strlen(task->cwd) + 1;
+  const char *visible_cwd = task->cwd;
+  char root_cwd[] = "/";
+  if (task->root_initialized && !(task->root[0] == '/' && task->root[1] == '\0')) {
+    size_t root_len = strlen(task->root);
+    if (strcmp(task->cwd, task->root) == 0) {
+      visible_cwd = root_cwd;
+    } else if (strncmp(task->cwd, task->root, root_len) == 0 &&
+               task->cwd[root_len] == '/') {
+      visible_cwd = task->cwd + root_len;
+    }
+  }
+
+  size_t len = strlen(visible_cwd) + 1;
   if (len > (size_t)size)
     return -ENAMETOOLONG;
 
-  strlcpy((char *)(uintptr_t)buf, task->cwd, (size_t)size);
+  strlcpy((char *)(uintptr_t)buf, visible_cwd, (size_t)size);
   return (long)buf;
 }
 
@@ -5124,6 +5163,50 @@ static long sys_chdir(uint64_t pathname, uint64_t a1, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+static long sys_chroot(uint64_t pathname, uint64_t a1, uint64_t a2,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = get_current();
+  char user_path[PATH_MAX];
+  char path[PATH_MAX];
+  long ret;
+
+  if (!task)
+    return -ESRCH;
+  if (task->euid != 0)
+    return -EPERM;
+
+  ret = copy_user_string(pathname, user_path, sizeof(user_path));
+  if (ret < 0)
+    return ret;
+  ret = resolve_task_path(task, user_path, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  struct file *dir = vfs_open(path, O_RDONLY | O_DIRECTORY, 0);
+  if (!dir)
+    return -ENOENT;
+  if (!dir->f_dentry || !dir->f_dentry->d_inode ||
+      !S_ISDIR(dir->f_dentry->d_inode->i_mode)) {
+    vfs_close(dir);
+    return -ENOTDIR;
+  }
+  vfs_close(dir);
+
+  strlcpy(task->root, path, sizeof(task->root));
+  task->root_initialized = 1;
+  if (!path_within_root(task, task->cwd)) {
+    strlcpy(task->cwd, task->root, sizeof(task->cwd));
+    task->cwd_initialized = 1;
+  }
+  return 0;
+}
+
 static long sys_fchdir(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -5146,6 +5229,8 @@ static long sys_fchdir(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
     return -ENOTDIR;
   if (task->files[(int)fd].path[0] == '\0')
     return -EINVAL;
+  if (!path_within_root(task, task->files[(int)fd].path))
+    return -EACCES;
 
   strlcpy(task->cwd, task->files[(int)fd].path, sizeof(task->cwd));
   task->cwd_initialized = 1;
@@ -6671,6 +6756,7 @@ void syscall_init(void) {
   syscall_table[SYS_linkat] = sys_linkat;
   syscall_table[SYS_renameat] = sys_renameat;
   syscall_table[SYS_faccessat] = sys_faccessat;
+  syscall_table[SYS_chroot] = sys_chroot;
   syscall_table[SYS_fchdir] = sys_fchdir;
   syscall_table[SYS_pipe2] = sys_pipe2;
   syscall_table[SYS_read] = sys_read;

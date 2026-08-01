@@ -127,6 +127,13 @@ long do_fork(unsigned long flags) {
   child->pgrp = current_task->pgrp;
   child->sid = current_task->sid;
   child->umask = current_task->umask;
+  if (current_task->root_initialized) {
+    strlcpy(child->root, current_task->root, sizeof(child->root));
+    child->root_initialized = 1;
+  } else {
+    strlcpy(child->root, "/", sizeof(child->root));
+    child->root_initialized = 1;
+  }
   child->pdeath_signal = current_task->pdeath_signal;
   child->no_new_privs = current_task->no_new_privs;
   child->personality = current_task->personality;
