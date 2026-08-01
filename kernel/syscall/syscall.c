@@ -5526,6 +5526,19 @@ static long sys_getrlimit(uint64_t resource, uint64_t rlim, uint64_t a2,
   return 0;
 }
 
+static long validate_resource_limit(uint64_t resource,
+                                    const struct linux_rlimit *limit) {
+  if (resource >= RLIMIT_NLIMITS)
+    return -EINVAL;
+  if (!limit)
+    return -EFAULT;
+  if (limit->rlim_cur > limit->rlim_max)
+    return -EINVAL;
+  if (resource == RLIMIT_NOFILE && limit->rlim_max > TASK_MAX_FDS)
+    return -EINVAL;
+  return 0;
+}
+
 static long sys_setrlimit(uint64_t resource, uint64_t rlim, uint64_t a2,
                           uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a2;
@@ -5539,13 +5552,46 @@ static long sys_setrlimit(uint64_t resource, uint64_t rlim, uint64_t a2,
     return -EFAULT;
 
   struct linux_rlimit new_limit = *(struct linux_rlimit *)(uintptr_t)rlim;
-  if (new_limit.rlim_cur > new_limit.rlim_max)
-    return -EINVAL;
-  if (resource == RLIMIT_NOFILE && new_limit.rlim_max > TASK_MAX_FDS)
-    return -EINVAL;
+  long ret = validate_resource_limit(resource, &new_limit);
+  if (ret < 0)
+    return ret;
 
   init_resource_limits_once();
   resource_limits[resource] = new_limit;
+  return 0;
+}
+
+static long sys_prlimit64(uint64_t pid, uint64_t resource, uint64_t new_limit,
+                          uint64_t old_limit, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+  if ((pid_t)pid < 0)
+    return -EINVAL;
+  if (pid && !get_task_by_pid((pid_t)pid))
+    return -ESRCH;
+  if (resource >= RLIMIT_NLIMITS)
+    return -EINVAL;
+  if (old_limit && !is_valid_user_ptr(old_limit, sizeof(struct linux_rlimit)))
+    return -EFAULT;
+  if (new_limit && !is_valid_user_ptr(new_limit, sizeof(struct linux_rlimit)))
+    return -EFAULT;
+
+  init_resource_limits_once();
+  if (old_limit)
+    *(struct linux_rlimit *)(uintptr_t)old_limit = resource_limits[resource];
+  if (new_limit) {
+    struct linux_rlimit updated =
+        *(const struct linux_rlimit *)(uintptr_t)new_limit;
+    long ret = validate_resource_limit(resource, &updated);
+    if (ret < 0)
+      return ret;
+    resource_limits[resource] = updated;
+  }
+
   return 0;
 }
 
@@ -5820,6 +5866,7 @@ void syscall_init(void) {
   syscall_table[SYS_times] = sys_times;
   syscall_table[SYS_getrlimit] = sys_getrlimit;
   syscall_table[SYS_setrlimit] = sys_setrlimit;
+  syscall_table[SYS_prlimit64] = sys_prlimit64;
   syscall_table[SYS_getrusage] = sys_getrusage;
   syscall_table[SYS_umask] = sys_umask;
   syscall_table[SYS_prctl] = sys_prctl;
