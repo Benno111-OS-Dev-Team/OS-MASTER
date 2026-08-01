@@ -194,9 +194,13 @@
 #define STATX__RESERVED 0x80000000U
 #define USER_HEAP_LIMIT (USER_HEAP_BASE + 0x02000000ULL)
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
+#define UTS_NAME_LEN 64
 
 static uint64_t kernel_time_ns(void);
 static struct timespec current_timespec(void);
+
+static char system_nodename[UTS_NAME_LEN + 1] = "localhost";
+static char system_domainname[UTS_NAME_LEN + 1] = "";
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -5702,20 +5706,57 @@ static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
 
   /* Copy strings (simple implementation) */
   const char *sysname = "OS8";
-  const char *nodename = "localhost";
   const char *release = "0.1.0";
   const char *version = "0.1.0-arm64";
   const char *machine = "aarch64";
-  const char *domain = "";
 
   strlcpy(uts->sysname, sysname, sizeof(uts->sysname));
-  strlcpy(uts->nodename, nodename, sizeof(uts->nodename));
+  strlcpy(uts->nodename, system_nodename, sizeof(uts->nodename));
   strlcpy(uts->release, release, sizeof(uts->release));
   strlcpy(uts->version, version, sizeof(uts->version));
   strlcpy(uts->machine, machine, sizeof(uts->machine));
-  strlcpy(uts->domainname, domain, sizeof(uts->domainname));
+  strlcpy(uts->domainname, system_domainname, sizeof(uts->domainname));
 
   return 0;
+}
+
+static long set_uts_name(uint64_t name, uint64_t len, char *target) {
+  struct task_struct *current = get_current();
+  const char *src = (const char *)(uintptr_t)name;
+
+  if (!current)
+    return -ESRCH;
+  if (current->euid != 0)
+    return -EPERM;
+  if (len > UTS_NAME_LEN)
+    return -EINVAL;
+  if (len && !is_valid_user_ptr(name, (size_t)len))
+    return -EFAULT;
+
+  for (uint64_t i = 0; i < len; i++)
+    target[i] = src[i];
+  target[len] = '\0';
+  return 0;
+}
+
+static long sys_sethostname(uint64_t name, uint64_t len, uint64_t a2,
+                            uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return set_uts_name(name, len, system_nodename);
+}
+
+static long sys_setdomainname(uint64_t name, uint64_t len, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  return set_uts_name(name, len, system_domainname);
 }
 
 static long sys_sched_yield(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -6310,6 +6351,8 @@ void syscall_init(void) {
   syscall_table[SYS_clone] = sys_clone;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
+  syscall_table[SYS_sethostname] = sys_sethostname;
+  syscall_table[SYS_setdomainname] = sys_setdomainname;
   syscall_table[SYS_sched_yield] = sys_sched_yield;
   syscall_table[SYS_kill] = sys_kill;
   syscall_table[SYS_tkill] = sys_tkill;
