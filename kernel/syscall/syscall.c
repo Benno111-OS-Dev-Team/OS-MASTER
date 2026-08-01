@@ -196,6 +196,7 @@
 #define USER_MMAP_LIMIT (USER_MMAP_BASE + 0x0100000000ULL)
 #define UTS_NAME_LEN 64
 #define ROBUST_LIST_HEAD_LEN 24
+#define PERSONALITY_QUERY UINT32_MAX
 
 static uint64_t kernel_time_ns(void);
 static struct timespec current_timespec(void);
@@ -4012,6 +4013,27 @@ static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->pid : -1;
 }
 
+static long sys_personality(uint64_t persona, uint64_t a1, uint64_t a2,
+                            uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *current = get_current();
+  if (!current)
+    return -ESRCH;
+
+  uint32_t old = current->personality;
+  if ((uint32_t)persona != PERSONALITY_QUERY) {
+    if (persona > UINT32_MAX)
+      return -EINVAL;
+    current->personality = (uint32_t)persona;
+  }
+  return old;
+}
+
 static long sys_setuid(uint64_t uid, uint64_t a1, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -6385,6 +6407,7 @@ void syscall_init(void) {
   syscall_table[SYS_set_robust_list] = sys_set_robust_list;
   syscall_table[SYS_get_robust_list] = sys_get_robust_list;
   syscall_table[SYS_wait4] = sys_wait4;
+  syscall_table[SYS_personality] = sys_personality;
   syscall_table[SYS_getpid] = sys_getpid;
   syscall_table[SYS_getppid] = sys_getppid;
   syscall_table[SYS_getuid] = sys_getuid;

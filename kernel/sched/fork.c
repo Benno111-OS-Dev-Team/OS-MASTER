@@ -129,6 +129,7 @@ long do_fork(unsigned long flags) {
   child->umask = current_task->umask;
   child->pdeath_signal = current_task->pdeath_signal;
   child->no_new_privs = current_task->no_new_privs;
+  child->personality = current_task->personality;
   child->state = TASK_RUNNING;
 
   return child->pid;

@@ -362,6 +362,7 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
         task->umask = task->parent->umask;
         task->pdeath_signal = task->parent->pdeath_signal;
         task->no_new_privs = task->parent->no_new_privs;
+        task->personality = task->parent->personality;
     } else {
         task->pgrp = task->pid;
         task->sid = task->pid;
@@ -466,6 +467,7 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->umask = parent->umask;
     task->pdeath_signal = parent->pdeath_signal;
     task->no_new_privs = parent->no_new_privs;
+    task->personality = parent->personality;
     if (parent->cwd_initialized) {
         strlcpy(task->cwd, parent->cwd, sizeof(task->cwd));
     } else {

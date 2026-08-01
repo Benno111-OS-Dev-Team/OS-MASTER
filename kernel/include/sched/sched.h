@@ -124,6 +124,7 @@ struct task_struct {
   uint64_t clear_child_tid;
   uint64_t robust_list;
   size_t robust_list_len;
+  uint32_t personality;
 
   /* Kernel stack */
   void *stack;
