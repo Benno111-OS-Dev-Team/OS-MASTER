@@ -243,6 +243,16 @@ struct task_struct *get_task_by_pid(pid_t pid);
 int sched_kill_task(pid_t pid);
 
 /**
+ * sched_wait4 - Reap a zombie child task
+ * @pid: Child selector (-1 any child, >0 exact pid)
+ * @status: Optional encoded wait status output
+ * @options: Wait options such as WNOHANG
+ *
+ * Return: Reaped pid, 0 for WNOHANG with live children, or negative errno.
+ */
+pid_t sched_wait4(pid_t pid, int *status, int options);
+
+/**
  * exit_task - Terminate current task
  * @code: Exit code
  */

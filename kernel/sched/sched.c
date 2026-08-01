@@ -158,6 +158,37 @@ static void close_task_files(struct task_struct *task)
     }
 }
 
+static int wait_pid_matches(pid_t selector, struct task_struct *child)
+{
+    if (!child) {
+        return 0;
+    }
+    if (selector == -1) {
+        return 1;
+    }
+    if (selector > 0) {
+        return child->pid == selector;
+    }
+    if (selector == 0) {
+        struct task_struct *current = runqueue.current;
+        return current && child->tgid == current->tgid;
+    }
+    return 0;
+}
+
+static void reparent_children(struct task_struct *exiting)
+{
+    if (!exiting) {
+        return;
+    }
+
+    for (int i = 0; i < task_pool_index; i++) {
+        if (task_pool[i].parent == exiting && task_pool[i].state != TASK_DEAD) {
+            task_pool[i].parent = &init_task;
+        }
+    }
+}
+
 /* ===================================================================== */
 /* Public functions */
 /* ===================================================================== */
@@ -290,8 +321,7 @@ void exit_task(int code)
     /* Remove from run queue */
     dequeue_task(current);
     
-    /* TODO: Notify parent */
-    /* TODO: Reparent children */
+    reparent_children(current);
     
     /* Schedule another task */
     schedule();
@@ -384,6 +414,53 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     enqueue_task(task);
     
     return task->pid;
+}
+
+pid_t sched_wait4(pid_t pid, int *status, int options)
+{
+#define WNOHANG 1
+    struct task_struct *parent = runqueue.current;
+    int have_child = 0;
+
+    if (!parent) {
+        return -ESRCH;
+    }
+    if (options & ~WNOHANG) {
+        return -EINVAL;
+    }
+
+    for (;;) {
+        for (int i = 0; i < task_pool_index; i++) {
+            struct task_struct *child = &task_pool[i];
+            if (child->state == TASK_DEAD || child->parent != parent ||
+                !wait_pid_matches(pid, child)) {
+                continue;
+            }
+
+            have_child = 1;
+            if (child->state == TASK_ZOMBIE) {
+                pid_t child_pid = child->pid;
+                if (status) {
+                    *status = (child->exit_code & 0xff) << 8;
+                }
+                child->state = TASK_DEAD;
+                child->parent = NULL;
+                child->next = NULL;
+                child->prev = NULL;
+                return child_pid;
+            }
+        }
+
+        if (!have_child) {
+            return -ECHILD;
+        }
+        if (options & WNOHANG) {
+            return 0;
+        }
+
+        schedule();
+    }
+#undef WNOHANG
 }
 
 struct task_struct *get_task_by_pid(pid_t pid)

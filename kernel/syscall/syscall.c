@@ -35,6 +35,7 @@
 #define TCGETS 0x5401
 #define TIOCGWINSZ 0x5413
 #define TIOCSWINSZ 0x5414
+#define WAIT_WNOHANG 1
 
 static int init_task_files(struct task_struct *task) {
   if (!task)
@@ -1395,16 +1396,32 @@ static long sys_munmap(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+extern long do_fork(unsigned long flags);
+
 static long sys_clone(uint64_t flags, uint64_t stack, uint64_t ptid,
                       uint64_t tls, uint64_t ctid, uint64_t a5) {
-  (void)flags;
   (void)stack;
   (void)ptid;
   (void)tls;
   (void)ctid;
   (void)a5;
 
-  return -ENOSYS;
+  return do_fork((unsigned long)flags);
+}
+
+static long sys_wait4(uint64_t pid, uint64_t status, uint64_t options,
+                      uint64_t rusage, uint64_t a4, uint64_t a5) {
+  (void)rusage;
+  (void)a4;
+  (void)a5;
+
+  if (status && !is_valid_user_ptr(status, sizeof(int)))
+    return -EFAULT;
+  if (options & ~(uint64_t)WAIT_WNOHANG)
+    return -EINVAL;
+
+  return sched_wait4((pid_t)(int64_t)pid, status ? (int *)(uintptr_t)status : NULL,
+                     (int)options);
 }
 
 /* Forward declarations for ELF loader */
@@ -1655,6 +1672,7 @@ void syscall_init(void) {
   syscall_table[SYS_fstat] = sys_fstat;
   syscall_table[SYS_exit] = sys_exit;
   syscall_table[SYS_exit_group] = sys_exit_group;
+  syscall_table[SYS_wait4] = sys_wait4;
   syscall_table[SYS_getpid] = sys_getpid;
   syscall_table[SYS_getppid] = sys_getppid;
   syscall_table[SYS_getuid] = sys_getuid;
