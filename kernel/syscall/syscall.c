@@ -197,6 +197,12 @@
 #define UTS_NAME_LEN 64
 #define ROBUST_LIST_HEAD_LEN 24
 #define PERSONALITY_QUERY UINT32_MAX
+#define FUTEX_WAIT 0
+#define FUTEX_WAKE 1
+#define FUTEX_PRIVATE_FLAG 128
+#define FUTEX_CLOCK_REALTIME 256
+#define FUTEX_CMD_MASK (~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME))
+#define FUTEX_MAX_WAITERS 64
 #define LINUX_CAPABILITY_VERSION_1 0x19980330U
 #define LINUX_CAPABILITY_VERSION_2 0x20071026U
 #define LINUX_CAPABILITY_VERSION_3 0x20080522U
@@ -761,6 +767,30 @@ struct timerfd_ctx {
   uint64_t expirations;
   volatile int lock;
 };
+
+struct futex_waiter {
+  uint64_t uaddr;
+  struct task_struct *task;
+  volatile int waiting;
+  volatile int woken;
+};
+
+static struct futex_waiter futex_waiters[FUTEX_MAX_WAITERS];
+static volatile int futex_waiter_lock;
+
+static void futex_lock(void) {
+  while (__atomic_test_and_set(&futex_waiter_lock, __ATOMIC_ACQUIRE)) {
+#ifdef ARCH_ARM64
+    asm volatile("yield");
+#elif defined(ARCH_X86_64) || defined(ARCH_X86)
+    asm volatile("pause");
+#endif
+  }
+}
+
+static void futex_unlock(void) {
+  __atomic_clear(&futex_waiter_lock, __ATOMIC_RELEASE);
+}
 
 static void timerfd_lock(struct timerfd_ctx *ctx) {
   while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
@@ -5824,6 +5854,107 @@ static long sys_get_robust_list(uint64_t pid, uint64_t head_ptr,
   return 0;
 }
 
+static long futex_wake(uint64_t uaddr, uint32_t wake_count) {
+  uint32_t woken = 0;
+
+  futex_lock();
+  for (int i = 0; i < FUTEX_MAX_WAITERS && woken < wake_count; i++) {
+    struct futex_waiter *waiter = &futex_waiters[i];
+    if (!waiter->waiting || waiter->uaddr != uaddr)
+      continue;
+
+    waiter->woken = 1;
+    if (waiter->task)
+      wake_up_process(waiter->task);
+    woken++;
+  }
+  futex_unlock();
+  return (long)woken;
+}
+
+static long futex_wait(uint64_t uaddr, int expected, uint64_t timeout) {
+  struct task_struct *task = get_current();
+  struct futex_waiter *slot = NULL;
+  uint64_t deadline = UINT64_MAX;
+  int timed = 0;
+
+  if (!task)
+    return -ESRCH;
+  if (!is_valid_user_ptr(uaddr, sizeof(uint32_t)))
+    return -EFAULT;
+  if (__atomic_load_n((int *)(uintptr_t)uaddr, __ATOMIC_SEQ_CST) != expected)
+    return -EAGAIN;
+
+  if (timeout) {
+    uint64_t wait_ns;
+    if (!is_valid_user_ptr(timeout, sizeof(struct timespec)))
+      return -EFAULT;
+    if (timespec_to_ns((const struct timespec *)(uintptr_t)timeout,
+                       &wait_ns) != 0)
+      return -EINVAL;
+    uint64_t now = kernel_time_ns();
+    deadline = wait_ns > UINT64_MAX - now ? UINT64_MAX : now + wait_ns;
+    timed = 1;
+  }
+
+  futex_lock();
+  for (int i = 0; i < FUTEX_MAX_WAITERS; i++) {
+    if (!futex_waiters[i].waiting) {
+      slot = &futex_waiters[i];
+      slot->uaddr = uaddr;
+      slot->task = task;
+      slot->woken = 0;
+      slot->waiting = 1;
+      break;
+    }
+  }
+  futex_unlock();
+  if (!slot)
+    return -EAGAIN;
+
+  long ret = 0;
+  while (!slot->woken) {
+    if (__atomic_load_n((int *)(uintptr_t)uaddr, __ATOMIC_SEQ_CST) !=
+        expected)
+      break;
+    if (timed && kernel_time_ns() >= deadline) {
+      ret = -ETIMEDOUT;
+      break;
+    }
+    extern void process_yield(void);
+    process_yield();
+  }
+
+  futex_lock();
+  slot->waiting = 0;
+  slot->task = NULL;
+  slot->uaddr = 0;
+  slot->woken = 0;
+  futex_unlock();
+  return ret;
+}
+
+static long sys_futex(uint64_t uaddr, uint64_t op, uint64_t val,
+                      uint64_t timeout, uint64_t uaddr2, uint64_t val3) {
+  (void)uaddr2;
+  (void)val3;
+
+  if (!is_valid_user_ptr(uaddr, sizeof(uint32_t)))
+    return -EFAULT;
+
+  uint64_t cmd = op & FUTEX_CMD_MASK;
+  switch (cmd) {
+  case FUTEX_WAIT:
+    return futex_wait(uaddr, (int)val, timeout);
+  case FUTEX_WAKE:
+    if (val > UINT32_MAX)
+      val = UINT32_MAX;
+    return futex_wake(uaddr, (uint32_t)val);
+  default:
+    return -ENOSYS;
+  }
+}
+
 static long sys_wait4(uint64_t pid, uint64_t status, uint64_t options,
                       uint64_t rusage, uint64_t a4, uint64_t a5) {
   (void)rusage;
@@ -6519,6 +6650,7 @@ void syscall_init(void) {
   syscall_table[SYS_timerfd_gettime] = sys_timerfd_gettime;
   syscall_table[SYS_capget] = sys_capget;
   syscall_table[SYS_capset] = sys_capset;
+  syscall_table[SYS_futex] = sys_futex;
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;
