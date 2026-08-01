@@ -130,6 +130,12 @@ long do_fork(unsigned long flags) {
   child->pdeath_signal = current_task->pdeath_signal;
   child->no_new_privs = current_task->no_new_privs;
   child->personality = current_task->personality;
+  for (int cap = 0; cap < 2; cap++) {
+    child->cap_effective[cap] = current_task->cap_effective[cap];
+    child->cap_permitted[cap] = current_task->cap_permitted[cap];
+    child->cap_inheritable[cap] = current_task->cap_inheritable[cap];
+  }
+  child->cap_initialized = current_task->cap_initialized;
   child->state = TASK_RUNNING;
 
   return child->pid;

@@ -125,6 +125,10 @@ struct task_struct {
   uint64_t robust_list;
   size_t robust_list_len;
   uint32_t personality;
+  uint32_t cap_effective[2];
+  uint32_t cap_permitted[2];
+  uint32_t cap_inheritable[2];
+  uint8_t cap_initialized;
 
   /* Kernel stack */
   void *stack;

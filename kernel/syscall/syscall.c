@@ -197,6 +197,13 @@
 #define UTS_NAME_LEN 64
 #define ROBUST_LIST_HEAD_LEN 24
 #define PERSONALITY_QUERY UINT32_MAX
+#define LINUX_CAPABILITY_VERSION_1 0x19980330U
+#define LINUX_CAPABILITY_VERSION_2 0x20071026U
+#define LINUX_CAPABILITY_VERSION_3 0x20080522U
+#define CAP_WORDS 2
+#define CAP_LAST_CAP 40
+#define CAP_FULL_WORD0 UINT32_MAX
+#define CAP_FULL_WORD1 ((1U << (CAP_LAST_CAP - 32 + 1)) - 1U)
 
 static uint64_t kernel_time_ns(void);
 static struct timespec current_timespec(void);
@@ -1226,6 +1233,17 @@ struct linux_robust_list_head {
   uint64_t list_next;
   long futex_offset;
   uint64_t list_op_pending;
+};
+
+struct linux_cap_user_header {
+  uint32_t version;
+  int pid;
+};
+
+struct linux_cap_user_data {
+  uint32_t effective;
+  uint32_t permitted;
+  uint32_t inheritable;
 };
 
 struct linux_sysinfo {
@@ -4034,6 +4052,151 @@ static long sys_personality(uint64_t persona, uint64_t a1, uint64_t a2,
   return old;
 }
 
+static int cap_version_words(uint32_t version) {
+  switch (version) {
+  case LINUX_CAPABILITY_VERSION_1:
+    return 1;
+  case LINUX_CAPABILITY_VERSION_2:
+  case LINUX_CAPABILITY_VERSION_3:
+    return CAP_WORDS;
+  default:
+    return -EINVAL;
+  }
+}
+
+static void task_ensure_caps(struct task_struct *task) {
+  if (!task || task->cap_initialized)
+    return;
+
+  if (task->euid == 0) {
+    task->cap_effective[0] = CAP_FULL_WORD0;
+    task->cap_permitted[0] = CAP_FULL_WORD0;
+    task->cap_effective[1] = CAP_FULL_WORD1;
+    task->cap_permitted[1] = CAP_FULL_WORD1;
+  }
+  task->cap_inheritable[0] = 0;
+  task->cap_inheritable[1] = 0;
+  task->cap_initialized = 1;
+}
+
+static void task_drop_caps_if_unprivileged(struct task_struct *task) {
+  if (!task)
+    return;
+  task_ensure_caps(task);
+  if (task->euid == 0)
+    return;
+
+  task->cap_effective[0] = 0;
+  task->cap_effective[1] = 0;
+  task->cap_permitted[0] = 0;
+  task->cap_permitted[1] = 0;
+}
+
+static int cap_word_valid(int word, uint32_t value) {
+  if (word == 0)
+    return 1;
+  return (value & ~CAP_FULL_WORD1) == 0;
+}
+
+static long sys_capget(uint64_t header_ptr, uint64_t data_ptr, uint64_t a2,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(header_ptr, sizeof(struct linux_cap_user_header)))
+    return -EFAULT;
+
+  struct linux_cap_user_header *hdr =
+      (struct linux_cap_user_header *)(uintptr_t)header_ptr;
+  int words = cap_version_words(hdr->version);
+  if (words < 0) {
+    hdr->version = LINUX_CAPABILITY_VERSION_3;
+    return -EINVAL;
+  }
+
+  struct task_struct *task =
+      hdr->pid ? get_task_by_pid((pid_t)hdr->pid) : get_current();
+  if (!task)
+    return -ESRCH;
+  task_ensure_caps(task);
+
+  if (!data_ptr)
+    return 0;
+  if (!is_valid_user_ptr(data_ptr,
+                         sizeof(struct linux_cap_user_data) * (size_t)words))
+    return -EFAULT;
+
+  struct linux_cap_user_data *data =
+      (struct linux_cap_user_data *)(uintptr_t)data_ptr;
+  for (int word = 0; word < words; word++) {
+    data[word].effective = task->cap_effective[word];
+    data[word].permitted = task->cap_permitted[word];
+    data[word].inheritable = task->cap_inheritable[word];
+  }
+  return 0;
+}
+
+static long sys_capset(uint64_t header_ptr, uint64_t data_ptr, uint64_t a2,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(header_ptr, sizeof(struct linux_cap_user_header)))
+    return -EFAULT;
+
+  const struct linux_cap_user_header *hdr =
+      (const struct linux_cap_user_header *)(uintptr_t)header_ptr;
+  int words = cap_version_words(hdr->version);
+  if (words < 0)
+    return -EINVAL;
+  if (!is_valid_user_ptr(data_ptr,
+                         sizeof(struct linux_cap_user_data) * (size_t)words))
+    return -EFAULT;
+
+  struct task_struct *task = get_current();
+  if (!task)
+    return -ESRCH;
+  if (hdr->pid != 0 && hdr->pid != task->pid)
+    return -EPERM;
+
+  task_ensure_caps(task);
+
+  const struct linux_cap_user_data *data =
+      (const struct linux_cap_user_data *)(uintptr_t)data_ptr;
+  uint32_t new_effective[CAP_WORDS] = {0, 0};
+  uint32_t new_permitted[CAP_WORDS] = {0, 0};
+  uint32_t new_inheritable[CAP_WORDS] = {0, 0};
+
+  for (int word = 0; word < words; word++) {
+    new_effective[word] = data[word].effective;
+    new_permitted[word] = data[word].permitted;
+    new_inheritable[word] = data[word].inheritable;
+
+    if (!cap_word_valid(word, new_effective[word]) ||
+        !cap_word_valid(word, new_permitted[word]) ||
+        !cap_word_valid(word, new_inheritable[word]))
+      return -EINVAL;
+    if ((new_effective[word] & ~new_permitted[word]) != 0)
+      return -EPERM;
+    if (task->euid != 0 &&
+        ((new_effective[word] & ~task->cap_effective[word]) ||
+         (new_permitted[word] & ~task->cap_permitted[word]) ||
+         (new_inheritable[word] & ~task->cap_inheritable[word])))
+      return -EPERM;
+  }
+
+  for (int word = 0; word < CAP_WORDS; word++) {
+    task->cap_effective[word] = new_effective[word];
+    task->cap_permitted[word] = new_permitted[word];
+    task->cap_inheritable[word] = new_inheritable[word];
+  }
+  return 0;
+}
+
 static long sys_setuid(uint64_t uid, uint64_t a1, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -4048,6 +4211,7 @@ static long sys_setuid(uint64_t uid, uint64_t a1, uint64_t a2, uint64_t a3,
   current->uid = (uid_t)uid;
   current->euid = (uid_t)uid;
   current->suid = (uid_t)uid;
+  task_drop_caps_if_unprivileged(current);
   return 0;
 }
 
@@ -4089,6 +4253,7 @@ static long sys_setreuid(uint64_t ruid, uint64_t euid, uint64_t a2,
     current->euid = (uid_t)euid;
   }
   current->suid = current->euid;
+  task_drop_caps_if_unprivileged(current);
   return 0;
 }
 
@@ -4140,6 +4305,7 @@ static long sys_setresuid(uint64_t ruid, uint64_t euid, uint64_t suid,
       return -EINVAL;
     current->suid = (uid_t)suid;
   }
+  task_drop_caps_if_unprivileged(current);
   return 0;
 }
 
@@ -6351,6 +6517,8 @@ void syscall_init(void) {
   syscall_table[SYS_timerfd_create] = sys_timerfd_create;
   syscall_table[SYS_timerfd_settime] = sys_timerfd_settime;
   syscall_table[SYS_timerfd_gettime] = sys_timerfd_gettime;
+  syscall_table[SYS_capget] = sys_capget;
+  syscall_table[SYS_capset] = sys_capset;
   syscall_table[SYS_dup] = sys_dup;
   syscall_table[SYS_dup3] = sys_dup3;
   syscall_table[SYS_fcntl] = sys_fcntl;

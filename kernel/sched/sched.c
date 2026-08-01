@@ -363,6 +363,12 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
         task->pdeath_signal = task->parent->pdeath_signal;
         task->no_new_privs = task->parent->no_new_privs;
         task->personality = task->parent->personality;
+        for (int cap = 0; cap < 2; cap++) {
+            task->cap_effective[cap] = task->parent->cap_effective[cap];
+            task->cap_permitted[cap] = task->parent->cap_permitted[cap];
+            task->cap_inheritable[cap] = task->parent->cap_inheritable[cap];
+        }
+        task->cap_initialized = task->parent->cap_initialized;
     } else {
         task->pgrp = task->pid;
         task->sid = task->pid;
@@ -468,6 +474,12 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->pdeath_signal = parent->pdeath_signal;
     task->no_new_privs = parent->no_new_privs;
     task->personality = parent->personality;
+    for (int cap = 0; cap < 2; cap++) {
+        task->cap_effective[cap] = parent->cap_effective[cap];
+        task->cap_permitted[cap] = parent->cap_permitted[cap];
+        task->cap_inheritable[cap] = parent->cap_inheritable[cap];
+    }
+    task->cap_initialized = parent->cap_initialized;
     if (parent->cwd_initialized) {
         strlcpy(task->cwd, parent->cwd, sizeof(task->cwd));
     } else {
