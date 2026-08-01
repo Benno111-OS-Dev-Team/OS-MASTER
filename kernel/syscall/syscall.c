@@ -5904,6 +5904,45 @@ static uint32_t mmap_prot_to_vm_flags(uint64_t prot) {
   return vm_flags;
 }
 
+static long populate_file_mapping(struct mm_struct *mm, struct file *file,
+                                  uint64_t addr, uint64_t len,
+                                  uint32_t final_vm_flags, uint64_t offset) {
+  if (!mm || !file)
+    return -EINVAL;
+  if ((offset & (PAGE_SIZE - 1)) != 0 || offset > (uint64_t)INT64_MAX)
+    return -EINVAL;
+
+  loff_t saved_pos = file->f_pos;
+  uint64_t available = 0;
+  if (file->f_dentry && file->f_dentry->d_inode &&
+      file->f_dentry->d_inode->i_size > (loff_t)offset) {
+    available = (uint64_t)file->f_dentry->d_inode->i_size - offset;
+  }
+  uint64_t to_read = available < len ? available : len;
+
+  file->f_pos = (loff_t)offset;
+  uint64_t done = 0;
+  while (done < to_read) {
+    size_t chunk = (size_t)(to_read - done);
+    if (chunk > (size_t)SSIZE_MAX)
+      chunk = (size_t)SSIZE_MAX;
+    ssize_t ret = vfs_read(file, (char *)(uintptr_t)(addr + done), chunk);
+    if (ret < 0) {
+      file->f_pos = saved_pos;
+      return ret;
+    }
+    if (ret == 0)
+      break;
+    done += (uint64_t)ret;
+  }
+  file->f_pos = saved_pos;
+
+  if (!(final_vm_flags & VM_WRITE) &&
+      vmm_protect_user_range(mm, addr, (size_t)len, final_vm_flags) != 0)
+    return -ENOMEM;
+  return 0;
+}
+
 static long sys_brk(uint64_t brk, uint64_t a1, uint64_t a2, uint64_t a3,
                     uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -5941,8 +5980,6 @@ static long sys_brk(uint64_t brk, uint64_t a1, uint64_t a2, uint64_t a3,
 
 static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
                      uint64_t fd, uint64_t offset) {
-  (void)offset;
-
   if (len == 0 || len > UINT64_MAX - (PAGE_SIZE - 1))
     return -EINVAL;
   if (prot & ~(uint64_t)(PROT_READ | PROT_WRITE | PROT_EXEC))
@@ -5950,15 +5987,31 @@ static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
   if ((flags & (MAP_PRIVATE | MAP_SHARED)) == 0 ||
       (flags & (MAP_PRIVATE | MAP_SHARED)) == (MAP_PRIVATE | MAP_SHARED))
     return -EINVAL;
-  if (!(flags & MAP_ANONYMOUS) || (int64_t)fd != -1) {
-    printk(KERN_DEBUG "sys_mmap: file-backed mappings unsupported\n");
-    return -ENOSYS;
-  }
 
-  struct task_struct *task = get_current();
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
   struct mm_struct *mm = ensure_task_mm(task);
   if (!mm)
     return -ENOMEM;
+
+  struct file *file = NULL;
+  int file_backed = !(flags & MAP_ANONYMOUS);
+  if (file_backed) {
+    if ((flags & MAP_SHARED) != 0)
+      return -ENOSYS;
+    if (fd >= TASK_MAX_FDS)
+      return -EBADF;
+    file = get_file(task, (int)fd);
+    if (!file)
+      return -EBADF;
+    if ((task->files[fd].flags & O_ACCMODE) == O_WRONLY)
+      return -EACCES;
+    if ((offset & (PAGE_SIZE - 1)) != 0)
+      return -EINVAL;
+  } else if ((int64_t)fd != -1) {
+    return -EINVAL;
+  }
 
   len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
   if (len > USER_MMAP_LIMIT - mm->mmap_base)
@@ -5979,8 +6032,16 @@ static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
   uint32_t vm_flags = mmap_prot_to_vm_flags(prot);
   if (flags & MAP_SHARED)
     vm_flags |= VM_SHARED;
-  if (vmm_map_user_range(mm, result, (size_t)len, vm_flags) != 0)
+  uint32_t map_flags = file_backed ? (vm_flags | VM_WRITE) : vm_flags;
+  if (vmm_map_user_range(mm, result, (size_t)len, map_flags) != 0)
     return (flags & MAP_FIXED_NOREPLACE) ? -EEXIST : -ENOMEM;
+  if (file_backed) {
+    long ret = populate_file_mapping(mm, file, result, len, vm_flags, offset);
+    if (ret < 0) {
+      vmm_unmap_user_range(mm, result, (size_t)len);
+      return ret;
+    }
+  }
   if (!(flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)))
     mm->mmap_next = result + len;
 
