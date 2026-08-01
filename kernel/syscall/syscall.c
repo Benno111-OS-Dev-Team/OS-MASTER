@@ -16,6 +16,14 @@
 /* File Descriptor Table */
 /* ===================================================================== */
 
+#define FD_CLOEXEC 1
+#define F_DUPFD 0
+#define F_GETFD 1
+#define F_SETFD 2
+#define F_GETFL 3
+#define F_SETFL 4
+#define F_DUPFD_CLOEXEC 1030
+
 static int init_task_files(struct task_struct *task) {
   if (!task)
     return -ESRCH;
@@ -30,7 +38,9 @@ static int init_task_files(struct task_struct *task) {
 
   task->files[0].in_use = 1; /* stdin */
   task->files[1].in_use = 1; /* stdout */
+  task->files[1].flags = O_WRONLY;
   task->files[2].in_use = 1; /* stderr */
+  task->files[2].flags = O_WRONLY;
   task->files_initialized = 1;
   return 0;
 }
@@ -42,10 +52,13 @@ static struct task_struct *current_task_with_files(void) {
   return task;
 }
 
-static int alloc_fd(struct task_struct *task) {
+static int alloc_fd_from(struct task_struct *task, int min_fd) {
   if (init_task_files(task) != 0)
     return -ESRCH;
-  for (int i = 3; i < TASK_MAX_FDS; i++) {
+  if (min_fd < 0 || min_fd >= TASK_MAX_FDS)
+    return -EINVAL;
+
+  for (int i = min_fd; i < TASK_MAX_FDS; i++) {
     if (!task->files[i].in_use) {
       task->files[i].in_use = 1;
       return i;
@@ -53,6 +66,8 @@ static int alloc_fd(struct task_struct *task) {
   }
   return -EMFILE;
 }
+
+static int alloc_fd(struct task_struct *task) { return alloc_fd_from(task, 3); }
 
 static void free_fd(struct task_struct *task, int fd) {
   if (task && fd >= 0 && fd < TASK_MAX_FDS) {
@@ -62,11 +77,43 @@ static void free_fd(struct task_struct *task, int fd) {
   }
 }
 
+static int close_fd_entry(struct task_struct *task, int fd) {
+  if (!task || fd < 0 || fd >= TASK_MAX_FDS || !task->files[fd].in_use)
+    return -EBADF;
+
+  if (task->files[fd].file)
+    vfs_close(task->files[fd].file);
+  free_fd(task, fd);
+  return 0;
+}
+
 static struct file *get_file(struct task_struct *task, int fd) {
   if (!task || fd < 0 || fd >= TASK_MAX_FDS || !task->files[fd].in_use) {
     return NULL;
   }
   return task->files[fd].file;
+}
+
+static int duplicate_fd(struct task_struct *task, int oldfd, int newfd,
+                        int extra_flags) {
+  struct file *file;
+
+  if (!task || oldfd < 0 || oldfd >= TASK_MAX_FDS ||
+      !task->files[oldfd].in_use)
+    return -EBADF;
+  if (newfd < 0 || newfd >= TASK_MAX_FDS)
+    return -EBADF;
+
+  if (task->files[newfd].in_use)
+    close_fd_entry(task, newfd);
+
+  file = task->files[oldfd].file;
+  if (file)
+    file->f_count.counter++;
+  task->files[newfd].file = file;
+  task->files[newfd].flags = task->files[oldfd].flags | extra_flags;
+  task->files[newfd].in_use = 1;
+  return newfd;
 }
 
 static int init_task_cwd(struct task_struct *task) {
@@ -374,6 +421,8 @@ static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
 
   /* Validate user buffer */
   if (!is_valid_user_ptr(buf, count)) {
@@ -381,7 +430,9 @@ static long sys_read(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   }
 
   /* Handle stdin specially */
-  if (fd == 0) {
+  if (fd < TASK_MAX_FDS && task->files[fd].in_use &&
+      !task->files[fd].file &&
+      (task->files[fd].flags & O_ACCMODE) != O_WRONLY) {
     kapi_t *api = kapi_get();
     char *p = (char *)buf;
     size_t n = 0;
@@ -434,13 +485,17 @@ static long sys_write(uint64_t fd, uint64_t buf, uint64_t count, uint64_t a3,
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
 
   if (count > 0 && !is_valid_user_ptr(buf, count)) {
     return -EFAULT;
   }
 
   /* Special case: stdout/stderr (fd 1 and 2) go to console */
-  if (fd == 1 || fd == 2) {
+  if (fd < TASK_MAX_FDS && task->files[fd].in_use &&
+      !task->files[fd].file &&
+      (task->files[fd].flags & O_ACCMODE) != O_RDONLY) {
     const char *str = (const char *)buf;
     for (size_t i = 0; i < count; i++) {
       uart_putc(str[i]);
@@ -505,21 +560,116 @@ static long sys_close(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
-
-  /* Don't close stdin/stdout/stderr */
-  if (fd < 3) {
-    return 0;
-  }
-
-  struct file *f = get_file(task, (int)fd);
-  if (!f) {
+  if (fd >= TASK_MAX_FDS)
     return -EBADF;
+
+  return close_fd_entry(task, (int)fd);
+}
+
+static long sys_dup(uint64_t oldfd, uint64_t a1, uint64_t a2, uint64_t a3,
+                    uint64_t a4, uint64_t a5) {
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (oldfd >= TASK_MAX_FDS)
+    return -EBADF;
+
+  int newfd = alloc_fd_from(task, 0);
+  if (newfd < 0)
+    return newfd;
+
+  int ret = duplicate_fd(task, (int)oldfd, newfd, 0);
+  if (ret < 0) {
+    free_fd(task, newfd);
+    return ret;
   }
+  return ret;
+}
 
-  vfs_close(f);
-  free_fd(task, (int)fd);
+static long sys_dup3(uint64_t oldfd, uint64_t newfd, uint64_t flags,
+                     uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
 
-  return 0;
+  struct task_struct *task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+  if (oldfd >= TASK_MAX_FDS || newfd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (oldfd == newfd)
+    return -EINVAL;
+  if (flags & ~(uint64_t)O_CLOEXEC)
+    return -EINVAL;
+
+  return duplicate_fd(task, (int)oldfd, (int)newfd,
+                      (flags & O_CLOEXEC) ? O_CLOEXEC : 0);
+}
+
+static long sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task = current_task_with_files();
+  int fd_i = (int)fd;
+
+  if (!task)
+    return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
+  if (fd_i < 0 || fd_i >= TASK_MAX_FDS || !task->files[fd_i].in_use)
+    return -EBADF;
+
+  switch (cmd) {
+  case F_DUPFD: {
+    int newfd = alloc_fd_from(task, (int)arg);
+    if (newfd < 0)
+      return newfd;
+    int ret = duplicate_fd(task, fd_i, newfd, 0);
+    if (ret < 0)
+      free_fd(task, newfd);
+    return ret;
+  }
+  case F_DUPFD_CLOEXEC: {
+    int newfd = alloc_fd_from(task, (int)arg);
+    if (newfd < 0)
+      return newfd;
+    int ret = duplicate_fd(task, fd_i, newfd, O_CLOEXEC);
+    if (ret < 0)
+      free_fd(task, newfd);
+    return ret;
+  }
+  case F_GETFD:
+    return (task->files[fd_i].flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+  case F_SETFD:
+    if (arg & FD_CLOEXEC)
+      task->files[fd_i].flags |= O_CLOEXEC;
+    else
+      task->files[fd_i].flags &= ~O_CLOEXEC;
+    return 0;
+  case F_GETFL:
+    if (task->files[fd_i].file)
+      return task->files[fd_i].file->f_flags;
+    return task->files[fd_i].flags & ~O_CLOEXEC;
+  case F_SETFL:
+    task->files[fd_i].flags =
+        (task->files[fd_i].flags & O_CLOEXEC) | ((int)arg & ~O_CLOEXEC);
+    if (task->files[fd_i].file) {
+      int access_mode = task->files[fd_i].file->f_flags & O_ACCMODE;
+      task->files[fd_i].file->f_flags = access_mode | ((int)arg & ~O_CLOEXEC);
+    }
+    return 0;
+  default:
+    return -EINVAL;
+  }
 }
 
 static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
@@ -531,6 +681,8 @@ static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
 
   struct file *f = get_file(task, (int)fd);
   if (!f) {
@@ -552,6 +704,8 @@ static long sys_getdents64(uint64_t fd, uint64_t dirp, uint64_t count,
 
   if (!task)
     return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
   if (count == 0 || count > SSIZE_MAX)
     return -EINVAL;
   if (!is_valid_user_ptr(dirp, (size_t)count))
@@ -591,6 +745,8 @@ static long sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t a2, uint64_t a3,
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
+  if (fd >= TASK_MAX_FDS)
+    return -EBADF;
 
   struct file *f = get_file(task, (int)fd);
   if (!f)
@@ -1119,6 +1275,9 @@ void syscall_init(void) {
 
   /* Register implemented syscalls */
   syscall_table[SYS_getcwd] = sys_getcwd;
+  syscall_table[SYS_dup] = sys_dup;
+  syscall_table[SYS_dup3] = sys_dup3;
+  syscall_table[SYS_fcntl] = sys_fcntl;
   syscall_table[SYS_read] = sys_read;
   syscall_table[SYS_write] = sys_write;
   syscall_table[SYS_openat] = sys_openat;
