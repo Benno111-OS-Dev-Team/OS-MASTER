@@ -86,6 +86,7 @@
 #define CLOCK_REALTIME_COARSE 5
 #define CLOCK_MONOTONIC_COARSE 6
 #define CLOCK_BOOTTIME 7
+#define TIMER_ABSTIME 1
 #define USER_HZ 100
 #define RUSAGE_SELF 0
 #define RUSAGE_CHILDREN (-1)
@@ -5571,14 +5572,71 @@ static long sys_sched_yield(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
 
 static long sys_nanosleep(uint64_t req, uint64_t rem, uint64_t a2, uint64_t a3,
                           uint64_t a4, uint64_t a5) {
-  (void)rem;
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
-  (void)req;
+  if (!is_valid_user_ptr(req, sizeof(struct timespec)))
+    return -EFAULT;
+  if (rem && !is_valid_user_ptr(rem, sizeof(struct timespec)))
+    return -EFAULT;
 
+  const struct timespec *requested =
+      (const struct timespec *)(uintptr_t)req;
+  uint64_t sleep_ns;
+  if (timespec_to_ns(requested, &sleep_ns) != 0)
+    return -EINVAL;
+
+  uint64_t deadline = kernel_time_ns() + sleep_ns;
+  if (deadline < sleep_ns)
+    deadline = UINT64_MAX;
+  while (kernel_time_ns() < deadline) {
+    extern void process_yield(void);
+    process_yield();
+  }
+
+  if (rem)
+    *(struct timespec *)(uintptr_t)rem = ns_to_timespec(0);
+
+  return 0;
+}
+
+static long sys_clock_nanosleep(uint64_t clockid, uint64_t flags, uint64_t req,
+                                uint64_t rem, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  if (!timerfd_clock_valid((int)clockid))
+    return -EINVAL;
+  if (flags & ~(uint64_t)TIMER_ABSTIME)
+    return -EINVAL;
+  if (!is_valid_user_ptr(req, sizeof(struct timespec)))
+    return -EFAULT;
+  if (rem && !is_valid_user_ptr(rem, sizeof(struct timespec)))
+    return -EFAULT;
+
+  const struct timespec *requested =
+      (const struct timespec *)(uintptr_t)req;
+  uint64_t target_ns;
+  if (timespec_to_ns(requested, &target_ns) != 0)
+    return -EINVAL;
+
+  if (!(flags & TIMER_ABSTIME)) {
+    uint64_t now = kernel_time_ns();
+    if (target_ns > UINT64_MAX - now)
+      target_ns = UINT64_MAX;
+    else
+      target_ns += now;
+  }
+
+  while (kernel_time_ns() < target_ns) {
+    extern void process_yield(void);
+    process_yield();
+  }
+
+  if (rem)
+    *(struct timespec *)(uintptr_t)rem = ns_to_timespec(0);
   return 0;
 }
 
@@ -6033,6 +6091,7 @@ void syscall_init(void) {
   syscall_table[SYS_nanosleep] = sys_nanosleep;
   syscall_table[SYS_clock_gettime] = sys_clock_gettime;
   syscall_table[SYS_clock_getres] = sys_clock_getres;
+  syscall_table[SYS_clock_nanosleep] = sys_clock_nanosleep;
   syscall_table[SYS_times] = sys_times;
   syscall_table[SYS_getrlimit] = sys_getrlimit;
   syscall_table[SYS_setrlimit] = sys_setrlimit;
