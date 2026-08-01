@@ -90,6 +90,9 @@
 #define RUSAGE_SELF 0
 #define RUSAGE_CHILDREN (-1)
 #define RUSAGE_THREAD 1
+#define PRIO_PROCESS 0
+#define PRIO_PGRP 1
+#define PRIO_USER 2
 #define RLIMIT_CPU 0
 #define RLIMIT_FSIZE 1
 #define RLIMIT_DATA 2
@@ -4379,6 +4382,78 @@ static long sys_sched_setattr(uint64_t pid, uint64_t attr, uint64_t flags,
   return 0;
 }
 
+static struct task_struct *priority_target_task(uint64_t which,
+                                                uint64_t who) {
+  struct task_struct *current = get_current();
+
+  if (!current)
+    return NULL;
+
+  switch (which) {
+  case PRIO_PROCESS:
+    if (who == 0)
+      return current;
+    return get_task_by_pid((pid_t)who);
+  case PRIO_PGRP:
+    if (who == 0 || (pid_t)who == current->pgrp)
+      return current;
+    return NULL;
+  case PRIO_USER:
+    if (who == 0 || (uid_t)who == current->uid)
+      return current;
+    return NULL;
+  default:
+    return NULL;
+  }
+}
+
+static long sys_getpriority(uint64_t which, uint64_t who, uint64_t a2,
+                            uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (which > PRIO_USER)
+    return -EINVAL;
+  if ((which == PRIO_PROCESS || which == PRIO_PGRP) && (int64_t)who < 0)
+    return -EINVAL;
+  if (which == PRIO_USER && who > UINT32_MAX)
+    return -EINVAL;
+
+  struct task_struct *task = priority_target_task(which, who);
+  if (!task)
+    return -ESRCH;
+  return 20 - task->nice;
+}
+
+static long sys_setpriority(uint64_t which, uint64_t who, uint64_t prio,
+                            uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (which > PRIO_USER)
+    return -EINVAL;
+  if ((which == PRIO_PROCESS || which == PRIO_PGRP) && (int64_t)who < 0)
+    return -EINVAL;
+  if (which == PRIO_USER && who > UINT32_MAX)
+    return -EINVAL;
+
+  int nice = (int)(int64_t)prio;
+  if (nice < PRIO_MIN)
+    nice = PRIO_MIN;
+  if (nice > PRIO_MAX)
+    nice = PRIO_MAX;
+
+  struct task_struct *task = priority_target_task(which, who);
+  if (!task)
+    return -ESRCH;
+  task->nice = nice;
+  task->static_prio = nice;
+  return 0;
+}
+
 static long sys_sched_get_priority_max(uint64_t policy, uint64_t a1,
                                        uint64_t a2, uint64_t a3, uint64_t a4,
                                        uint64_t a5) {
@@ -5953,6 +6028,8 @@ void syscall_init(void) {
   syscall_table[SYS_rt_sigaction] = sys_rt_sigaction;
   syscall_table[SYS_rt_sigprocmask] = sys_rt_sigprocmask;
   syscall_table[SYS_rt_sigpending] = sys_rt_sigpending;
+  syscall_table[SYS_setpriority] = sys_setpriority;
+  syscall_table[SYS_getpriority] = sys_getpriority;
   syscall_table[SYS_nanosleep] = sys_nanosleep;
   syscall_table[SYS_clock_gettime] = sys_clock_gettime;
   syscall_table[SYS_clock_getres] = sys_clock_getres;
