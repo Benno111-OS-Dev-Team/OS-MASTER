@@ -140,6 +140,8 @@
 #define GRND_NONBLOCK 0x0001
 #define GRND_RANDOM 0x0002
 #define GRND_INSECURE 0x0004
+#define SFD_CLOEXEC O_CLOEXEC
+#define SFD_NONBLOCK O_NONBLOCK
 #define MFD_CLOEXEC 0x0001
 #define MFD_ALLOW_SEALING 0x0002
 #define MEMFD_NAME_MAX 249
@@ -306,6 +308,35 @@ struct memfd_ctx {
   struct inode *inode;
 };
 
+struct signalfd_ctx {
+  ksigset_t mask;
+};
+
+struct linux_signalfd_siginfo {
+  uint32_t ssi_signo;
+  int32_t ssi_errno;
+  int32_t ssi_code;
+  uint32_t ssi_pid;
+  uint32_t ssi_uid;
+  int32_t ssi_fd;
+  uint32_t ssi_tid;
+  uint32_t ssi_band;
+  uint32_t ssi_overrun;
+  uint32_t ssi_trapno;
+  int32_t ssi_status;
+  int32_t ssi_int;
+  uint64_t ssi_ptr;
+  uint64_t ssi_utime;
+  uint64_t ssi_stime;
+  uint64_t ssi_addr;
+  uint16_t ssi_addr_lsb;
+  uint16_t __pad2;
+  int32_t ssi_syscall;
+  uint64_t ssi_call_addr;
+  uint32_t ssi_arch;
+  uint8_t __pad[28];
+};
+
 static void eventfd_lock(struct eventfd_ctx *ctx) {
   while (__atomic_test_and_set(&ctx->lock, __ATOMIC_ACQUIRE)) {
 #ifdef ARCH_ARM64
@@ -418,6 +449,93 @@ static const struct file_operations eventfd_ops = {
     .release = eventfd_release,
     .poll = eventfd_poll,
 };
+
+static void signalfd_fill_info(struct task_struct *task, int sig,
+                               struct linux_signalfd_siginfo *info) {
+  memset(info, 0, sizeof(*info));
+  info->ssi_signo = (uint32_t)sig;
+  info->ssi_pid = task ? (uint32_t)task->pid : 0;
+  info->ssi_uid = task ? (uint32_t)task->uid : 0;
+}
+
+static ssize_t signalfd_read(struct file *file, char *buf, size_t count,
+                             loff_t *pos) {
+  (void)pos;
+
+  struct signalfd_ctx *ctx =
+      file ? (struct signalfd_ctx *)file->private_data : NULL;
+  size_t record_size = sizeof(struct linux_signalfd_siginfo);
+  size_t records = 0;
+  struct task_struct *task;
+
+  if (!ctx || !buf)
+    return -EINVAL;
+  if (count < record_size)
+    return -EINVAL;
+
+  task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  for (;;) {
+    while ((records + 1) * record_size <= count) {
+      int sig = signal_dequeue_pending_mask(task, ctx->mask);
+      if (sig < 0)
+        return records ? (ssize_t)(records * record_size) : -EIO;
+      if (sig == 0)
+        break;
+      signalfd_fill_info(task, sig,
+                         (struct linux_signalfd_siginfo *)(buf +
+                                                           records * record_size));
+      records++;
+    }
+
+    if (records)
+      return (ssize_t)(records * record_size);
+    if (file->f_flags & O_NONBLOCK)
+      return -EAGAIN;
+
+    extern void process_yield(void);
+    process_yield();
+  }
+}
+
+static int signalfd_release(struct inode *inode, struct file *file) {
+  (void)inode;
+
+  if (file && file->private_data) {
+    kfree(file->private_data);
+    file->private_data = NULL;
+  }
+  return 0;
+}
+
+static int signalfd_poll(struct file *file, short events) {
+  struct signalfd_ctx *ctx =
+      file ? (struct signalfd_ctx *)file->private_data : NULL;
+  struct task_struct *task;
+  short ready = 0;
+
+  if (!ctx)
+    return POLLERR;
+  task = get_current();
+  if (!task)
+    return POLLERR;
+  if ((events & (POLLIN | POLLRDNORM)) &&
+      (signal_pending_mask(task) & ctx->mask))
+    ready |= events & (POLLIN | POLLRDNORM);
+  return ready;
+}
+
+static const struct file_operations signalfd_ops = {
+    .read = signalfd_read,
+    .release = signalfd_release,
+    .poll = signalfd_poll,
+};
+
+static int file_is_signalfd(struct file *file) {
+  return file && file->f_op == &signalfd_ops;
+}
 
 static ino_t next_memfd_ino = 0x6d000000;
 
@@ -2320,6 +2438,82 @@ static long sys_close(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
     return -EBADF;
 
   return close_fd_entry(task, (int)fd);
+}
+
+static long sys_signalfd4(uint64_t fd, uint64_t mask, uint64_t sizemask,
+                          uint64_t flags, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+
+  struct task_struct *task;
+  ksigset_t signal_mask;
+  ksigset_t uncatchable = (1UL << 9) | (1UL << 19);
+
+  if (flags & ~(uint64_t)(SFD_CLOEXEC | SFD_NONBLOCK))
+    return -EINVAL;
+  if (sizemask < sizeof(ksigset_t))
+    return -EINVAL;
+  if (!is_valid_user_ptr(mask, sizeof(ksigset_t)))
+    return -EFAULT;
+
+  signal_mask = *(const ksigset_t *)(uintptr_t)mask;
+  signal_mask &= ~uncatchable;
+
+  task = current_task_with_files();
+  if (!task)
+    return -ESRCH;
+
+  if ((int64_t)fd != -1) {
+    int fd_i = (int)fd;
+    struct file *file;
+    struct signalfd_ctx *ctx;
+
+    if (fd >= TASK_MAX_FDS)
+      return -EBADF;
+    file = get_file(task, fd_i);
+    if (!file_is_signalfd(file))
+      return -EINVAL;
+    ctx = (struct signalfd_ctx *)file->private_data;
+    if (!ctx)
+      return -EINVAL;
+    ctx->mask = signal_mask;
+    if (flags & SFD_NONBLOCK)
+      file->f_flags |= O_NONBLOCK;
+    else
+      file->f_flags &= ~O_NONBLOCK;
+    if (flags & SFD_CLOEXEC)
+      task->files[fd_i].flags |= O_CLOEXEC;
+    else
+      task->files[fd_i].flags &= ~O_CLOEXEC;
+    return fd_i;
+  }
+
+  int newfd = alloc_fd(task);
+  if (newfd < 0)
+    return newfd;
+
+  struct signalfd_ctx *ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+  struct file *file = kzalloc(sizeof(*file), GFP_KERNEL);
+  if (!ctx || !file) {
+    kfree(ctx);
+    kfree(file);
+    free_fd(task, newfd);
+    return -ENOMEM;
+  }
+
+  ctx->mask = signal_mask;
+  file->f_op = &signalfd_ops;
+  file->f_flags = O_RDONLY | (uint32_t)(flags & SFD_NONBLOCK);
+  file->f_mode = O_RDONLY;
+  file->private_data = ctx;
+  file->f_count.counter = 1;
+
+  task->files[newfd].file = file;
+  task->files[newfd].flags =
+      O_RDONLY | ((flags & SFD_CLOEXEC) ? O_CLOEXEC : 0);
+  strlcpy(task->files[newfd].path, "anon:signalfd",
+          sizeof(task->files[newfd].path));
+  return newfd;
 }
 
 static long sys_memfd_create(uint64_t name, uint64_t flags, uint64_t a2,
@@ -5355,6 +5549,7 @@ void syscall_init(void) {
   syscall_table[SYS_lseek] = sys_lseek;
   syscall_table[SYS_pselect6] = sys_pselect6;
   syscall_table[SYS_ppoll] = sys_ppoll;
+  syscall_table[SYS_signalfd4] = sys_signalfd4;
   syscall_table[SYS_readlinkat] = sys_readlinkat;
   syscall_table[SYS_newfstatat] = sys_newfstatat;
   syscall_table[SYS_statx] = sys_statx;

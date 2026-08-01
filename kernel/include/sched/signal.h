@@ -22,6 +22,7 @@ void signal_copy_state(struct task_struct *child, struct task_struct *parent);
 int kill_task(struct task_struct *task, int sig);
 void do_signal(struct task_struct *task);
 ksigset_t signal_pending_mask(struct task_struct *task);
+int signal_dequeue_pending_mask(struct task_struct *task, ksigset_t mask);
 int sigprocmask(int how, const ksigset_t *set, ksigset_t *oldset);
 int sigaction_syscall(int sig, const struct k_sigaction *act,
                       struct k_sigaction *oldact);

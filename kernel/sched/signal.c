@@ -233,6 +233,25 @@ ksigset_t signal_pending_mask(struct task_struct *task) {
   return task->signals ? task->signals->pending : 0;
 }
 
+int signal_dequeue_pending_mask(struct task_struct *task, ksigset_t mask) {
+  if (!task)
+    return -1;
+  if (!task->signals)
+    signal_init(task);
+  if (!task->signals)
+    return -1;
+
+  mask &= ~((1UL << SIGKILL) | (1UL << SIGSTOP));
+  ksigset_t pending = task->signals->pending & mask;
+  for (int sig = 1; sig < NSIG; sig++) {
+    if (pending & (1UL << sig)) {
+      task->signals->pending &= ~(1UL << sig);
+      return sig;
+    }
+  }
+  return 0;
+}
+
 /* Block/unblock signals */
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
   struct task_struct *task = get_current();
