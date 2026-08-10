@@ -55,14 +55,14 @@ jobs:
         run: |
           set -euxo pipefail
           make -f Makefile.multiarch check-source-complete
-          make -f Makefile.multiarch xnu-kernel
+          XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 kernel
           make -f Makefile.multiarch storage-format-stress
           make -f Makefile.multiarch storage-driver-compile-check
 
       - name: Compile custom x86_64 UEFI boot chain
         run: |
           set -euxo pipefail
-          make -f Makefile.multiarch ARCH=x86_64 custom-uefi-chain
+          make -f Makefile.multiarch KERNEL_PROVIDER=os8 ARCH=x86_64 custom-uefi-chain
           llvm-readobj --file-headers build/x86_64/boot/custom-uefi/BOOTX64.EFI
           llvm-readobj --file-headers build/x86_64/boot/custom-uefi/STARTUPX64.EFI
 
@@ -70,15 +70,15 @@ jobs:
         run: |
           set -euxo pipefail
           export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          make -f Makefile.multiarch ARCH=x86_64 image
-          make -f Makefile.multiarch ARCH=x86_64 installer-image
+          make -f Makefile.multiarch KERNEL_PROVIDER=os8 ARCH=x86_64 image
+          make -f Makefile.multiarch KERNEL_PROVIDER=os8 ARCH=x86_64 installer-image
 
       - name: Build ARM64 release and installer media
         run: |
           set -euxo pipefail
           export BUILD_COMPILE_TIME="$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          make -f Makefile.multiarch ARCH=arm64 image
-          make -f Makefile.multiarch ARCH=arm64 installer-image
+          make -f Makefile.multiarch KERNEL_PROVIDER=os8 ARCH=arm64 image
+          make -f Makefile.multiarch KERNEL_PROVIDER=os8 ARCH=arm64 installer-image
 
       - name: Verify release files
         run: |
