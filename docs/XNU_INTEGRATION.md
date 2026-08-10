@@ -103,7 +103,9 @@ KERNEL_PROVIDER=xnu ARCH=x86_64 xnu-uefi-chain` builds the custom UEFI startup
 artifacts with `kernel_format=xnu` and a SHA-256 hash for the compiled XNU
 payload. The macOS XNU provider workflow runs this before packaging media, and
 compiled x86_64 provider archives must include `boot/custom-uefi/STARTUPX64.EFI`
-and `boot/custom-uefi/os8boot.cfg`.
+and `boot/custom-uefi/os8boot.cfg`. The same target also creates
+`image/xnu-x86_64-uefi.img`, a FAT UEFI boot image that stages the compiled XNU
+payload at `/boot/main.sys` next to the XNU-format startup config.
 
 Local usage:
 

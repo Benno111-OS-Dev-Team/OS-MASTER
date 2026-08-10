@@ -186,13 +186,15 @@ if [ "$payload_mode" = "compiled" ]; then
     x86_64_uefi_boot="$(manifest_value x86_64_uefi_boot "$media_manifest")"
     x86_64_uefi_config="$(manifest_value x86_64_uefi_config "$media_manifest")"
     x86_64_uefi_startup="$(manifest_value x86_64_uefi_startup "$media_manifest")"
+    x86_64_uefi_image="$(manifest_value x86_64_uefi_image "$media_manifest")"
     if [ "$x86_64_uefi_boot" != "boot/custom-uefi" ] ||
        [ "$x86_64_uefi_config" != "boot/custom-uefi/os8boot.cfg" ] ||
-       [ "$x86_64_uefi_startup" != "boot/custom-uefi/STARTUPX64.EFI" ]; then
+       [ "$x86_64_uefi_startup" != "boot/custom-uefi/STARTUPX64.EFI" ] ||
+       [ "$x86_64_uefi_image" != "image/xnu-x86_64-uefi.img" ]; then
       echo "error: compiled x86_64 provider media has inconsistent UEFI boot metadata" >&2
       exit 1
     fi
-    for required in "$tmp_dir/boot/custom-uefi/BOOTX64.EFI" "$tmp_dir/boot/custom-uefi/STARTUPX64.EFI" "$tmp_dir/boot/custom-uefi/os8boot.cfg"; do
+    for required in "$tmp_dir/boot/custom-uefi/BOOTX64.EFI" "$tmp_dir/boot/custom-uefi/STARTUPX64.EFI" "$tmp_dir/boot/custom-uefi/os8boot.cfg" "$tmp_dir/image/xnu-x86_64-uefi.img"; do
       if [ ! -s "$required" ]; then
         echo "error: compiled x86_64 provider media is missing UEFI boot artifact: ${required#$tmp_dir/}" >&2
         exit 1
@@ -201,6 +203,15 @@ if [ "$payload_mode" = "compiled" ]; then
     grep -q '^kernel_format=xnu$' "$tmp_dir/boot/custom-uefi/os8boot.cfg"
     grep -q '^kernel_path=\\boot\\main.sys$' "$tmp_dir/boot/custom-uefi/os8boot.cfg"
     grep -Eq '^kernel_sha256=[0-9a-f]{64}$' "$tmp_dir/boot/custom-uefi/os8boot.cfg"
+    if command -v mdir >/dev/null 2>&1 && command -v mtype >/dev/null 2>&1; then
+      mdir -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/EFI/BOOT/BOOTX64.EFI >/dev/null
+      mdir -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/EFI/OS8/STARTUPX64.EFI >/dev/null
+      mdir -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/EFI/OS8/os8boot.cfg >/dev/null
+      mdir -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/boot/main.sys >/dev/null
+      mtype -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/EFI/OS8/os8boot.cfg | grep -q '^kernel_format=xnu$'
+    else
+      echo "[XNU] mtools not available; skipping FAT image content inspection" >&2
+    fi
   fi
 else
   if [ "$provider_mode" != "source-validation" ]; then

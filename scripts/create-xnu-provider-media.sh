@@ -27,6 +27,7 @@ boot_plan_script="scripts/create-xnu-boot-plan.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
 boot_plan_manifest="$build_dir/xnu-boot/xnu-boot-plan.manifest"
 xnu_uefi_dir="$build_dir/boot/custom-uefi"
+xnu_uefi_image="$image_dir/xnu-x86_64-uefi.img"
 
 if [ ! -f "$manifest" ]; then
   echo "error: XNU provider manifest is missing: $manifest" >&2
@@ -93,7 +94,7 @@ else
 fi
 
 if [ "$payload_mode" = "compiled" ] && [ "$arch" = "x86_64" ]; then
-  for required in "$xnu_uefi_dir/BOOTX64.EFI" "$xnu_uefi_dir/STARTUPX64.EFI" "$xnu_uefi_dir/os8boot.cfg"; do
+  for required in "$xnu_uefi_dir/BOOTX64.EFI" "$xnu_uefi_dir/STARTUPX64.EFI" "$xnu_uefi_dir/os8boot.cfg" "$xnu_uefi_image"; do
     if [ ! -s "$required" ]; then
       echo "error: compiled x86_64 XNU provider media is missing custom UEFI artifact: $required" >&2
       echo "hint: run make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 xnu-uefi-chain" >&2
@@ -104,6 +105,8 @@ if [ "$payload_mode" = "compiled" ] && [ "$arch" = "x86_64" ]; then
   cp "$xnu_uefi_dir/BOOTX64.EFI" "$media_root/boot/custom-uefi/BOOTX64.EFI"
   cp "$xnu_uefi_dir/STARTUPX64.EFI" "$media_root/boot/custom-uefi/STARTUPX64.EFI"
   cp "$xnu_uefi_dir/os8boot.cfg" "$media_root/boot/custom-uefi/os8boot.cfg"
+  mkdir -p "$media_root/image"
+  cp "$xnu_uefi_image" "$media_root/image/xnu-x86_64-uefi.img"
 fi
 
 bash "$handoff_script" "$arch" "$build_dir" "$kernel_artifact" "$payload_mode"
@@ -131,6 +134,7 @@ cp "$boot_plan_manifest" "$media_root/metadata/xnu-boot-plan.manifest"
     printf 'x86_64_uefi_boot=boot/custom-uefi\n'
     printf 'x86_64_uefi_config=boot/custom-uefi/os8boot.cfg\n'
     printf 'x86_64_uefi_startup=boot/custom-uefi/STARTUPX64.EFI\n'
+    printf 'x86_64_uefi_image=image/xnu-x86_64-uefi.img\n'
   fi
 } > "$media_root/metadata/media.manifest"
 

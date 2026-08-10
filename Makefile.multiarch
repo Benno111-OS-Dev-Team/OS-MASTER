@@ -30,6 +30,7 @@ XNU_ABI_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-boot-abi.sh
 XNU_BOOT_SURFACE_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-boot-surface.sh
 XNU_UEFI_HANDOFF_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-uefi-handoff.sh
 XNU_ENTRY_HANDOFF_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-entry-handoff.sh
+XNU_UEFI_IMAGE_SCRIPT := $(ROOT_DIR)/scripts/create-xnu-uefi-boot-image.sh
 DRIVERS_DIR := $(ROOT_DIR)/drivers
 LIBC_DIR := $(ROOT_DIR)/libc
 USERSPACE_DIR := $(ROOT_DIR)/userspace
@@ -344,6 +345,8 @@ ifeq ($(ARCH),x86_64)
 	@grep -q '^kernel_format=xnu$$' "$(CUSTOM_UEFI_DIR)/os8boot.cfg"
 	@grep -q '^kernel_path=\\boot\\main.sys$$' "$(CUSTOM_UEFI_DIR)/os8boot.cfg"
 	@grep -Eq '^kernel_sha256=[0-9a-f]{64}$$' "$(CUSTOM_UEFI_DIR)/os8boot.cfg"
+	@bash "$(XNU_UEFI_IMAGE_SCRIPT)" "$(BUILD_DIR)" "$(IMAGE_DIR)" "$(XNU_KERNEL_BINARY)" >/dev/null
+	@test -s "$(IMAGE_DIR)/xnu-x86_64-uefi.img"
 	@echo "[UEFI] XNU custom boot chain ready: $(CUSTOM_UEFI_DIR)"
 else
 	@echo "[UEFI] xnu-uefi-chain is currently supported only with ARCH=x86_64"

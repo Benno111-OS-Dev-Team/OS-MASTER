@@ -47,6 +47,11 @@ jobs:
           sw_vers
           xcodebuild -version
 
+      - name: Install XNU boot image tools
+        run: |
+          set -euxo pipefail
+          brew install mtools
+
       - name: Check XNU build environment
         run: |
           set -euxo pipefail
@@ -88,8 +93,10 @@ jobs:
           bash scripts/check-xnu-provider-media.sh "${{ inputs.arch }}" "$archive" compiled
           if [ "${{ inputs.arch }}" = "x86_64" ]; then
             test -s build/x86_64/boot/custom-uefi/STARTUPX64.EFI
+            test -s image/xnu-x86_64-uefi.img
             grep -q '^kernel_format=xnu$' build/x86_64/boot/custom-uefi/os8boot.cfg
             tar -tzf "$archive" | grep -q '^./boot/custom-uefi/STARTUPX64.EFI$'
+            tar -tzf "$archive" | grep -q '^./image/xnu-x86_64-uefi.img$'
           fi
           test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
 
@@ -102,3 +109,4 @@ jobs:
             build/${{ inputs.arch }}/kernel/xnu-provider.manifest
             build/${{ inputs.arch }}/boot/custom-uefi/STARTUPX64.EFI
             build/${{ inputs.arch }}/boot/custom-uefi/os8boot.cfg
+            image/xnu-x86_64-uefi.img
