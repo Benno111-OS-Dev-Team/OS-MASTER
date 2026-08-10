@@ -95,6 +95,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   with the provider media.
 - A provider media archive that does not contain a compiled kernel payload must
   mark `payload_mode=source-validation`.
+- A source-validation provider media archive must not include a compiled kernel
+  payload or bootable XNU UEFI artifacts.
 - A provider media archive that contains a compiled kernel payload must mark
   `payload_mode=compiled`.
 - A compiled x86_64 provider media archive must include custom UEFI startup

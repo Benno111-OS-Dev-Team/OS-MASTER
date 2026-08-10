@@ -48,7 +48,8 @@ When `ARCH=x86_64` and a compiled XNU payload exists,
 `image/xnu-x86_64-uefi.img`. `make KERNEL_PROVIDER=xnu ARCH=x86_64 qemu-uefi`
 boots that FAT UEFI image directly through OVMF. Source-validation provider
 media intentionally does not produce a bootable XNU image because it contains no
-compiled kernel payload.
+compiled kernel payload, and CI rejects source-validation archives that carry a
+stale kernel payload or bootable XNU UEFI artifacts.
 
 Numbered CI releases publish XNU provider media for both `x86_64` and `arm64`
 next to the OS8 compatibility boot media.

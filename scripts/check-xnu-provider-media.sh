@@ -218,6 +218,14 @@ else
     echo "error: source-validation provider media has provider mode $provider_mode" >&2
     exit 1
   fi
+  if find "$tmp_dir/kernel" -type f | grep -q .; then
+    echo "error: source-validation provider media must not include a kernel payload" >&2
+    exit 1
+  fi
+  if [ -e "$tmp_dir/boot/custom-uefi" ] || [ -e "$tmp_dir/image/xnu-x86_64-uefi.img" ]; then
+    echo "error: source-validation provider media must not include bootable XNU UEFI artifacts" >&2
+    exit 1
+  fi
 fi
 
 if [ -z "$source_origin" ] || [ -z "$source_commit" ] || [ -z "$source_state" ]; then
