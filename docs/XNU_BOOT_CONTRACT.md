@@ -67,6 +67,11 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   revision `0`, version `2`, 64-bit EFI mode structure, preserve the 4096-byte
   size invariant, and reject values that do not fit the 32-bit physical address
   fields in the upstream x86_64 boot contract.
+- The external XNU source verifier must reject x86_64 source revisions whose
+  `pexpert/pexpert/i386/boot.h` no longer exposes the `boot_args` constants,
+  memory-map fields, kernel address fields, video fields, EFI system table
+  field, physical memory field, or reserved tail layout consumed by the
+  repository-owned x86_64 boot args builder.
 - The x86_64 UEFI entry shim must expose `startup_enter_xnu_kernel`, load the
   selected page table into `CR3`, place the 32-bit physical `boot_args` address
   in `%edi`, clear `%rbp`, and jump to the selected XNU entry address.

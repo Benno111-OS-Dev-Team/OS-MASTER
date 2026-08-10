@@ -49,17 +49,47 @@ case "$arch" in
       'typedef[[:space:]]+struct[[:space:]]+boot_args' \
       "x86 boot_args structure"
     require_text "pexpert/pexpert/i386/boot.h" \
+      '#define[[:space:]]+BOOT_LINE_LENGTH[[:space:]]+1024' \
+      "x86 boot_args command-line length"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      '#define[[:space:]]+kBootArgsRevision[[:space:]]+0' \
+      "x86 boot_args revision constant"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      '#define[[:space:]]+kBootArgsVersion[[:space:]]+2' \
+      "x86 boot_args version constant"
+    require_text "pexpert/pexpert/i386/boot.h" \
       'kBootArgsEfiMode64' \
       "64-bit EFI boot mode"
     require_text "pexpert/pexpert/i386/boot.h" \
+      'struct[[:space:]]+Boot_VideoV1' \
+      "legacy x86 boot video structure"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      'struct[[:space:]]+Boot_Video' \
+      "x86 boot video structure"
+    require_text "pexpert/pexpert/i386/boot.h" \
       'MemoryMap(Size)?|MemoryMapDescriptorSize' \
       "EFI memory map fields"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      'uint32_t[[:space:]]+kaddr;[^;]*kernel text' \
+      "x86 boot_args kernel base field"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      'uint32_t[[:space:]]+ksize;[^;]*kernel text' \
+      "x86 boot_args kernel size field"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      'uint32_t[[:space:]]+efiSystemTable;' \
+      "x86 boot_args EFI system table field"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      'uint64_t[[:space:]]+PhysicalMemorySize;' \
+      "x86 boot_args physical memory field"
     require_text "pexpert/pexpert/i386/boot.h" \
       'CommandLine|Boot_Video|Video' \
       "command line and video boot fields"
     require_text "pexpert/pexpert/i386/boot.h" \
       'sizeof\(boot_args\)[[:space:]]*==[[:space:]]*4096' \
       "x86 boot_args size invariant"
+    require_text "pexpert/pexpert/i386/boot.h" \
+      'uint32_t[[:space:]]+__reserved4\[692\];' \
+      "x86 boot_args reserved tail"
     require_text "osfmk/x86_64/start.s" \
       'boot_args_start' \
       "x86_64 boot_args entry register handoff"
