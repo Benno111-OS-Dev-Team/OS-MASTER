@@ -33,6 +33,11 @@ if [ ! -f "$manifest" ]; then
   echo "error: XNU provider manifest is missing: $manifest" >&2
   exit 1
 fi
+provider_mode="$(awk -F= '$1 == "mode" { print $2 }' "$manifest")"
+if [ "$provider_mode" != "compiled" ] && [ "$provider_mode" != "source-validation" ]; then
+  echo "error: XNU provider manifest has unknown mode: ${provider_mode:-missing}" >&2
+  exit 1
+fi
 if [ ! -f "$boot_contract" ]; then
   echo "error: XNU boot contract is missing: $boot_contract" >&2
   exit 1
@@ -86,7 +91,11 @@ cp "$uefi_handoff" "$media_root/boot/xnu/xnu_uefi_handoff.h"
 cp "$x86_64_boot_args" "$media_root/boot/xnu/xnu_x86_64_boot_args.h"
 cp "$x86_64_entry_handoff" "$media_root/boot/custom/startup-handoff.S"
 cp "$x86_64_startup_loader" "$media_root/boot/custom/startup.c"
-if [ -f "$kernel_artifact" ]; then
+if [ "$provider_mode" = "compiled" ]; then
+  if [ ! -f "$kernel_artifact" ]; then
+    echo "error: compiled XNU provider manifest is missing kernel payload: $kernel_artifact" >&2
+    exit 1
+  fi
   cp "$kernel_artifact" "$media_root/kernel/$(basename "$kernel_artifact")"
   payload_mode="compiled"
 else

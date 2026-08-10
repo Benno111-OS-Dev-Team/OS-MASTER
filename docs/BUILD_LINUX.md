@@ -96,6 +96,9 @@ XNU_SOURCE_VALIDATION_ONLY=1 make x86_64-kernel
 # Create the x86_64 XNU provider media archive
 XNU_SOURCE_VALIDATION_ONLY=1 make x86_64-image
 
+# Source-validation media proves the external read-only XNU boundary but is not
+# bootable because no compiled XNU payload exists on Linux.
+
 # Create the previous OS8 x86_64 hybrid ISO
 make KERNEL_PROVIDER=os8 x86_64-image
 ```

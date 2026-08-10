@@ -43,6 +43,13 @@ includes the provider manifests produced by source-validation mode so CI can
 still prove that the external read-only source boundary and selected provider
 contract are intact.
 
+When `ARCH=x86_64` and a compiled XNU payload exists,
+`make KERNEL_PROVIDER=xnu ARCH=x86_64 image` also builds
+`image/xnu-x86_64-uefi.img`. `make KERNEL_PROVIDER=xnu ARCH=x86_64 qemu-uefi`
+boots that FAT UEFI image directly through OVMF. Source-validation provider
+media intentionally does not produce a bootable XNU image because it contains no
+compiled kernel payload.
+
 Numbered CI releases publish XNU provider media for both `x86_64` and `arm64`
 next to the OS8 compatibility boot media.
 
@@ -118,6 +125,7 @@ Local usage:
 git clone https://github.com/apple-oss-distributions/xnu.git External/xnu
 chmod -R a-w External/xnu
 make -f Makefile.multiarch xnu-kernel
+make -f Makefile.multiarch ARCH=x86_64 KERNEL_PROVIDER=xnu image
 ```
 
 For the compatibility OS8 media build:

@@ -151,6 +151,7 @@ SELECTED_KERNEL_BINARY := $(if $(filter xnu,$(KERNEL_PROVIDER)),$(XNU_KERNEL_BIN
 ISO_IMAGE := $(IMAGE_DIR)/$(ARTIFACT_PREFIX)-$(ARCH).iso
 RAW_IMAGE := $(IMAGE_DIR)/$(ARTIFACT_PREFIX)-$(ARCH).img
 XNU_PROVIDER_IMAGE := $(IMAGE_DIR)/xnu-$(ARCH)-provider.tar.gz
+XNU_UEFI_BOOT_IMAGE := $(IMAGE_DIR)/xnu-x86_64-uefi.img
 
 # ============================================================================
 # QEMU Configuration
@@ -593,6 +594,13 @@ else
 endif
 
 xnu-image: kernel
+ifeq ($(ARCH),x86_64)
+	@if grep -q '^mode=compiled$$' "$(BUILD_DIR)/kernel/xnu-provider.manifest" && [ -s "$(XNU_KERNEL_BINARY)" ]; then \
+		$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" xnu-uefi-chain; \
+	else \
+		echo "[IMAGE] No compiled XNU payload found; creating source-validation provider media only"; \
+	fi
+endif
 	@bash "$(XNU_MEDIA_SCRIPT)" "$(ARCH)" "$(BUILD_DIR)" "$(IMAGE_DIR)" "$(SELECTED_KERNEL_BINARY)"
 	@echo "[IMAGE] XNU provider media: $(XNU_PROVIDER_IMAGE)"
 
@@ -690,7 +698,11 @@ qemu: image
 ifeq ($(ARCH),arm64)
 	@$(MAKE) ARCH=$(ARCH) qemu-uefi
 else ifeq ($(ARCH),x86_64)
+ifeq ($(KERNEL_PROVIDER),xnu)
+	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" KERNEL_PROVIDER="$(KERNEL_PROVIDER)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" qemu-uefi
+else
 	@$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO_IMAGE)
+endif
 else ifeq ($(ARCH),x86)
 	@$(QEMU) $(QEMU_FLAGS) -drive format=raw,file=$(RAW_IMAGE)
 endif
@@ -698,7 +710,12 @@ endif
 qemu-bios: image
 	@echo "[QEMU] Starting OS8 $(ARCH) with BIOS boot..."
 ifeq ($(ARCH),x86_64)
+ifeq ($(KERNEL_PROVIDER),xnu)
+	@echo "[QEMU] BIOS boot is not supported for the XNU provider; use qemu-uefi"
+	@exit 1
+else
 	@$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO_IMAGE)
+endif
 else ifeq ($(ARCH),x86)
 	@$(QEMU) $(QEMU_FLAGS) -drive format=raw,file=$(RAW_IMAGE)
 else
@@ -725,7 +742,16 @@ else ifeq ($(ARCH),x86_64)
 		echo "[ERROR] OVMF firmware not found. Install ovmf."; \
 		exit 1; \
 	fi; \
+	if [ "$(KERNEL_PROVIDER)" = "xnu" ]; then \
+		if [ ! -s "$(XNU_UEFI_BOOT_IMAGE)" ]; then \
+			echo "[ERROR] XNU UEFI boot image is missing: $(XNU_UEFI_BOOT_IMAGE)"; \
+			echo "[ERROR] Build a compiled x86_64 XNU provider first; source-validation media is not bootable."; \
+			exit 1; \
+		fi; \
+		$(QEMU) $(QEMU_FLAGS) -bios $$FW -drive format=raw,file=$(XNU_UEFI_BOOT_IMAGE),if=ide; \
+	else \
 	$(QEMU) $(QEMU_FLAGS) -bios $$FW -cdrom $(ISO_IMAGE)
+	fi
 else
 	@echo "[QEMU] UEFI boot is not supported for $(ARCH)"
 	@exit 1
@@ -736,7 +762,11 @@ qemu-debug: image
 ifeq ($(ARCH),arm64)
 	@$(MAKE) ARCH=$(ARCH) qemu-uefi QEMU_FLAGS="$(QEMU_FLAGS) -s -S"
 else ifeq ($(ARCH),x86_64)
+ifeq ($(KERNEL_PROVIDER),xnu)
+	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" KERNEL_PROVIDER="$(KERNEL_PROVIDER)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" qemu-uefi QEMU_FLAGS="$(QEMU_FLAGS) -s -S"
+else
 	@$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO_IMAGE) -s -S
+endif
 else ifeq ($(ARCH),x86)
 	@$(QEMU) $(QEMU_FLAGS) -drive format=raw,file=$(RAW_IMAGE) -s -S
 endif
