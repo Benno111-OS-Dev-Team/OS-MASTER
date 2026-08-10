@@ -30,6 +30,9 @@ Linux CI, it includes the provider manifests produced by source-validation mode
 so CI can still prove that the external read-only source boundary and selected
 provider contract are intact.
 
+Numbered CI releases publish XNU provider media for both `x86_64` and `arm64`
+next to the OS8 compatibility boot media.
+
 Local usage:
 
 ```sh

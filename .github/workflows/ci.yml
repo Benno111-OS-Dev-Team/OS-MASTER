@@ -64,6 +64,10 @@ jobs:
           test -s image/xnu-x86_64-provider.tar.gz
           tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './metadata/xnu-provider.manifest'
           tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './metadata/media.manifest'
+          XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=arm64 image
+          test -s image/xnu-arm64-provider.tar.gz
+          tar -tzf image/xnu-arm64-provider.tar.gz | grep -q './metadata/xnu-provider.manifest'
+          tar -tzf image/xnu-arm64-provider.tar.gz | grep -q './metadata/media.manifest'
           make -f Makefile.multiarch storage-format-stress
           make -f Makefile.multiarch storage-driver-compile-check
 
@@ -96,6 +100,8 @@ jobs:
           ls -lh image/os8-x86_64-installer.img
           ls -lh image/os8-arm64.iso*
           ls -lh image/os8-arm64-installer.iso*
+          ls -lh image/xnu-x86_64-provider.tar.gz
+          ls -lh image/xnu-arm64-provider.tar.gz
           file image/os8-x86_64.iso
           file image/os8-x86_64-installer.iso
           file image/os8-x86_64-installer.img
@@ -122,6 +128,8 @@ jobs:
           cp image/os8-arm64.iso.xz "release/os8-${build}-arm64.iso.xz"
           cp image/os8-arm64-installer.iso "release/os8-${build}-arm64-installer.iso"
           cp image/os8-arm64-installer.iso.xz "release/os8-${build}-arm64-installer.iso.xz"
+          cp image/xnu-x86_64-provider.tar.gz "release/os8-${build}-xnu-x86_64-provider.tar.gz"
+          cp image/xnu-arm64-provider.tar.gz "release/os8-${build}-xnu-arm64-provider.tar.gz"
           ls -lh release
 
       - name: Generate release notes
@@ -141,6 +149,8 @@ jobs:
           - x86_64 installer: success
           - ARM64 ISO: success
           - ARM64 installer: success
+          - XNU x86_64 provider media: success
+          - XNU ARM64 provider media: success
 
           ## Bootable Media
 
@@ -153,6 +163,8 @@ jobs:
           - \`os8-build-${{ github.run_number }}-arm64.iso.xz\`
           - \`os8-build-${{ github.run_number }}-arm64-installer.iso\`
           - \`os8-build-${{ github.run_number }}-arm64-installer.iso.xz\`
+          - \`os8-build-${{ github.run_number }}-xnu-x86_64-provider.tar.gz\`
+          - \`os8-build-${{ github.run_number }}-xnu-arm64-provider.tar.gz\`
 
           ## Branch
           - \`${{ github.ref_name }}\`
