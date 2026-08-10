@@ -58,6 +58,9 @@ jobs:
           XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 kernel
           grep -q '^provider=xnu$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^mode=source-validation$' build/x86_64/kernel/xnu-provider.manifest
+          grep -q '^source_origin=https://github.com/apple-oss-distributions/xnu.git$' build/x86_64/kernel/xnu-provider.manifest
+          grep -Eq '^source_commit=[0-9a-f]{40}$' build/x86_64/kernel/xnu-provider.manifest
+          grep -q '^source_state=clean$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^artifact=.*/build/x86_64/kernel/xnu-x86_64.kernel$' build/x86_64/kernel/xnu-provider.manifest
           test ! -d External/xnu/BUILD
           XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 image

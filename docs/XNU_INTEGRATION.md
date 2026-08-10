@@ -33,6 +33,10 @@ provider contract are intact.
 Numbered CI releases publish XNU provider media for both `x86_64` and `arm64`
 next to the OS8 compatibility boot media.
 
+Each `metadata/xnu-provider.manifest` records the external source origin,
+commit, and cleanliness state. CI asserts that release provider media is sourced
+from the standalone Apple OSS XNU checkout and that the checkout is clean.
+
 Local usage:
 
 ```sh

@@ -25,6 +25,28 @@ provider_artifact="$kernel_dir/xnu-$arch.kernel"
 manifest="$kernel_dir/xnu-provider.manifest"
 mkdir -p "$kernel_dir" "$xnu_build_root/obj" "$xnu_build_root/sym" "$xnu_build_root/dst"
 
+xnu_abs="$(cd "$xnu_dir" && pwd -P)"
+source_origin="unversioned"
+source_commit="unavailable"
+source_state="unversioned"
+git_top="$(git -C "$xnu_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$git_top" ]; then
+  git_top_abs="$(cd "$git_top" && pwd -P)"
+  if [ "$git_top_abs" = "$xnu_abs" ]; then
+    source_origin="$(git -C "$xnu_dir" remote get-url origin 2>/dev/null || printf 'none')"
+    source_commit="$(git -C "$xnu_dir" rev-parse HEAD)"
+    if git -C "$xnu_dir" diff --quiet && git -C "$xnu_dir" diff --cached --quiet; then
+      source_state="clean"
+    else
+      source_state="modified"
+    fi
+  else
+    source_origin="parent-repository"
+    source_commit="unavailable"
+    source_state="not-standalone-git-tree"
+  fi
+fi
+
 host="$(uname -s)"
 if [ "$host" != "Darwin" ]; then
   if [ "${XNU_SOURCE_VALIDATION_ONLY:-0}" = "1" ]; then
@@ -32,6 +54,9 @@ if [ "$host" != "Darwin" ]; then
       printf 'provider=xnu\n'
       printf 'arch=%s\n' "$arch"
       printf 'source=%s\n' "$xnu_dir"
+      printf 'source_origin=%s\n' "$source_origin"
+      printf 'source_commit=%s\n' "$source_commit"
+      printf 'source_state=%s\n' "$source_state"
       printf 'artifact=%s\n' "$provider_artifact"
       printf 'mode=source-validation\n'
       printf 'reason=XNU kernel compilation requires macOS, Xcode, and matching Apple kernel dependencies\n'
@@ -70,6 +95,9 @@ cp "$xnu_kernel" "$provider_artifact"
   printf 'provider=xnu\n'
   printf 'arch=%s\n' "$arch"
   printf 'source=%s\n' "$xnu_dir"
+  printf 'source_origin=%s\n' "$source_origin"
+  printf 'source_commit=%s\n' "$source_commit"
+  printf 'source_state=%s\n' "$source_state"
   printf 'artifact=%s\n' "$provider_artifact"
   printf 'mode=compiled\n'
 } > "$manifest"
