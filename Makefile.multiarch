@@ -27,6 +27,7 @@ XNU_BUILD_SCRIPT := $(ROOT_DIR)/scripts/build-xnu-kernel.sh
 XNU_ENV_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-build-env.sh
 XNU_MEDIA_SCRIPT := $(ROOT_DIR)/scripts/create-xnu-provider-media.sh
 XNU_ABI_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-boot-abi.sh
+XNU_BOOT_SURFACE_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-boot-surface.sh
 DRIVERS_DIR := $(ROOT_DIR)/drivers
 LIBC_DIR := $(ROOT_DIR)/libc
 USERSPACE_DIR := $(ROOT_DIR)/userspace
@@ -235,7 +236,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 .NOTPARALLEL: image system-image install-boot-files installer-image dos-env-image dos-installer qemu qemu-bios qemu-uefi qemu-debug
 
 all: check-source-complete kernel image
@@ -296,6 +297,9 @@ check-xnu-build-env: check-xnu-integration
 
 check-xnu-boot-abi:
 	@bash "$(XNU_ABI_SCRIPT)"
+
+check-xnu-boot-surface: check-xnu-integration
+	@bash "$(XNU_BOOT_SURFACE_SCRIPT)" "$(ARCH)" "$(XNU_SOURCE_DIR)"
 
 require-os8-kernel-provider:
 ifneq ($(KERNEL_PROVIDER),os8)

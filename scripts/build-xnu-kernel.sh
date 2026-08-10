@@ -57,6 +57,8 @@ if [ "$source_state" != "clean" ]; then
   exit 1
 fi
 
+bash "$(dirname "$0")/check-xnu-boot-surface.sh" "$arch" "$xnu_dir"
+
 host="$(uname -s)"
 if [ "$host" != "Darwin" ]; then
   if [ "${XNU_SOURCE_VALIDATION_ONLY:-0}" = "1" ]; then
