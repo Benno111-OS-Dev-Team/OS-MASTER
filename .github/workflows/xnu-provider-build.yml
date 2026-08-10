@@ -108,6 +108,21 @@ jobs:
             grep -q 'Entered ExitBootServices; jumping to XNU kernel' build/x86_64/xnu-smoke/qemu-serial.log
           fi
           test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
+          if [ "${{ inputs.arch }}" = "x86_64" ]; then
+            bash scripts/create-xnu-provider-proof.sh \
+              "${{ inputs.arch }}" \
+              "$manifest" \
+              "$archive" \
+              "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel" \
+              image/xnu-x86_64-uefi.img \
+              build/x86_64/xnu-smoke/qemu-serial.log
+          else
+            bash scripts/create-xnu-provider-proof.sh \
+              "${{ inputs.arch }}" \
+              "$manifest" \
+              "$archive" \
+              "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
+          fi
           {
             echo "## XNU provider"
             echo
@@ -128,6 +143,7 @@ jobs:
           path: |
             image/xnu-${{ inputs.arch }}-provider.tar.gz
             build/${{ inputs.arch }}/kernel/xnu-provider.manifest
+            build/${{ inputs.arch }}/xnu-proof/xnu-provider-proof.manifest
             build/${{ inputs.arch }}/boot/custom-uefi/STARTUPX64.EFI
             build/${{ inputs.arch }}/boot/custom-uefi/os8boot.cfg
             build/${{ inputs.arch }}/xnu-smoke/qemu-serial.log
