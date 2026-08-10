@@ -15,6 +15,7 @@ manifest="$build_dir/kernel/xnu-provider.manifest"
 media_root="$build_dir/xnu-provider-media"
 archive="$image_dir/xnu-$arch-provider.tar.gz"
 boot_contract="docs/XNU_BOOT_CONTRACT.md"
+handoff_abi="boot/xnu/xnu_boot_handoff.h"
 handoff_script="scripts/create-xnu-boot-handoff.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
 
@@ -26,16 +27,21 @@ if [ ! -f "$boot_contract" ]; then
   echo "error: XNU boot contract is missing: $boot_contract" >&2
   exit 1
 fi
+if [ ! -f "$handoff_abi" ]; then
+  echo "error: XNU boot handoff ABI is missing: $handoff_abi" >&2
+  exit 1
+fi
 if [ ! -x "$handoff_script" ]; then
   echo "error: XNU boot handoff generator is missing or not executable: $handoff_script" >&2
   exit 1
 fi
 
 rm -rf "$media_root"
-mkdir -p "$media_root/kernel" "$media_root/metadata" "$media_root/docs" "$image_dir"
+mkdir -p "$media_root/kernel" "$media_root/metadata" "$media_root/docs" "$media_root/boot/xnu" "$image_dir"
 
 cp "$manifest" "$media_root/metadata/xnu-provider.manifest"
 cp "$boot_contract" "$media_root/docs/XNU_BOOT_CONTRACT.md"
+cp "$handoff_abi" "$media_root/boot/xnu/xnu_boot_handoff.h"
 if [ -f "$kernel_artifact" ]; then
   cp "$kernel_artifact" "$media_root/kernel/$(basename "$kernel_artifact")"
   payload_mode="compiled"
@@ -53,6 +59,7 @@ cp "$handoff_manifest" "$media_root/metadata/xnu-boot-handoff.manifest"
   printf 'payload_mode=%s\n' "$payload_mode"
   printf 'external_source_policy=read-only\n'
   printf 'boot_contract=docs/XNU_BOOT_CONTRACT.md\n'
+  printf 'handoff_abi=boot/xnu/xnu_boot_handoff.h\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
 } > "$media_root/metadata/media.manifest"
 

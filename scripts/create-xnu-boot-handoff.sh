@@ -26,6 +26,7 @@ fi
 
 handoff_dir="$build_dir/xnu-boot"
 handoff_manifest="$handoff_dir/xnu-boot-handoff.manifest"
+handoff_abi="boot/xnu/xnu_boot_handoff.h"
 mkdir -p "$handoff_dir"
 
 case "$arch" in
@@ -45,6 +46,9 @@ esac
   printf 'arch=%s\n' "$arch"
   printf 'kernel_artifact=%s\n' "$kernel_artifact"
   printf 'payload_mode=%s\n' "$payload_mode"
+  printf 'handoff_abi=%s\n' "$handoff_abi"
+  printf 'handoff_magic=0x584E55424F4F5431\n'
+  printf 'handoff_version=1\n'
   printf 'boot_args=required\n'
   printf 'memory_map=required\n'
   printf 'firmware_state=%s\n' "$firmware_state"

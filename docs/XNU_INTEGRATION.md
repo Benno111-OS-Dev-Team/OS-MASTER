@@ -52,12 +52,14 @@ from the standalone Apple OSS XNU checkout and that the checkout is clean.
 
 Each provider media archive also includes `docs/XNU_BOOT_CONTRACT.md`, which
 defines the repository-owned loader handoff requirements for making the XNU
-provider bootable.
+provider bootable. The media also carries `boot/xnu/xnu_boot_handoff.h`, the
+repository-owned ABI header that future loader code must populate before
+entering XNU.
 
 `scripts/check-xnu-provider-media.sh` is the CI gate for provider archives. It
 validates the provider manifest, media manifest, boot contract, source policy,
-architecture, payload mode, generated boot handoff manifest, and compiled
-kernel payload when present.
+architecture, payload mode, generated boot handoff manifest, packaged boot
+handoff ABI, and compiled kernel payload when present.
 
 Local usage:
 

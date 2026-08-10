@@ -10,6 +10,7 @@ must live under project-owned paths.
 - Kernel payload: `build/<arch>/kernel/xnu-<arch>.kernel`
 - Provider manifest: `build/<arch>/kernel/xnu-provider.manifest`
 - Boot handoff manifest: `build/<arch>/xnu-boot/xnu-boot-handoff.manifest`
+- Boot handoff ABI: `boot/xnu/xnu_boot_handoff.h`
 - Provider media: `image/xnu-<arch>-provider.tar.gz`
 
 The provider manifest must identify the external source origin, commit, source
@@ -33,6 +34,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 
 - The loader must not write into `External/xnu`.
 - Generated loader metadata must be staged under `build/<arch>/`.
+- The packaged boot handoff ABI must use magic `0x584E55424F4F5431` and
+  version `1`.
 - Release or workflow artifacts must include this contract with the provider
   media.
 - Release or workflow artifacts must include the generated boot handoff

@@ -35,8 +35,9 @@ provider_manifest="$tmp_dir/metadata/xnu-provider.manifest"
 media_manifest="$tmp_dir/metadata/media.manifest"
 handoff_manifest="$tmp_dir/metadata/xnu-boot-handoff.manifest"
 boot_contract="$tmp_dir/docs/XNU_BOOT_CONTRACT.md"
+handoff_abi="$tmp_dir/boot/xnu/xnu_boot_handoff.h"
 
-for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract"; do
+for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract" "$handoff_abi"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider archive is missing required file: ${required#$tmp_dir/}" >&2
     exit 1
@@ -60,6 +61,7 @@ kernel_artifact="$(manifest_value kernel_artifact "$media_manifest")"
 payload_mode="$(manifest_value payload_mode "$media_manifest")"
 source_policy="$(manifest_value external_source_policy "$media_manifest")"
 contract_path="$(manifest_value boot_contract "$media_manifest")"
+handoff_abi_path="$(manifest_value handoff_abi "$media_manifest")"
 handoff_path="$(manifest_value boot_handoff "$media_manifest")"
 
 if [ "$provider" != "xnu" ] || [ "$media_provider" != "xnu" ]; then
@@ -79,6 +81,11 @@ fi
 
 if [ "$contract_path" != "docs/XNU_BOOT_CONTRACT.md" ]; then
   echo "error: provider media points at unexpected boot contract: $contract_path" >&2
+  exit 1
+fi
+
+if [ "$handoff_abi_path" != "boot/xnu/xnu_boot_handoff.h" ]; then
+  echo "error: provider media points at unexpected boot handoff ABI: $handoff_abi_path" >&2
   exit 1
 fi
 
@@ -124,8 +131,11 @@ handoff_arch="$(manifest_value arch "$handoff_manifest")"
 handoff_kernel="$(manifest_value kernel_artifact "$handoff_manifest")"
 handoff_payload="$(manifest_value payload_mode "$handoff_manifest")"
 handoff_policy="$(manifest_value external_source_policy "$handoff_manifest")"
+handoff_abi_ref="$(manifest_value handoff_abi "$handoff_manifest")"
+handoff_magic="$(manifest_value handoff_magic "$handoff_manifest")"
+handoff_version="$(manifest_value handoff_version "$handoff_manifest")"
 
-for required_key in contract_version boot_args memory_map firmware_state cpu_topology timer platform_data framebuffer early_userspace; do
+for required_key in contract_version boot_args memory_map firmware_state cpu_topology timer platform_data framebuffer early_userspace handoff_abi handoff_magic handoff_version; do
   if ! manifest_value "$required_key" "$handoff_manifest" >/dev/null; then
     echo "error: boot handoff manifest is missing required key: $required_key" >&2
     exit 1
@@ -146,5 +156,16 @@ if [ "$handoff_policy" != "read-only" ]; then
   echo "error: boot handoff manifest does not preserve read-only source policy" >&2
   exit 1
 fi
+
+if [ "$handoff_abi_ref" != "boot/xnu/xnu_boot_handoff.h" ] ||
+   [ "$handoff_magic" != "0x584E55424F4F5431" ] ||
+   [ "$handoff_version" != "1" ]; then
+  echo "error: boot handoff ABI metadata is inconsistent" >&2
+  exit 1
+fi
+
+grep -q 'OS8_XNU_BOOT_HANDOFF_MAGIC 0x584E55424F4F5431ULL' "$handoff_abi"
+grep -q 'OS8_XNU_BOOT_HANDOFF_VERSION 1ULL' "$handoff_abi"
+grep -q 'os8_xnu_boot_handoff_t' "$handoff_abi"
 
 echo "[XNU] Provider media verified: $archive"
