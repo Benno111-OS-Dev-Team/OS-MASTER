@@ -21,6 +21,7 @@ STRIP_KERNEL ?= 1
 BOOT_DIR := $(ROOT_DIR)/boot
 BOOTMANAGER_DIR := $(ROOT_DIR)/bootmanager
 KERNEL_DIR := $(ROOT_DIR)/kernel
+XNU_SOURCE_DIR ?= $(ROOT_DIR)/External/xnu
 DRIVERS_DIR := $(ROOT_DIR)/drivers
 LIBC_DIR := $(ROOT_DIR)/libc
 USERSPACE_DIR := $(ROOT_DIR)/userspace
@@ -226,7 +227,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean check-source-complete storage-format-stress storage-driver-compile-check custom-uefi-chain kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete check-xnu-integration storage-format-stress storage-driver-compile-check custom-uefi-chain kernel xnu-kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 
 all: check-source-complete kernel image
 	@echo "=========================================="
@@ -256,6 +257,7 @@ help:
 	@echo "Build targets:"
 	@echo "  all      - Build kernel and image"
 	@echo "  kernel   - Build kernel only"
+	@echo "  xnu-kernel - Verify external read-only XNU kernel source"
 	@echo "  image    - Create bootable image/ISO"
 	@echo "  system-image - Build the staged x86_64 install image and zip"
 	@echo "  install-boot-files - Stage boot files and build boot-files.img"
@@ -275,6 +277,9 @@ help:
 
 check-source-complete:
 	@bash "$(ROOT_DIR)/scripts/check-source-complete.sh"
+
+check-xnu-integration:
+	@XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" bash "$(ROOT_DIR)/scripts/check-xnu-integration.sh"
 
 storage-format-stress:
 	@python3 "$(ROOT_DIR)/scripts/storage-format-stress.py"
@@ -396,6 +401,9 @@ sdk: $(BUILD_PREPARED_STAMP)
 
 kernel: check-source-complete $(BUILD_PREPARED_STAMP) $(BUILD_METADATA_HEADER) assets $(KERNEL_BINARY) $(if $(filter x86,$(ARCH)),$(KERNEL_FLAT_BINARY),)
 	@echo "[KERNEL] $(ARCH) build complete: $(KERNEL_BINARY)"
+
+xnu-kernel: check-source-complete check-xnu-integration
+	@echo "[XNU] External read-only kernel provider is integrated"
 
 $(BUILD_METADATA_HEADER): $(CODE_HASH_INPUTS) | $(BUILD_PREPARED_STAMP)
 	@mkdir -p $(GENERATED_DIR)

@@ -22,6 +22,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Fetch external XNU source
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/apple-oss-distributions/xnu.git External/xnu
+          chmod -R a-w External/xnu
+
       - name: Set up release build environment
         run: |
           sudo apt-get update
@@ -45,12 +51,13 @@ jobs:
             nasm
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
-     # - name: Check source quality gates
-      #  run: |
-      #    set -euxo pipefail
-      #    make -f Makefile.multiarch check-source-complete
-      #    make -f Makefile.multiarch storage-format-stress
-      #    make -f Makefile.multiarch storage-driver-compile-check
+      - name: Check source quality gates
+        run: |
+          set -euxo pipefail
+          make -f Makefile.multiarch check-source-complete
+          make -f Makefile.multiarch xnu-kernel
+          make -f Makefile.multiarch storage-format-stress
+          make -f Makefile.multiarch storage-driver-compile-check
 
       - name: Compile custom x86_64 UEFI boot chain
         run: |

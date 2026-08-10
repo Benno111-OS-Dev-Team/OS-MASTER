@@ -25,6 +25,7 @@ diagnostics/
 toolchain.env
 toolchain.mk
 os-x86_64/
+External/xnu/
 
 # Build and packaging output
 build/
