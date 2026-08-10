@@ -64,7 +64,8 @@ runtimes/             Runtime/toolchain experiments
 scripts/              Image creation and helper scripts
 userspace/            Userspace programs, support headers, and examples
 os-x86_64/            Limine config and x86_64 boot assets
-Makefile.multiarch    Main build entry point
+Makefile              Compatibility front door for the provider build
+Makefile.multiarch    Provider-aware multi-architecture build entry point
 ```
 
 Repo hygiene notes:
@@ -77,16 +78,27 @@ Repo hygiene notes:
 
 ## Build System
 
-The main entry point is:
+The top-level `Makefile` delegates to the provider-aware multiarch build. The
+default kernel provider is XNU, sourced from a read-only checkout at
+`External/xnu`:
+
+```sh
+git clone https://github.com/apple-oss-distributions/xnu.git External/xnu
+chmod -R a-w External/xnu
+make ARCH=<arch> kernel
+```
+
+You can also call the provider build directly:
 
 ```sh
 make -f Makefile.multiarch ARCH=<arch> <target>
 ```
 
-If your default `make` already uses `Makefile.multiarch`, you can usually run:
+The previous OS8 freestanding kernel is still available as an explicit
+compatibility provider:
 
 ```sh
-make ARCH=<arch> <target>
+make KERNEL_PROVIDER=os8 ARCH=<arch> image
 ```
 
 Supported architectures:
@@ -95,12 +107,12 @@ Supported architectures:
 - `ARCH=x86_64`
 - `ARCH=x86`
 
-Common targets:
+Common provider targets:
 
-- `all` builds the kernel and boot image
-- `kernel` builds only the kernel
+- `all` builds the selected kernel provider and media
+- `kernel` builds only the selected kernel provider
 - `sdk` exports app-facing headers under `build/sdk/include/`
-- `image` builds the bootable image or ISO
+- `image` builds selected provider media
 - `system-image` builds the staged x86_64 install tree and `system-image.zip`
 - `install-boot-files` stages boot files into an existing `INSTALL_ROOT`
 - `installer-image` builds the x86_64 installer ISO

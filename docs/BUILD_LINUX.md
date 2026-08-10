@@ -8,14 +8,15 @@ This guide helps you build OS8 on Ubuntu or other Linux distributions.
 # Install dependencies (automated)
 ./scripts/setup-toolchain-linux.sh
 
-# Build kernel
-make kernel
+# Fetch external XNU source for the default kernel provider
+git clone https://github.com/apple-oss-distributions/xnu.git External/xnu
+chmod -R a-w External/xnu
 
-# Run in QEMU (terminal mode)
-make run
+# Validate the XNU provider on Linux
+XNU_SOURCE_VALIDATION_ONLY=1 make kernel
 
-# Run with GUI
-make run-gui
+# Build the previous OS8 bootable image if you need a local QEMU path
+make KERNEL_PROVIDER=os8 image
 ```
 
 ## Manual Installation
@@ -67,64 +68,58 @@ qemu-system-aarch64 --version
 ## Build Commands
 
 ```bash
-# Build everything
-make all
+# Build selected provider media
+XNU_SOURCE_VALIDATION_ONLY=1 make all
 
-# Build kernel only
-make kernel
+# Build selected kernel provider only
+XNU_SOURCE_VALIDATION_ONLY=1 make kernel
 
-# Build drivers
-make drivers
+# Build previous OS8 compatibility kernel only
+make KERNEL_PROVIDER=os8 kernel
 
-# Build C library
-make libc
+# Create selected provider media
+XNU_SOURCE_VALIDATION_ONLY=1 make image
 
-# Build userspace programs
-make userspace
-
-# Create boot image
-make image
+# Create previous OS8 boot media
+make KERNEL_PROVIDER=os8 image
 ```
 
 ## x86_64 Build
 
 ```bash
-# Build x86_64 kernel and hybrid BIOS+UEFI ISO
-make x86_64
+# Build x86_64 XNU provider media
+XNU_SOURCE_VALIDATION_ONLY=1 make x86_64
 
-# Build only the x86_64 kernel
-make x86_64-kernel
+# Build only the x86_64 XNU provider
+XNU_SOURCE_VALIDATION_ONLY=1 make x86_64-kernel
 
-# Create the x86_64 hybrid ISO
-make x86_64-image
+# Create the x86_64 XNU provider media archive
+XNU_SOURCE_VALIDATION_ONLY=1 make x86_64-image
+
+# Create the previous OS8 x86_64 hybrid ISO
+make KERNEL_PROVIDER=os8 x86_64-image
 ```
 
 ## Run in QEMU
 
 ```bash
-# Terminal-only mode
-make run
+# With OS8 compatibility boot image
+make KERNEL_PROVIDER=os8 qemu
 
-# With GUI display (virtio input)
-make run-gui
+# Debug mode with OS8 compatibility kernel
+make KERNEL_PROVIDER=os8 qemu-debug
 
-# With boot image
-make qemu
-
-# Debug mode (GDB on port 1234)
-make qemu-debug
-
-# x86_64 in QEMU
-make x86_64-qemu
+# x86_64 OS8 compatibility in QEMU
+make KERNEL_PROVIDER=os8 x86_64-qemu
 
 # x86_64 BIOS boot
-make x86_64-qemu-bios
+make KERNEL_PROVIDER=os8 x86_64-qemu-bios
 
 # x86_64 UEFI boot
-make x86_64-qemu-uefi
+make KERNEL_PROVIDER=os8 x86_64-qemu-uefi
 
 # x86_64 with GDB server
-make x86_64-qemu-debug
+make KERNEL_PROVIDER=os8 x86_64-qemu-debug
 ```
 
 ## Troubleshooting
@@ -161,7 +156,7 @@ The Makefile now auto-detects your OS:
 You can override toolchain paths via environment variables:
 ```bash
 export LLVM_PATH=/custom/path/llvm/bin
-make kernel
+XNU_SOURCE_VALIDATION_ONLY=1 make kernel
 ```
 
 ## CPU Target

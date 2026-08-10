@@ -1,406 +1,71 @@
-# OS8 Master Makefile
-# ARM64 OS for Apple Silicon and Raspberry Pi
+# OS8 top-level build entry point.
+#
+# The selected kernel provider is owned by Makefile.multiarch.  Keep this file
+# as a compatibility front door so plain `make` uses the same provider path as
+# CI and release builds.
 
-# ============================================================================
-# Configuration
-# ============================================================================
-
-# Target architecture
-ARCH := arm64
-TARGET := aarch64-elf
-
-# Directories
-ROOT_DIR := $(shell pwd)
-BUILD_DIR := $(ROOT_DIR)/build
-BOOT_DIR := $(ROOT_DIR)/boot
-BOOTMANAGER_DIR := $(ROOT_DIR)/bootmanager
-KERNEL_DIR := $(ROOT_DIR)/kernel
-DRIVERS_DIR := $(ROOT_DIR)/drivers
-LIBC_DIR := $(ROOT_DIR)/libc
-USERSPACE_DIR := $(ROOT_DIR)/userspace
-RUNTIMES_DIR := $(ROOT_DIR)/runtimes
-IMAGE_DIR := $(ROOT_DIR)/image
-NEWWINDOWS_DIR := $(ROOT_DIR)/newwindows
-SYSROOT := $(BUILD_DIR)/sysroot
-SDK_DIR := $(BUILD_DIR)/sdk
-SDK_INCLUDE_DIR := $(SDK_DIR)/include
-
-# Detect OS
-UNAME_S := $(shell uname -s)
-
-# Use parallel builds by default unless the caller already set -j/--jobs.
-ifeq ($(filter -j% --jobs%,$(MAKEFLAGS)),)
-    JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-    MAKEFLAGS += -j$(JOBS)
-endif
-
-# Toolchain - Support both macOS (Homebrew) and Linux (system/apt)
-ifeq ($(UNAME_S),Darwin)
-    # macOS with Homebrew
-    LLVM_PATH ?= /opt/homebrew/opt/llvm/bin
-    BREW_PATH ?= /opt/homebrew/bin
-    export PATH := $(LLVM_PATH):$(BREW_PATH):$(PATH)
-    CC := $(LLVM_PATH)/clang
-    AS := $(LLVM_PATH)/clang
-    LD := $(BREW_PATH)/ld.lld
-    AR := $(LLVM_PATH)/llvm-ar
-    OBJCOPY := $(LLVM_PATH)/llvm-objcopy
-    OBJDUMP := $(LLVM_PATH)/llvm-objdump
-else
-    # Linux (Ubuntu/Debian/etc.) - use system LLVM or allow override
-    LLVM_PATH ?= /usr/bin
-    # Check if clang exists, otherwise use it with full path
-    ifeq ($(shell which clang 2>/dev/null),)
-        $(error "Clang not found! Run: sudo apt install clang lld")
-    endif
-    CC := clang
-    AS := clang
-    LD := ld.lld
-    AR := llvm-ar
-    OBJCOPY := llvm-objcopy
-    OBJDUMP := llvm-objdump
-endif
-
-CCACHE := $(shell command -v ccache 2>/dev/null)
-ifneq ($(CCACHE),)
-    CC := $(CCACHE) $(CC)
-endif
-
-# Cross-compilation target
-CROSS_TARGET := --target=aarch64-unknown-none-elf
-
-# Compiler flags
-# CPU target: generic works on QEMU and most ARM64 hardware
-CFLAGS_COMMON := -Wall -Wextra -Wno-unused-function -ffreestanding -fstack-protector-strong \
-                 -fno-pic -mcpu=cortex-a72 -O2 -g
-
-CFLAGS_KERNEL := $(CFLAGS_COMMON) $(CROSS_TARGET) \
-                 -I$(KERNEL_DIR)/include -I$(KERNEL_DIR) -I$(ROOT_DIR) \
-                 -I$(NEWWINDOWS_DIR)/include \
-                 -I$(ROOT_DIR)/shared-api \
-                 -mgeneral-regs-only \
-                 -fno-builtin -nostdlib -nostdinc \
-                 -DARCH_ARM64 -DWINDOW_SKIN_USE_KERNEL_TYPES
-
-CFLAGS_USER := -Wall -Wextra -O2 -g \
-               --target=aarch64-linux-musl \
-               --sysroot=$(SYSROOT)
-
-LDFLAGS_KERNEL := -nostdlib -static -T $(KERNEL_DIR)/linker.ld
-
-# QEMU configuration
-QEMU := qemu-system-aarch64
-QEMU_MACHINE := virt,gic-version=3
-QEMU_CPU := max
-QEMU_MEMORY := 4G
-QEMU_FLAGS := -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEMORY) \
-              -nographic -serial mon:stdio \
-              -drive if=none,id=hd0,format=raw,file=$(IMAGE_DIR)/unixos.img \
-              -device virtio-blk-device,drive=hd0
-
-# ============================================================================
-# Main Targets
-# ============================================================================
-
-.PHONY: all clean kernel drivers libc userspace sdk runtimes image qemu qemu-debug test help \
-        x86_64 x86_64-kernel x86_64-image x86_64-qemu x86_64-qemu-bios x86_64-qemu-uefi x86_64-qemu-debug
+ARCH ?= arm64
+KERNEL_PROVIDER ?= xnu
 
 MULTIARCH_MAKEFILE := Makefile.multiarch
-X86_64_ARCH := x86_64
+MULTIARCH_ARGS := -f $(MULTIARCH_MAKEFILE) ARCH=$(ARCH) KERNEL_PROVIDER=$(KERNEL_PROVIDER)
 
-all: kernel drivers libc userspace runtimes image
-	@echo "=========================================="
-	@echo "OS8 build complete!"
-	@echo "=========================================="
-	@echo "Boot image: $(IMAGE_DIR)/unixos.img"
-	@echo "Run 'make qemu' to test in emulator"
+UNAME_S := $(shell uname -s)
 
-help:
-	@echo "OS8 Build System"
-	@echo "==================="
-	@echo ""
-	@echo "Build targets:"
-	@echo "  all          - Build everything"
-	@echo "  kernel       - Build kernel only"
-	@echo "  drivers      - Build device drivers"
-	@echo "  libc         - Build C library"
-	@echo "  userspace    - Build userspace programs"
-	@echo "  sdk          - Export application headers"
-	@echo "  runtimes     - Build Python and Node.js"
-	@echo "  image        - Create bootable disk image"
-	@echo ""
-	@echo "Test targets:"
-	@echo "  qemu         - Run in QEMU emulator"
-	@echo "  qemu-debug   - Run with GDB server"
-	@echo "  test         - Run test suite"
-	@echo ""
-	@echo "x86_64 targets:"
-	@echo "  x86_64            - Build x86_64 kernel and image"
-	@echo "  x86_64-kernel     - Build x86_64 kernel only"
-	@echo "  x86_64-image      - Create hybrid x86_64 BIOS+UEFI ISO"
-	@echo "  x86_64-qemu       - Run x86_64 ISO in QEMU"
-	@echo "  x86_64-qemu-bios  - Run x86_64 ISO with BIOS boot"
-	@echo "  x86_64-qemu-uefi  - Run x86_64 ISO with UEFI boot"
-	@echo "  x86_64-qemu-debug - Run x86_64 build with GDB server"
-	@echo ""
-	@echo "Utility targets:"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  toolchain    - Install build dependencies"
+.PHONY: all kernel image sdk qemu qemu-bios qemu-uefi qemu-debug clean distclean \
+        check-source-complete check-xnu-integration check-xnu-build-env \
+        storage-format-stress storage-driver-compile-check custom-uefi-chain \
+        os8-all os8-kernel os8-image xnu-kernel xnu-image \
+        x86_64 x86_64-kernel x86_64-image x86_64-qemu x86_64-qemu-bios \
+        x86_64-qemu-uefi x86_64-qemu-debug \
+        drivers libc userspace runtimes test run run-gui run-gpu toolchain help
 
-# ============================================================================
-# Directory Setup
-# ============================================================================
+all kernel image sdk qemu qemu-bios qemu-uefi qemu-debug clean check-source-complete \
+check-xnu-integration check-xnu-build-env storage-format-stress storage-driver-compile-check \
+custom-uefi-chain xnu-kernel xnu-image:
+	@$(MAKE) $(MULTIARCH_ARGS) $@
 
-$(BUILD_DIR):
-	@mkdir -p $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/kernel
-	@mkdir -p $(BUILD_DIR)/newwindows/src
-	@mkdir -p $(BUILD_DIR)/bootmanager
-	@mkdir -p $(BUILD_DIR)/drivers
-	@mkdir -p $(BUILD_DIR)/libc
-	@mkdir -p $(BUILD_DIR)/userspace
-	@mkdir -p $(BUILD_DIR)/runtimes
-	@mkdir -p $(SYSROOT)/usr/lib
-	@mkdir -p $(SYSROOT)/usr/include
-	@mkdir -p $(SYSROOT)/bin
-	@mkdir -p $(SYSROOT)/sbin
+os8-all:
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(ARCH) KERNEL_PROVIDER=os8 all
 
-$(IMAGE_DIR):
-	@mkdir -p $(IMAGE_DIR)
+os8-kernel:
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(ARCH) KERNEL_PROVIDER=os8 os8-kernel
 
-# ============================================================================
-# Kernel Build
-# ============================================================================
-
-KERNEL_SOURCES := $(shell find $(KERNEL_DIR) -name '*.c' -o -name '*.S' 2>/dev/null | grep -v '/x86_64/' | grep -v '/x86/')
-NEWWINDOWS_SOURCES := $(NEWWINDOWS_DIR)/src/window_skin.c
-BOOTMANAGER_SOURCES := $(shell find $(BOOTMANAGER_DIR) -name '*.c' 2>/dev/null)
-# Also include ARM64-specific assembly
-KERNEL_SOURCES += $(shell find $(KERNEL_DIR)/arch/arm64 -name '*.S' 2>/dev/null)
-KERNEL_OBJECTS := $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_DIR)/kernel/%.o,$(filter %.c,$(KERNEL_SOURCES)))
-KERNEL_OBJECTS += $(patsubst $(KERNEL_DIR)/%.S,$(BUILD_DIR)/kernel/%.o,$(filter %.S,$(KERNEL_SOURCES)))
-NEWWINDOWS_OBJECTS := $(patsubst $(NEWWINDOWS_DIR)/%.c,$(BUILD_DIR)/newwindows/%.o,$(NEWWINDOWS_SOURCES))
-BOOTMANAGER_OBJECTS := $(patsubst $(BOOTMANAGER_DIR)/%.c,$(BUILD_DIR)/bootmanager/%.o,$(BOOTMANAGER_SOURCES))
-
-# Include drivers in the kernel
-DRIVER_SOURCES := $(shell find $(DRIVERS_DIR) -name '*.c' 2>/dev/null)
-DRIVER_OBJECTS := $(patsubst $(DRIVERS_DIR)/%.c,$(BUILD_DIR)/drivers/%.o,$(DRIVER_SOURCES))
-
-ALL_KERNEL_OBJECTS := $(KERNEL_OBJECTS) $(NEWWINDOWS_OBJECTS) $(BOOTMANAGER_OBJECTS) $(DRIVER_OBJECTS)
-KERNEL_BINARY := $(BUILD_DIR)/kernel/unixos.elf
-
-kernel: $(BUILD_DIR) $(ALL_KERNEL_OBJECTS) $(KERNEL_BINARY)
-	@echo "[KERNEL] Build complete: $(KERNEL_BINARY)"
-
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "[CC] $<"
-	@# Media files need FP support, compile without -mgeneral-regs-only
-	@if echo "$<" | grep -q "/media/"; then \
-		$(CC) $(CFLAGS_COMMON) $(CROSS_TARGET) -mcpu=cortex-a72 -I$(KERNEL_DIR)/include -fno-builtin -nostdlib -nostdinc -c $< -o $@; \
-	else \
-		$(CC) $(CFLAGS_KERNEL) -c $< -o $@; \
-	fi
-
-$(BUILD_DIR)/kernel/%.o: $(KERNEL_DIR)/%.S
-	@mkdir -p $(dir $@)
-	@echo "[AS] $<"
-	@$(AS) $(CFLAGS_KERNEL) -c $< -o $@
-
-$(BUILD_DIR)/newwindows/%.o: $(NEWWINDOWS_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "[CC] $<"
-	@$(CC) $(CFLAGS_KERNEL) -c $< -o $@
-
-$(BUILD_DIR)/bootmanager/%.o: $(BOOTMANAGER_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "[CC] $<"
-	@$(CC) $(CFLAGS_KERNEL) -c $< -o $@
-
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "[CC] $<"
-	@$(CC) $(CFLAGS_KERNEL) -I$(KERNEL_DIR)/include -c $< -o $@
-
-$(KERNEL_BINARY): $(ALL_KERNEL_OBJECTS)
-	@echo "[LD] $@"
-	@$(LD) $(LDFLAGS_KERNEL) -o $@ $^
-
-# ============================================================================
-# Drivers Build
-# ============================================================================
-
-DRIVER_SOURCES := $(shell find $(DRIVERS_DIR) -name '*.c' 2>/dev/null)
-DRIVER_OBJECTS := $(patsubst $(DRIVERS_DIR)/%.c,$(BUILD_DIR)/drivers/%.o,$(DRIVER_SOURCES))
-
-drivers: $(BUILD_DIR) $(DRIVER_OBJECTS)
-	@echo "[DRIVERS] Build complete"
-
-$(BUILD_DIR)/drivers/%.o: $(DRIVERS_DIR)/%.c
-	@mkdir -p $(dir $@)
-	@echo "[CC] $<"
-	@$(CC) $(CFLAGS_KERNEL) -I$(DRIVERS_DIR)/include -c $< -o $@
-
-# ============================================================================
-# C Library Build
-# ============================================================================
-
-libc: $(BUILD_DIR)
-	@echo "[LIBC] Building musl libc..."
-	@if [ -f $(LIBC_DIR)/Makefile ]; then \
-		$(MAKE) -C $(LIBC_DIR) DESTDIR=$(SYSROOT) install; \
-	else \
-		echo "[LIBC] Source not yet configured"; \
-	fi
-
-# ============================================================================
-# Userspace Build
-# ============================================================================
-
-sdk: $(BUILD_DIR)
-	@echo "[SDK] Exporting application headers..."
-	@rm -rf $(SDK_INCLUDE_DIR)
-	@mkdir -p $(SDK_INCLUDE_DIR)/shared-api
-	@mkdir -p $(SDK_INCLUDE_DIR)/userspace/lib
-	@cp $(ROOT_DIR)/shared-api/*.h $(SDK_INCLUDE_DIR)/shared-api/
-	@cp $(ROOT_DIR)/userspace/lib/*.h $(SDK_INCLUDE_DIR)/userspace/lib/
-	@cp $(ROOT_DIR)/userspace/linker.ld $(SDK_DIR)/linker.ld
-
-userspace: $(BUILD_DIR) libc sdk
-	@echo "[USERSPACE] Building userspace programs..."
-	@if [ -f $(USERSPACE_DIR)/Makefile ]; then \
-		$(MAKE) -C $(USERSPACE_DIR) SYSROOT=$(SYSROOT); \
-	else \
-		echo "[USERSPACE] Source not yet configured"; \
-	fi
-
-# ============================================================================
-# Runtimes Build (Python, Node.js)
-# ============================================================================
-
-runtimes: $(BUILD_DIR) libc
-	@echo "[RUNTIMES] Building Python and Node.js..."
-	@if [ -f $(RUNTIMES_DIR)/Makefile ]; then \
-		$(MAKE) -C $(RUNTIMES_DIR) SYSROOT=$(SYSROOT); \
-	else \
-		echo "[RUNTIMES] Source not yet configured"; \
-	fi
-
-# ============================================================================
-# Boot Image Creation
-# ============================================================================
-
-image: $(IMAGE_DIR) kernel drivers
-	@echo "[IMAGE] Creating bootable disk image..."
-	@./scripts/create-boot-image.sh $(BUILD_DIR) $(IMAGE_DIR)
-	@echo "[IMAGE] Created: $(IMAGE_DIR)/unixos.img"
-
-# ============================================================================
-# QEMU Testing
-# ============================================================================
-
-qemu: kernel
-	@echo "[QEMU] Starting OS8 in emulator (direct kernel boot)..."
-	@$(QEMU) -M virt,gic-version=3 -cpu max -m 4G \
-		-nographic \
-		-kernel $(BUILD_DIR)/kernel/unixos.elf
-
-qemu-uefi: image
-	@echo "[QEMU] Starting OS8 with UEFI boot..."
-	@echo "[QEMU] Note: Requires UEFI firmware (AAVMF)"
-	@if [ ! -f /usr/share/qemu-efi-aarch64/QEMU_EFI.fd ]; then \
-		echo "[ERROR] UEFI firmware not found. Install qemu-efi-aarch64 package."; \
-		echo "[INFO] Using direct kernel boot instead. Run 'make qemu'"; \
-		exit 1; \
-	fi
-	@$(QEMU) -M virt,gic-version=3 -cpu max -m 4G \
-		-nographic \
-		-drive if=pflash,format=raw,readonly=on,file=/usr/share/qemu-efi-aarch64/QEMU_EFI.fd \
-		-drive if=none,id=hd0,format=raw,file=$(IMAGE_DIR)/unixos.img \
-		-device virtio-blk-device,drive=hd0
-
-qemu-debug: kernel
-	@echo "[QEMU] Starting OS8 with GDB server on port 1234..."
-	@$(QEMU) -M virt,gic-version=3 -cpu max -m 4G \
-		-nographic \
-		-kernel $(BUILD_DIR)/kernel/unixos.elf \
-		-s -S
-
-# ============================================================================
-# Testing
-# ============================================================================
-
-test: kernel
-	@echo "[TEST] Running kernel tests..."
-	@./scripts/run-tests.sh
-
-# ============================================================================
-# Run in QEMU
-# ============================================================================
-
-run: kernel
-	@echo "[RUN] Starting OS8 in QEMU..."
-	@qemu-system-aarch64 -M virt,gic-version=3 -cpu max -m 4G -nographic -kernel $(KERNEL_BINARY)
-
-run-gui: kernel
-	@echo "[RUN] Starting OS8 with GUI display..."
-	@qemu-system-aarch64 -M virt,gic-version=3 \
-		-cpu max -m 512M \
-		-global virtio-mmio.force-legacy=false \
-		-device ramfb \
-		-device virtio-keyboard-device \
-		-device virtio-tablet-device \
-		-device virtio-net-device,netdev=net0 \
-		-netdev user,id=net0 \
-		-audiodev coreaudio,id=snd0 \
-		-device intel-hda -device hda-duplex,audiodev=snd0 \
-		-serial stdio \
-		-kernel $(KERNEL_BINARY)
-
-run-gpu: kernel
-	@echo "[RUN] Starting OS8 with virtio-GPU acceleration..."
-	@qemu-system-aarch64 -M virt,gic-version=3 \
-		-cpu max -m 512M \
-		-global virtio-mmio.force-legacy=false \
-		-device ramfb \
-		-device virtio-gpu-pci \
-		-device virtio-keyboard-device \
-		-device virtio-tablet-device \
-		-device virtio-net-device,netdev=net0 \
-		-netdev user,id=net0 \
-		-audiodev coreaudio,id=snd0 \
-		-device intel-hda -device hda-duplex,audiodev=snd0 \
-		-serial stdio \
-		-kernel $(KERNEL_BINARY)
-
-# ============================================================================
-# x86_64 Convenience Targets
-# ============================================================================
+os8-image:
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(ARCH) KERNEL_PROVIDER=os8 os8-image
 
 x86_64:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) all
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) all
 
 x86_64-kernel:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) kernel
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) kernel
 
 x86_64-image:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) image
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) image
 
 x86_64-qemu:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) qemu
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) qemu
 
 x86_64-qemu-bios:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) qemu-bios
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) qemu-bios
 
 x86_64-qemu-uefi:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) qemu-uefi
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) qemu-uefi
 
 x86_64-qemu-debug:
-	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(X86_64_ARCH) qemu-debug
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=x86_64 KERNEL_PROVIDER=$(KERNEL_PROVIDER) qemu-debug
 
-# ============================================================================
-# Toolchain Setup
-# ============================================================================
+drivers libc userspace runtimes run run-gui run-gpu:
+	@echo "[BUILD] $@ is not a selected-provider target."
+	@echo "[BUILD] Use 'make kernel' or 'make image'; add KERNEL_PROVIDER=os8 for the OS8 compatibility kernel."
+	@exit 2
+
+test:
+	@$(MAKE) $(MULTIARCH_ARGS) check-source-complete
+	@$(MAKE) $(MULTIARCH_ARGS) kernel
+
+distclean:
+	@$(MAKE) -f $(MULTIARCH_MAKEFILE) ARCH=$(ARCH) KERNEL_PROVIDER=$(KERNEL_PROVIDER) clean-all
 
 toolchain:
 	@echo "[TOOLCHAIN] Installing build dependencies..."
@@ -410,16 +75,17 @@ toolchain:
 		./scripts/setup-toolchain-linux.sh; \
 	fi
 
-# ============================================================================
-# Clean
-# ============================================================================
-
-clean:
-	@echo "[CLEAN] Removing build artifacts..."
-	@rm -rf $(BUILD_DIR)
-	@rm -rf $(IMAGE_DIR)
-	@echo "[CLEAN] Done"
-
-distclean: clean
-	@echo "[DISTCLEAN] Removing all generated files..."
-	@rm -rf $(SYSROOT)
+help:
+	@echo "OS8 Build System"
+	@echo "================"
+	@echo ""
+	@echo "The default kernel provider is XNU:"
+	@echo "  make kernel"
+	@echo "  make image"
+	@echo "  make ARCH=x86_64 image"
+	@echo ""
+	@echo "Use the OS8 compatibility kernel explicitly when needed:"
+	@echo "  make KERNEL_PROVIDER=os8 kernel"
+	@echo "  make os8-image ARCH=x86_64"
+	@echo ""
+	@echo "Provider targets are delegated to Makefile.multiarch."
