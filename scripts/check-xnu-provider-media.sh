@@ -306,6 +306,11 @@ for required_key in plan_version entry_protocol firmware_state platform_data loa
   fi
 done
 
+if [ "$(manifest_value loader_step_1 "$boot_plan_manifest")" != "inspect-mach-o-and-load-segments" ]; then
+  echo "error: boot plan does not require Mach-O segment loading" >&2
+  exit 1
+fi
+
 if [ "$boot_plan_provider" != "xnu" ] ||
    [ "$boot_plan_arch" != "$arch" ] ||
    [ "$boot_plan_kernel" != "$kernel_artifact" ] ||
@@ -340,5 +345,6 @@ grep -q 'OS8_XNU_PLATFORM_DEVICE_TREE 2U' "$handoff_abi"
 grep -q 'os8_xnu_boot_handoff_t' "$handoff_abi"
 grep -q 'OS8_XNU_MH_MAGIC_64 0xFEEDFACFULL' "$macho_loader"
 grep -q 'os8_xnu_macho64_inspect' "$macho_loader"
+grep -q 'os8_xnu_macho64_segment_at' "$macho_loader"
 
 echo "[XNU] Provider media verified: $archive"

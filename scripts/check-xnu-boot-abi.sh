@@ -148,14 +148,26 @@ int main(void) {
       },
   };
   os8_xnu_macho64_image_t macho_info;
+  os8_xnu_macho64_segment_t macho_segment;
   if (os8_xnu_macho64_inspect(&macho, sizeof(macho), OS8_XNU_ARCH_X86_64,
                               &macho_info) != 0) {
+    return 1;
+  }
+  if (os8_xnu_macho64_segment_at(&macho, sizeof(macho), OS8_XNU_ARCH_X86_64,
+                                 0, &macho_segment) != 0) {
     return 1;
   }
   if (macho_info.cputype != OS8_XNU_CPU_TYPE_X86_64 ||
       macho_info.segment_count != 1 ||
       macho_info.lowest_vmaddr != 0x100000 ||
       macho_info.entry_vmaddr != 0x100000) {
+    return 1;
+  }
+  if (macho_segment.vmaddr != 0x100000 ||
+      macho_segment.fileoff != offsetof(struct synthetic_macho, payload) ||
+      macho_segment.filesize != sizeof(macho.payload) ||
+      os8_xnu_macho64_segment_at(&macho, sizeof(macho), OS8_XNU_ARCH_X86_64,
+                                 1, &macho_segment) == 0) {
     return 1;
   }
 #endif

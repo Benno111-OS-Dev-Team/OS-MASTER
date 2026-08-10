@@ -59,7 +59,7 @@ mkdir -p "$plan_dir"
   printf 'handoff_builder=boot/xnu/xnu_boot_handoff_builder.h\n'
   printf 'macho_loader=boot/xnu/xnu_macho_loader.h\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
-  printf 'loader_step_1=load-kernel-payload\n'
+  printf 'loader_step_1=inspect-mach-o-and-load-segments\n'
   printf 'loader_step_2=prepare-architecture-boot-args\n'
   printf 'loader_step_3=prepare-memory-map\n'
   printf 'loader_step_4=prepare-platform-data\n'

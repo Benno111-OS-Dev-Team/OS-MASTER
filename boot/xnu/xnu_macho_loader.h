@@ -57,6 +57,15 @@ typedef struct os8_xnu_macho64_image {
   uint64_t entry_vmaddr;
 } os8_xnu_macho64_image_t;
 
+typedef struct os8_xnu_macho64_segment {
+  uint64_t vmaddr;
+  uint64_t vmsize;
+  uint64_t fileoff;
+  uint64_t filesize;
+  uint32_t maxprot;
+  uint32_t initprot;
+} os8_xnu_macho64_segment_t;
+
 static inline int os8_xnu_u64_add_overflow(uint64_t a, uint64_t b,
                                            uint64_t *out) {
   *out = a + b;
@@ -176,6 +185,70 @@ static inline int os8_xnu_macho64_inspect(const void *image, uint64_t size,
   out->entry_fileoff = entry_fileoff;
   out->entry_vmaddr = entry_vmaddr;
   return 0;
+}
+
+static inline int os8_xnu_macho64_segment_at(
+    const void *image, uint64_t size, uint32_t arch, uint32_t segment_index,
+    os8_xnu_macho64_segment_t *out) {
+  const uint8_t *bytes = (const uint8_t *)image;
+  const os8_xnu_macho64_header_t *header;
+  uint32_t expected_cpu;
+  uint64_t commands_offset = sizeof(os8_xnu_macho64_header_t);
+  uint64_t commands_end;
+  uint64_t cursor;
+  uint32_t seen = 0;
+
+  if (!image || !out) return -1;
+  if (size < sizeof(os8_xnu_macho64_header_t)) return -1;
+  if (os8_xnu_macho64_expected_cpu(arch, &expected_cpu) != 0) return -1;
+
+  header = (const os8_xnu_macho64_header_t *)image;
+  if (header->magic != OS8_XNU_MH_MAGIC_64) return -1;
+  if (header->cputype != expected_cpu) return -1;
+  if (os8_xnu_range_exceeds(commands_offset, header->sizeofcmds, size))
+    return -1;
+  if (os8_xnu_u64_add_overflow(commands_offset, header->sizeofcmds,
+                               &commands_end))
+    return -1;
+
+  cursor = commands_offset;
+  for (uint32_t i = 0; i < header->ncmds; i++) {
+    const os8_xnu_macho64_load_command_t *lc;
+    if (os8_xnu_range_exceeds(cursor, sizeof(*lc), size)) return -1;
+    lc = (const os8_xnu_macho64_load_command_t *)(bytes + cursor);
+    if (lc->cmdsize < sizeof(*lc)) return -1;
+    if (os8_xnu_range_exceeds(cursor, lc->cmdsize, size)) return -1;
+    if (cursor + lc->cmdsize > commands_end) return -1;
+
+    if (lc->cmd == OS8_XNU_LC_SEGMENT_64) {
+      const os8_xnu_macho64_segment_command_t *seg;
+      if (lc->cmdsize < sizeof(*seg)) return -1;
+      seg = (const os8_xnu_macho64_segment_command_t *)(bytes + cursor);
+      if (seg->vmsize != 0) {
+        uint64_t vm_end;
+        if (os8_xnu_range_exceeds(seg->fileoff, seg->filesize, size))
+          return -1;
+        if (seg->filesize > seg->vmsize) return -1;
+        if (os8_xnu_u64_add_overflow(seg->vmaddr, seg->vmsize, &vm_end))
+          return -1;
+        if (seen == segment_index) {
+          out->vmaddr = seg->vmaddr;
+          out->vmsize = seg->vmsize;
+          out->fileoff = seg->fileoff;
+          out->filesize = seg->filesize;
+          out->maxprot = seg->maxprot;
+          out->initprot = seg->initprot;
+          return 0;
+        }
+        seen++;
+      }
+    }
+
+    cursor += lc->cmdsize;
+  }
+
+  if (cursor != commands_end) return -1;
+  return -1;
 }
 
 #endif
