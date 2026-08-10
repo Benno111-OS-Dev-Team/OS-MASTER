@@ -29,6 +29,8 @@ Before the macOS build starts, `make -f Makefile.multiarch
 KERNEL_PROVIDER=xnu ARCH=<arch> check-xnu-build-env` verifies the Xcode tools,
 SDK, standalone Apple XNU checkout identity, clean source state, and required
 KDK path for ARM64 builds.
+The build wrapper repeats the ARM64 `KDKROOT` validation before invoking
+Apple's build and passes `KDKROOT` through explicitly when supplied.
 
 The selected kernel payload path is provider-owned:
 

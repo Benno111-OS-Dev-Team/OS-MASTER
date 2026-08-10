@@ -88,15 +88,34 @@ fi
 
 sdkroot="${SDKROOT:-macosx}"
 kernel_configs="${KERNEL_CONFIGS:-RELEASE}"
+kdkroot="${KDKROOT:-}"
+
+if [ "$arch" = "arm64" ]; then
+  if [ -z "$kdkroot" ]; then
+    echo "error: ARCH=arm64 real XNU builds require KDKROOT to point at a matching Kernel Debug Kit" >&2
+    exit 1
+  fi
+  if [ ! -d "$kdkroot" ]; then
+    echo "error: KDKROOT does not exist: $kdkroot" >&2
+    exit 1
+  fi
+fi
+
+make_args=(
+  -C "$xnu_dir"
+  SDKROOT="$sdkroot"
+  ARCH_CONFIGS="$xnu_arch"
+  KERNEL_CONFIGS="$kernel_configs"
+  OBJROOT="$xnu_build_root/obj"
+  SYMROOT="$xnu_build_root/sym"
+  DSTROOT="$xnu_build_root/dst"
+)
+if [ -n "$kdkroot" ]; then
+  make_args+=(KDKROOT="$kdkroot")
+fi
 
 echo "[XNU] Building external XNU provider without writing to $xnu_dir"
-make -C "$xnu_dir" \
-  SDKROOT="$sdkroot" \
-  ARCH_CONFIGS="$xnu_arch" \
-  KERNEL_CONFIGS="$kernel_configs" \
-  OBJROOT="$xnu_build_root/obj" \
-  SYMROOT="$xnu_build_root/sym" \
-  DSTROOT="$xnu_build_root/dst"
+make "${make_args[@]}"
 
 post_build_status="$(git -C "$xnu_dir" status --porcelain=v1 --untracked-files=normal)"
 if [ -n "$post_build_status" ]; then
