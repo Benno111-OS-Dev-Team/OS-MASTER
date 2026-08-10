@@ -23,6 +23,13 @@ The selected kernel payload path is provider-owned:
 Image creation scripts accept `KERNEL_PATH` so provider glue can hand them the
 selected payload without modifying the external source tree.
 
+`make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=<arch> image` creates an
+XNU provider media archive at `image/xnu-<arch>-provider.tar.gz`. On macOS with
+a completed XNU build, the archive includes the compiled kernel payload. On
+Linux CI, it includes the provider manifests produced by source-validation mode
+so CI can still prove that the external read-only source boundary and selected
+provider contract are intact.
+
 Local usage:
 
 ```sh

@@ -60,6 +60,10 @@ jobs:
           grep -q '^mode=source-validation$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^artifact=.*/build/x86_64/kernel/xnu-x86_64.kernel$' build/x86_64/kernel/xnu-provider.manifest
           test ! -d External/xnu/BUILD
+          XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 image
+          test -s image/xnu-x86_64-provider.tar.gz
+          tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './metadata/xnu-provider.manifest'
+          tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './metadata/media.manifest'
           make -f Makefile.multiarch storage-format-stress
           make -f Makefile.multiarch storage-driver-compile-check
 

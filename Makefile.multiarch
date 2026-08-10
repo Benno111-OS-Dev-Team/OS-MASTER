@@ -24,6 +24,7 @@ BOOTMANAGER_DIR := $(ROOT_DIR)/bootmanager
 KERNEL_DIR := $(ROOT_DIR)/kernel
 XNU_SOURCE_DIR ?= $(ROOT_DIR)/External/xnu
 XNU_BUILD_SCRIPT := $(ROOT_DIR)/scripts/build-xnu-kernel.sh
+XNU_MEDIA_SCRIPT := $(ROOT_DIR)/scripts/create-xnu-provider-media.sh
 DRIVERS_DIR := $(ROOT_DIR)/drivers
 LIBC_DIR := $(ROOT_DIR)/libc
 USERSPACE_DIR := $(ROOT_DIR)/userspace
@@ -142,6 +143,7 @@ XNU_KERNEL_BINARY := $(BUILD_DIR)/kernel/xnu-$(ARCH).kernel
 SELECTED_KERNEL_BINARY := $(if $(filter xnu,$(KERNEL_PROVIDER)),$(XNU_KERNEL_BINARY),$(KERNEL_BINARY))
 ISO_IMAGE := $(IMAGE_DIR)/$(ARTIFACT_PREFIX)-$(ARCH).iso
 RAW_IMAGE := $(IMAGE_DIR)/$(ARTIFACT_PREFIX)-$(ARCH).img
+XNU_PROVIDER_IMAGE := $(IMAGE_DIR)/xnu-$(ARCH)-provider.tar.gz
 
 # ============================================================================
 # QEMU Configuration
@@ -231,7 +233,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean check-source-complete check-xnu-integration require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain kernel os8-kernel xnu-kernel sdk image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete check-xnu-integration require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 .NOTPARALLEL: image system-image install-boot-files installer-image dos-env-image dos-installer qemu qemu-bios qemu-uefi qemu-debug
 
 all: check-source-complete kernel image
@@ -242,9 +244,9 @@ all: check-source-complete kernel image
 ifeq ($(ARCH),x86)
 	@echo "Image:  $(RAW_IMAGE)"
 else ifeq ($(ARCH),arm64)
-	@echo "Image:  skipped for now"
+	@echo "Image:  $(if $(filter xnu,$(KERNEL_PROVIDER)),$(XNU_PROVIDER_IMAGE),skipped for now)"
 else
-	@echo "Image:  $(ISO_IMAGE)"
+	@echo "Image:  $(if $(filter xnu,$(KERNEL_PROVIDER)),$(XNU_PROVIDER_IMAGE),$(ISO_IMAGE))"
 endif
 	@echo "Run 'make qemu' to test in emulator"
 
@@ -264,7 +266,7 @@ help:
 	@echo "  kernel   - Build selected kernel provider ($(KERNEL_PROVIDER))"
 	@echo "  os8-kernel - Build the legacy OS8 freestanding kernel"
 	@echo "  xnu-kernel - Build or validate the external read-only XNU kernel provider"
-	@echo "  image    - Create bootable image/ISO"
+	@echo "  image    - Create selected provider media"
 	@echo "  system-image - Build the staged x86_64 install image and zip"
 	@echo "  install-boot-files - Stage boot files and build boot-files.img"
 	@echo "  installer-image - Create x86_64 graphical installer image and carrier ISO"
@@ -536,7 +538,21 @@ endif
 # Boot Image Creation
 # ============================================================================
 
-image: require-os8-kernel-provider kernel
+image:
+ifeq ($(KERNEL_PROVIDER),xnu)
+	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" xnu-image
+else ifeq ($(KERNEL_PROVIDER),os8)
+	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" os8-image
+else
+	@echo "[IMAGE] Unknown KERNEL_PROVIDER=$(KERNEL_PROVIDER). Use xnu or os8." >&2
+	@exit 1
+endif
+
+xnu-image: kernel
+	@bash "$(XNU_MEDIA_SCRIPT)" "$(ARCH)" "$(BUILD_DIR)" "$(IMAGE_DIR)" "$(SELECTED_KERNEL_BINARY)"
+	@echo "[IMAGE] XNU provider media: $(XNU_PROVIDER_IMAGE)"
+
+os8-image: require-os8-kernel-provider kernel
 	@echo "[IMAGE] Creating $(ARCH) boot image..."
 ifeq ($(ARCH),arm64)
 	@KERNEL_PATH="$(SELECTED_KERNEL_BINARY)" bash ./scripts/create-arm64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)

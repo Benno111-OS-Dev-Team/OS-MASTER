@@ -33,6 +33,7 @@ image/*.iso
 image/*.iso.xz
 image/*.img
 image/*.log
+image/*.tar.gz
 
 # Common generated binaries and dependency files
 *.d
