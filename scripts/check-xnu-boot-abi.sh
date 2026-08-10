@@ -170,6 +170,17 @@ int main(void) {
                                  1, &macho_segment) == 0) {
     return 1;
   }
+  input.kernel_base = 0;
+  input.kernel_size = 0;
+  input.kernel_entry = 0;
+  if (os8_xnu_boot_handoff_apply_macho(&input, &macho_info, 0x800000) != 0) {
+    return 1;
+  }
+  if (input.kernel_base != 0x800000 ||
+      input.kernel_size != sizeof(macho.payload) ||
+      input.kernel_entry != 0x800000) {
+    return 1;
+  }
 #endif
   printf("handoff_magic=0x%llX\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_MAGIC);
   printf("handoff_version=%llu\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_VERSION);

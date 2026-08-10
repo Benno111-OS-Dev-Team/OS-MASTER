@@ -2,6 +2,7 @@
 #define OS8_XNU_BOOT_HANDOFF_BUILDER_H
 
 #include "xnu_boot_handoff.h"
+#include "xnu_macho_loader.h"
 
 typedef struct os8_xnu_boot_handoff_input {
   uint32_t arch;
@@ -32,6 +33,31 @@ static inline uint64_t os8_xnu_boot_required_flags(uint32_t arch) {
     return OS8_XNU_BOOT_FLAG_GRAPHICS | OS8_XNU_BOOT_FLAG_ACPI;
   if (arch == OS8_XNU_ARCH_ARM64)
     return OS8_XNU_BOOT_FLAG_GRAPHICS | OS8_XNU_BOOT_FLAG_DEVICE_TREE;
+  return 0;
+}
+
+static inline int os8_xnu_boot_handoff_apply_macho(
+    os8_xnu_boot_handoff_input_t *in,
+    const os8_xnu_macho64_image_t *macho,
+    uint64_t loaded_kernel_base) {
+  uint64_t kernel_size;
+  uint64_t entry_delta;
+
+  if (!in || !macho) return -1;
+  if (!loaded_kernel_base) return -1;
+  if (!macho->lowest_vmaddr || macho->highest_vmaddr <= macho->lowest_vmaddr)
+    return -1;
+  if (!macho->entry_vmaddr || macho->entry_vmaddr < macho->lowest_vmaddr ||
+      macho->entry_vmaddr >= macho->highest_vmaddr) {
+    return -1;
+  }
+
+  kernel_size = macho->highest_vmaddr - macho->lowest_vmaddr;
+  entry_delta = macho->entry_vmaddr - macho->lowest_vmaddr;
+  in->kernel_base = loaded_kernel_base;
+  in->kernel_size = kernel_size;
+  in->kernel_entry = loaded_kernel_base + entry_delta;
+  if (in->kernel_entry < loaded_kernel_base) return -1;
   return 0;
 }
 

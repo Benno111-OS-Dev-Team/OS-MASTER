@@ -299,7 +299,7 @@ boot_plan_arch_id="$(manifest_value handoff_arch_id "$boot_plan_manifest")"
 boot_plan_flags="$(manifest_value handoff_required_flags "$boot_plan_manifest")"
 boot_plan_inputs="$(manifest_value required_loader_inputs "$boot_plan_manifest")"
 
-for required_key in plan_version entry_protocol firmware_state platform_data loader_step_1 loader_step_2 loader_step_3 loader_step_4 loader_step_5 loader_step_6 loader_step_7 loader_step_8; do
+for required_key in plan_version entry_protocol firmware_state platform_data loader_step_1 loader_step_2 loader_step_3 loader_step_4 loader_step_5 loader_step_6 loader_step_7 loader_step_8 loader_step_9; do
   if ! manifest_value "$required_key" "$boot_plan_manifest" >/dev/null; then
     echo "error: boot plan manifest is missing required key: $required_key" >&2
     exit 1
@@ -308,6 +308,11 @@ done
 
 if [ "$(manifest_value loader_step_1 "$boot_plan_manifest")" != "inspect-mach-o-and-load-segments" ]; then
   echo "error: boot plan does not require Mach-O segment loading" >&2
+  exit 1
+fi
+
+if [ "$(manifest_value loader_step_7 "$boot_plan_manifest")" != "derive-handoff-kernel-fields-from-mach-o" ]; then
+  echo "error: boot plan does not derive handoff kernel fields from Mach-O metadata" >&2
   exit 1
 fi
 
@@ -346,5 +351,6 @@ grep -q 'os8_xnu_boot_handoff_t' "$handoff_abi"
 grep -q 'OS8_XNU_MH_MAGIC_64 0xFEEDFACFULL' "$macho_loader"
 grep -q 'os8_xnu_macho64_inspect' "$macho_loader"
 grep -q 'os8_xnu_macho64_segment_at' "$macho_loader"
+grep -q 'os8_xnu_boot_handoff_apply_macho' "$handoff_builder"
 
 echo "[XNU] Provider media verified: $archive"
