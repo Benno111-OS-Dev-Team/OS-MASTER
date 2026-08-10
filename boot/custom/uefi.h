@@ -306,5 +306,7 @@ int hex_to_bytes(const char *hex, uint8_t *out, uint64_t out_len);
 const char *cfg_get(const char *cfg, const char *key, char *out, uint64_t out_len);
 int efi_guid_eq(const EFI_GUID *a, const EFI_GUID *b);
 void startup_enter_kernel(uint64_t pml4_phys, uint64_t entry, void *handoff);
+void startup_enter_xnu_kernel(uint64_t pml4_phys, uint64_t entry,
+                              uint64_t boot_args_phys);
 
 #endif

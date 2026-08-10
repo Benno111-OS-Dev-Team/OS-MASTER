@@ -1,4 +1,6 @@
 #include "uefi.h"
+#include "xnu_macho_loader.h"
+#include "xnu_x86_64_boot_args.h"
 
 #define HHDM_OFFSET 0xffff800000000000ULL
 #define KERNEL_VIRT_BASE 0xffffffff80000000ULL
@@ -8,6 +10,7 @@
 #define OS8_BOOT_HANDOFF_MAGIC 0x4F5338424F4F5448ULL
 #define OS8_BOOT_HANDOFF_VERSION 1
 #define OS8_MAX_FRAMEBUFFER_DIMENSION 16384ULL
+#define OS8_XNU_BOOT_ARGS_MAX_ADDRESS 0xffffffffULL
 
 typedef struct {
   uint8_t ident[16];
@@ -209,6 +212,31 @@ static EFI_STATUS alloc_zero_pages(uint64_t pages, uint64_t *phys_out) {
   efi_memset((void *)(uintptr_t)phys, 0, pages * 4096);
   *phys_out = phys;
   return EFI_SUCCESS;
+}
+
+static EFI_STATUS alloc_zero_pages_below(uint64_t pages, uint64_t max_address,
+                                         uint64_t *phys_out) {
+  EFI_PHYSICAL_ADDRESS phys = max_address;
+  EFI_STATUS status = g_st->BootServices->AllocatePages(
+      AllocateMaxAddress, EfiLoaderData, pages, &phys);
+  if (EFI_ERROR(status)) return status;
+  efi_memset((void *)(uintptr_t)phys, 0, pages * 4096);
+  *phys_out = phys;
+  return EFI_SUCCESS;
+}
+
+static EFI_STATUS alloc_zero_bytes_below(uint64_t bytes, uint64_t max_address,
+                                         uint64_t *phys_out,
+                                         uint64_t *size_out) {
+  uint64_t pages;
+  uint64_t rounded;
+
+  if (!bytes) return EFI_INVALID_PARAMETER;
+  if (u64_add_overflow(bytes, 0xfffULL, &rounded)) return EFI_OUT_OF_RESOURCES;
+  pages = rounded >> 12;
+  if (!pages) return EFI_OUT_OF_RESOURCES;
+  *size_out = pages << 12;
+  return alloc_zero_pages_below(pages, max_address, phys_out);
 }
 
 static uint64_t *new_table(void) {
@@ -456,6 +484,64 @@ static EFI_STATUS load_elf_segments(const void *kernel, uint64_t size, uint64_t 
   return EFI_SUCCESS;
 }
 
+static int valid_xnu_macho64_kernel(const void *kernel, uint64_t size,
+                                    os8_xnu_macho64_image_t *macho_out) {
+  return os8_xnu_macho64_inspect(kernel, size, OS8_XNU_ARCH_X86_64,
+                                 macho_out) == 0;
+}
+
+static EFI_STATUS load_xnu_macho64_segments(
+    const void *kernel, uint64_t size, const os8_xnu_macho64_image_t *macho,
+    uint64_t *entry_out) {
+  g_loaded_segment_count = 0;
+  g_kernel_physical_base = 0;
+
+  if (!macho || !entry_out || !macho->entry_vmaddr) return EFI_LOAD_ERROR;
+  for (uint32_t i = 0; i < macho->segment_count; i++) {
+    os8_xnu_macho64_segment_t segment;
+    uint64_t virt_start;
+    uint64_t delta;
+    uint64_t total;
+    uint64_t rounded;
+    uint64_t phys_start;
+    EFI_STATUS status;
+
+    if (g_loaded_segment_count >=
+        sizeof(g_loaded_segments) / sizeof(g_loaded_segments[0])) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+    if (os8_xnu_macho64_segment_at(kernel, size, OS8_XNU_ARCH_X86_64, i,
+                                   &segment) != 0) {
+      return EFI_LOAD_ERROR;
+    }
+    virt_start = segment.vmaddr & ~0xfffULL;
+    delta = segment.vmaddr - virt_start;
+    if (u64_add_overflow(segment.vmsize, delta, &total) ||
+        u64_add_overflow(total, 0xfffULL, &rounded)) {
+      return EFI_LOAD_ERROR;
+    }
+    total = rounded & ~0xfffULL;
+    status = alloc_zero_pages(total / 4096, &phys_start);
+    if (EFI_ERROR(status)) return status;
+
+    efi_memset((void *)(uintptr_t)(phys_start + delta), 0, segment.vmsize);
+    efi_memcpy((void *)(uintptr_t)(phys_start + delta),
+               (const uint8_t *)kernel + segment.fileoff, segment.filesize);
+    g_loaded_segments[g_loaded_segment_count].virt = virt_start;
+    g_loaded_segments[g_loaded_segment_count].phys = phys_start;
+    g_loaded_segments[g_loaded_segment_count].size = total;
+    g_loaded_segment_count++;
+    if (segment.vmaddr == macho->lowest_vmaddr)
+      g_kernel_physical_base = phys_start + delta;
+  }
+
+  if (g_loaded_segment_count == 0 || g_kernel_physical_base == 0)
+    return EFI_LOAD_ERROR;
+  *entry_out = macho->entry_vmaddr;
+  if (!loaded_segments_contain_addr(*entry_out)) return EFI_LOAD_ERROR;
+  return EFI_SUCCESS;
+}
+
 static void *find_acpi_rsdp(void) {
   EFI_GUID acpi2 = ACPI_20_TABLE_GUID;
   EFI_GUID acpi1 = ACPI_TABLE_GUID;
@@ -597,9 +683,14 @@ static void patch_limine_requests(void *fb_resp, void *hhdm_resp,
   }
 }
 
-static EFI_STATUS exit_boot_services_with_map(void) {
+static EFI_STATUS exit_boot_services_with_map(uint64_t *map_base_out,
+                                              uint64_t *map_size_out,
+                                              uint64_t *desc_size_out,
+                                              uint32_t *desc_version_out) {
   void *map = NULL;
   uint64_t map_capacity = 0;
+  uint64_t map_base = 0;
+  uint64_t map_allocation_size = 0;
   uint64_t desc_size = 0;
   uint32_t desc_version = 0;
 
@@ -617,9 +708,11 @@ static EFI_STATUS exit_boot_services_with_map(void) {
       if (u64_mul_overflow(desc_size, 32, &map_capacity) ||
           u64_add_overflow(map_size, map_capacity, &map_capacity))
         return EFI_OUT_OF_RESOURCES;
-      status = g_st->BootServices->AllocatePool(EfiLoaderData, map_capacity,
-                                                &map);
+      status = alloc_zero_bytes_below(map_capacity, OS8_XNU_BOOT_ARGS_MAX_ADDRESS,
+                                      &map_base, &map_allocation_size);
       if (EFI_ERROR(status)) return status;
+      map = (void *)(uintptr_t)map_base;
+      map_capacity = map_allocation_size;
     }
 
     map_size = map_capacity;
@@ -631,14 +724,23 @@ static EFI_STATUS exit_boot_services_with_map(void) {
       if (u64_mul_overflow(desc_size, 32, &extra) ||
           u64_add_overflow(map_size, extra, &map_capacity))
         return EFI_OUT_OF_RESOURCES;
-      g_st->BootServices->FreePool(map);
+      g_st->BootServices->FreePages((EFI_PHYSICAL_ADDRESS)(uintptr_t)map,
+                                    map_allocation_size >> 12);
       map = NULL;
+      map_base = 0;
+      map_allocation_size = 0;
       continue;
     }
     if (EFI_ERROR(status)) return status;
 
     status = g_st->BootServices->ExitBootServices(g_image, map_key);
-    if (!EFI_ERROR(status)) return EFI_SUCCESS;
+    if (!EFI_ERROR(status)) {
+      if (map_base_out) *map_base_out = (uint64_t)(uintptr_t)map;
+      if (map_size_out) *map_size_out = map_size;
+      if (desc_size_out) *desc_size_out = desc_size;
+      if (desc_version_out) *desc_version_out = desc_version;
+      return EFI_SUCCESS;
+    }
   }
 
   return EFI_LOAD_ERROR;
@@ -652,6 +754,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
   uint64_t kernel_size = 0;
   char kernel_hash[80];
   char kernel_path_ascii[128];
+  char kernel_format[16];
   static CHAR16 kernel_path[128] = L"\\boot\\main.sys";
   EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
   EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
@@ -661,7 +764,11 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
   uint64_t entry = 0;
   uint64_t pml4_phys = 0;
   OS8_BOOT_HANDOFF *handoff = NULL;
+  os8_xnu_x86_64_boot_args_t *xnu_boot_args = NULL;
+  uint64_t xnu_boot_args_phys = 0;
+  uint64_t xnu_kernel_size = 0;
   void *rsdp = NULL;
+  int xnu_mode = 0;
 
   g_st = st;
   g_image = image;
@@ -679,6 +786,9 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     }
     kernel_path[i] = 0;
   }
+  xnu_mode = cfg_get((const char *)cfg_data, "kernel_format", kernel_format,
+                     sizeof(kernel_format)) &&
+             efi_streq(kernel_format, "xnu");
 
   status = efi_read_file(image, st, kernel_path, &kernel, &kernel_size);
   if (EFI_ERROR(status)) return error("KERNEL-0001", "The kernel could not be loaded.", status);
@@ -687,41 +797,105 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
       !verify_buffer(kernel, kernel_size, kernel_hash)) {
     return error("KERNEL-0002", "The kernel is not trusted.", EFI_SECURITY_VIOLATION);
   }
-  if (!valid_elf64_kernel(kernel, kernel_size)) {
-    return error("KERNEL-0003", "The verified kernel is not a supported x86_64 ELF image.", EFI_LOAD_ERROR);
-  }
-
   status = st->BootServices->LocateProtocol(&gop_guid, NULL, (void **)&gop);
   if (EFI_ERROR(status)) return error("KERNEL-0004", "Graphics output protocol is unavailable.", status);
   if (!gop_framebuffer_is_sane(gop))
     return error("KERNEL-0004", "Graphics output mode is invalid.", EFI_UNSUPPORTED);
 
-  if (!find_elf_symbol(kernel, kernel_size, "_start_from_loader", &entry)) {
-    return error("KERNEL-0005", "The custom kernel entry point is missing.", EFI_LOAD_ERROR);
-  }
-
-  status = load_elf_segments(kernel, kernel_size, &entry);
-  if (EFI_ERROR(status)) return error("KERNEL-0005", "The verified kernel could not be mapped.", status);
-
   rsdp = find_acpi_rsdp();
-  status = allocate_limine_responses(gop, rsdp,
-                                     g_kernel_physical_base, &fb_resp,
-                                     &hhdm_resp, &addr_resp, &rsdp_resp,
-                                     &boot_context, &boot_context_size);
-  if (EFI_ERROR(status)) return error("KERNEL-0006", "Boot context allocation failed.", status);
-  patch_limine_requests(fb_resp, hhdm_resp, addr_resp, rsdp_resp);
-  status = allocate_os8_handoff(gop, rsdp, kernel, kernel_size, &handoff);
-  if (EFI_ERROR(status)) return error("KERNEL-0006", "OS8 handoff allocation failed.", status);
+
+  if (xnu_mode) {
+    os8_xnu_macho64_image_t macho;
+    uint64_t boot_args_allocation_size = 0;
+    if (!valid_xnu_macho64_kernel(kernel, kernel_size, &macho)) {
+      return error("KERNEL-0003", "The verified XNU kernel is not a supported x86_64 Mach-O image.", EFI_LOAD_ERROR);
+    }
+    xnu_kernel_size = macho.highest_vmaddr - macho.lowest_vmaddr;
+    status = load_xnu_macho64_segments(kernel, kernel_size, &macho, &entry);
+    if (EFI_ERROR(status)) return error("KERNEL-0005", "The verified XNU kernel could not be mapped.", status);
+    if (xnu_kernel_size > 0xffffffffULL ||
+        g_kernel_physical_base > 0xffffffffULL ||
+        (uint64_t)(uintptr_t)st > 0xffffffffULL ||
+        gop->Mode->FrameBufferBase > 0xffffffffULL) {
+      return error("KERNEL-0005", "The XNU handoff requires boot inputs below 4G.", EFI_LOAD_ERROR);
+    }
+    status = alloc_zero_bytes_below(sizeof(*xnu_boot_args),
+                                    OS8_XNU_BOOT_ARGS_MAX_ADDRESS,
+                                    &xnu_boot_args_phys,
+                                    &boot_args_allocation_size);
+    if (EFI_ERROR(status)) return error("KERNEL-0006", "XNU boot args allocation failed.", status);
+    (void)boot_args_allocation_size;
+    xnu_boot_args = (os8_xnu_x86_64_boot_args_t *)(uintptr_t)xnu_boot_args_phys;
+  } else {
+    if (!valid_elf64_kernel(kernel, kernel_size)) {
+      return error("KERNEL-0003", "The verified kernel is not a supported x86_64 ELF image.", EFI_LOAD_ERROR);
+    }
+    if (!find_elf_symbol(kernel, kernel_size, "_start_from_loader", &entry)) {
+      return error("KERNEL-0005", "The custom kernel entry point is missing.", EFI_LOAD_ERROR);
+    }
+    status = load_elf_segments(kernel, kernel_size, &entry);
+    if (EFI_ERROR(status)) return error("KERNEL-0005", "The verified kernel could not be mapped.", status);
+
+    status = allocate_limine_responses(gop, rsdp,
+                                       g_kernel_physical_base, &fb_resp,
+                                       &hhdm_resp, &addr_resp, &rsdp_resp,
+                                       &boot_context, &boot_context_size);
+    if (EFI_ERROR(status)) return error("KERNEL-0006", "Boot context allocation failed.", status);
+    patch_limine_requests(fb_resp, hhdm_resp, addr_resp, rsdp_resp);
+    status = allocate_os8_handoff(gop, rsdp, kernel, kernel_size, &handoff);
+    if (EFI_ERROR(status)) return error("KERNEL-0006", "OS8 handoff allocation failed.", status);
+  }
 
   status = build_page_tables(kernel, gop->Mode->FrameBufferBase,
                              gop->Mode->FrameBufferSize,
                              (uint64_t)(uintptr_t)boot_context,
-                             boot_context_size, (uint64_t)(uintptr_t)handoff,
-                             sizeof(*handoff), &pml4_phys);
+                             boot_context_size,
+                             xnu_mode ? xnu_boot_args_phys
+                                      : (uint64_t)(uintptr_t)handoff,
+                             xnu_mode ? sizeof(*xnu_boot_args)
+                                      : sizeof(*handoff),
+                             &pml4_phys);
   if (EFI_ERROR(status)) return error("KERNEL-0007", "Kernel page table creation failed.", status);
 
   efi_print(st, "Kernel verified and loaded. Exiting boot services...\n");
-  status = exit_boot_services_with_map();
+  if (xnu_mode) {
+    uint64_t memory_map_base = 0;
+    uint64_t memory_map_size = 0;
+    uint64_t descriptor_size = 0;
+    uint32_t descriptor_version = 0;
+    os8_xnu_x86_64_boot_args_input_t boot_args_input;
+
+    status = exit_boot_services_with_map(&memory_map_base, &memory_map_size,
+                                         &descriptor_size,
+                                         &descriptor_version);
+    if (EFI_ERROR(status)) return error("KERNEL-0008", "ExitBootServices failed.", status);
+    efi_memset(&boot_args_input, 0, sizeof(boot_args_input));
+    boot_args_input.boot_args_base = xnu_boot_args_phys;
+    boot_args_input.memory_map_base = memory_map_base;
+    boot_args_input.memory_map_size = memory_map_size;
+    boot_args_input.memory_map_descriptor_size = descriptor_size;
+    boot_args_input.memory_map_descriptor_version = descriptor_version;
+    boot_args_input.kernel_base = g_kernel_physical_base;
+    boot_args_input.kernel_size = xnu_kernel_size;
+    boot_args_input.efi_system_table = (uint64_t)(uintptr_t)st;
+    boot_args_input.command_line = "debug=0x144 keepsyms=1";
+    boot_args_input.command_line_size = 21;
+    boot_args_input.framebuffer.base = gop->Mode->FrameBufferBase;
+    boot_args_input.framebuffer.size = gop->Mode->FrameBufferSize;
+    boot_args_input.framebuffer.width = gop->Mode->Info->HorizontalResolution;
+    boot_args_input.framebuffer.height = gop->Mode->Info->VerticalResolution;
+    boot_args_input.framebuffer.pitch =
+        (uint64_t)gop->Mode->Info->PixelsPerScanLine * 4;
+    boot_args_input.framebuffer.pixel_format =
+        (uint32_t)gop->Mode->Info->PixelFormat;
+    if (os8_xnu_x86_64_boot_args_build(xnu_boot_args, &boot_args_input) != 0) {
+      startup_enter_xnu_kernel(pml4_phys, entry, 0);
+    }
+    startup_enter_xnu_kernel(pml4_phys, entry, xnu_boot_args_phys);
+    return EFI_SUCCESS;
+  } else {
+    status = exit_boot_services_with_map(NULL, NULL, NULL, NULL);
+  }
   if (EFI_ERROR(status)) return error("KERNEL-0008", "ExitBootServices failed.", status);
 
   startup_enter_kernel(pml4_phys, entry, handoff);

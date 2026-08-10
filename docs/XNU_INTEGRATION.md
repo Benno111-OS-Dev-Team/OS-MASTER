@@ -92,6 +92,12 @@ that enters x86_64 XNU. The shim loads the selected page table and jumps to the
 kernel entry with the physical `boot_args` address in `%edi`, matching XNU's
 `osfmk/x86_64/start.s` bootstrap contract.
 
+The custom x86_64 startup executable now keeps the OS8 ELF path as the default
+and selects the XNU Mach-O64 path when `os8boot.cfg` contains
+`kernel_format=xnu`. That path validates the trusted payload as XNU Mach-O64,
+loads its segments, prepares the XNU EFI `boot_args`, captures the final EFI
+memory map, and enters through `startup_enter_xnu_kernel`.
+
 Local usage:
 
 ```sh

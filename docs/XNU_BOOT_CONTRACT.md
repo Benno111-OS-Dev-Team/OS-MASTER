@@ -17,6 +17,7 @@ must live under project-owned paths.
 - UEFI handoff helper: `boot/xnu/xnu_uefi_handoff.h`
 - x86_64 EFI boot args builder: `boot/xnu/xnu_x86_64_boot_args.h`
 - x86_64 entry handoff shim: `boot/custom/startup-handoff.S`
+- x86_64 startup loader: `boot/custom/startup.c`
 - Source boot surface verifier: `scripts/check-xnu-boot-surface.sh`
 - Provider media: `image/xnu-<arch>-provider.tar.gz`
 
@@ -68,6 +69,10 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - The x86_64 UEFI entry shim must expose `startup_enter_xnu_kernel`, load the
   selected page table into `CR3`, place the 32-bit physical `boot_args` address
   in `%edi`, clear `%rbp`, and jump to the selected XNU entry address.
+- The x86_64 startup loader must accept `kernel_format=xnu`, validate the
+  trusted payload as XNU Mach-O64, load Mach-O segments, build XNU EFI
+  `boot_args`, capture the final EFI memory map, and enter through the XNU
+  entry shim without using the OS8 ELF/Limine handoff.
 - The packaged Mach-O payload inspector must compile against the packaged ABI
   and expose validated segment file offsets, virtual ranges, protections, and
   entry metadata for the selected architecture before a loader enters XNU.

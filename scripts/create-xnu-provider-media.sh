@@ -21,6 +21,7 @@ macho_loader="boot/xnu/xnu_macho_loader.h"
 uefi_handoff="boot/xnu/xnu_uefi_handoff.h"
 x86_64_boot_args="boot/xnu/xnu_x86_64_boot_args.h"
 x86_64_entry_handoff="boot/custom/startup-handoff.S"
+x86_64_startup_loader="boot/custom/startup.c"
 handoff_script="scripts/create-xnu-boot-handoff.sh"
 boot_plan_script="scripts/create-xnu-boot-plan.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
@@ -58,6 +59,10 @@ if [ ! -f "$x86_64_entry_handoff" ]; then
   echo "error: XNU x86_64 entry handoff shim is missing: $x86_64_entry_handoff" >&2
   exit 1
 fi
+if [ ! -f "$x86_64_startup_loader" ]; then
+  echo "error: XNU x86_64 startup loader is missing: $x86_64_startup_loader" >&2
+  exit 1
+fi
 if [ ! -x "$handoff_script" ]; then
   echo "error: XNU boot handoff generator is missing or not executable: $handoff_script" >&2
   exit 1
@@ -78,6 +83,7 @@ cp "$macho_loader" "$media_root/boot/xnu/xnu_macho_loader.h"
 cp "$uefi_handoff" "$media_root/boot/xnu/xnu_uefi_handoff.h"
 cp "$x86_64_boot_args" "$media_root/boot/xnu/xnu_x86_64_boot_args.h"
 cp "$x86_64_entry_handoff" "$media_root/boot/custom/startup-handoff.S"
+cp "$x86_64_startup_loader" "$media_root/boot/custom/startup.c"
 if [ -f "$kernel_artifact" ]; then
   cp "$kernel_artifact" "$media_root/kernel/$(basename "$kernel_artifact")"
   payload_mode="compiled"
@@ -103,6 +109,7 @@ cp "$boot_plan_manifest" "$media_root/metadata/xnu-boot-plan.manifest"
   printf 'uefi_handoff=boot/xnu/xnu_uefi_handoff.h\n'
   printf 'x86_64_boot_args=boot/xnu/xnu_x86_64_boot_args.h\n'
   printf 'x86_64_entry_handoff=boot/custom/startup-handoff.S\n'
+  printf 'x86_64_startup_loader=boot/custom/startup.c\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'boot_plan=metadata/xnu-boot-plan.manifest\n'
 } > "$media_root/metadata/media.manifest"
