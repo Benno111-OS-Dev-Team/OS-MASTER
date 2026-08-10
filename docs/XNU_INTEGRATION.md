@@ -20,6 +20,11 @@ provider compilation. It fetches XNU as read-only external input, runs the same
 `KERNEL_PROVIDER=xnu` Makefile path, verifies the compiled provider artifact and
 media archive, and uploads the provider media as a workflow artifact.
 
+Before the macOS build starts, `make -f Makefile.multiarch
+KERNEL_PROVIDER=xnu ARCH=<arch> check-xnu-build-env` verifies the Xcode tools,
+SDK, standalone Apple XNU checkout identity, clean source state, and required
+KDK path for ARM64 builds.
+
 The selected kernel payload path is provider-owned:
 
 - XNU: `build/<arch>/kernel/xnu-<arch>.kernel`

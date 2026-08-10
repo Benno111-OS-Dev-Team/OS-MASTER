@@ -24,6 +24,7 @@ BOOTMANAGER_DIR := $(ROOT_DIR)/bootmanager
 KERNEL_DIR := $(ROOT_DIR)/kernel
 XNU_SOURCE_DIR ?= $(ROOT_DIR)/External/xnu
 XNU_BUILD_SCRIPT := $(ROOT_DIR)/scripts/build-xnu-kernel.sh
+XNU_ENV_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-build-env.sh
 XNU_MEDIA_SCRIPT := $(ROOT_DIR)/scripts/create-xnu-provider-media.sh
 DRIVERS_DIR := $(ROOT_DIR)/drivers
 LIBC_DIR := $(ROOT_DIR)/libc
@@ -233,7 +234,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean check-source-complete check-xnu-integration require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete check-xnu-integration check-xnu-build-env require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 .NOTPARALLEL: image system-image install-boot-files installer-image dos-env-image dos-installer qemu qemu-bios qemu-uefi qemu-debug
 
 all: check-source-complete kernel image
@@ -288,6 +289,9 @@ check-source-complete:
 
 check-xnu-integration:
 	@XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" bash "$(ROOT_DIR)/scripts/check-xnu-integration.sh"
+
+check-xnu-build-env: check-xnu-integration
+	@SDKROOT="$(SDKROOT)" KDKROOT="$(KDKROOT)" bash "$(XNU_ENV_SCRIPT)" "$(ARCH)" "$(XNU_SOURCE_DIR)"
 
 require-os8-kernel-provider:
 ifneq ($(KERNEL_PROVIDER),os8)

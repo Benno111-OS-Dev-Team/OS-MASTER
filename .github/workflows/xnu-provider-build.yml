@@ -46,7 +46,18 @@ jobs:
           set -euxo pipefail
           sw_vers
           xcodebuild -version
-          xcrun --sdk "${{ inputs.sdkroot }}" --show-sdk-path
+
+      - name: Check XNU build environment
+        run: |
+          set -euxo pipefail
+          if [ -n "${{ inputs.kdkroot }}" ]; then
+            export KDKROOT="${{ inputs.kdkroot }}"
+          fi
+          make -f Makefile.multiarch \
+            KERNEL_PROVIDER=xnu \
+            ARCH="${{ inputs.arch }}" \
+            SDKROOT="${{ inputs.sdkroot }}" \
+            check-xnu-build-env
 
       - name: Build selected XNU provider
         run: |
