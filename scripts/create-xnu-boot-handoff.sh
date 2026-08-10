@@ -86,7 +86,7 @@ esac
   printf 'cpu_topology=required\n'
   printf 'timer=required\n'
   printf 'platform_data=%s\n' "$platform_data"
-  printf 'framebuffer=optional\n'
+  printf 'framebuffer=required\n'
   printf 'early_userspace=deferred\n'
   printf 'external_source_policy=read-only\n'
 } > "$handoff_manifest"

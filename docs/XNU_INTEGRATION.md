@@ -63,8 +63,9 @@ The provider build path and CI both run this before accepting XNU media.
 
 `scripts/check-xnu-provider-media.sh` is the CI gate for provider archives. It
 validates the provider manifest, media manifest, boot contract, source policy,
-architecture, payload mode, generated boot handoff manifest, packaged boot
-handoff ABI, and compiled kernel payload when present.
+architecture, payload mode, generated boot handoff manifest, generated boot
+plan manifest, packaged boot handoff ABI, and compiled kernel payload when
+present.
 
 `make check-xnu-boot-abi` compiles a small C translation unit against
 `boot/xnu/xnu_boot_handoff.h` and verifies the magic, version, enum values,

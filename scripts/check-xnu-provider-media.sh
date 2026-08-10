@@ -34,13 +34,14 @@ tar -xzf "$archive" -C "$tmp_dir"
 provider_manifest="$tmp_dir/metadata/xnu-provider.manifest"
 media_manifest="$tmp_dir/metadata/media.manifest"
 handoff_manifest="$tmp_dir/metadata/xnu-boot-handoff.manifest"
+boot_plan_manifest="$tmp_dir/metadata/xnu-boot-plan.manifest"
 boot_contract="$tmp_dir/docs/XNU_BOOT_CONTRACT.md"
 handoff_abi="$tmp_dir/boot/xnu/xnu_boot_handoff.h"
 handoff_builder="$tmp_dir/boot/xnu/xnu_boot_handoff_builder.h"
 abi_check_script="scripts/check-xnu-boot-abi.sh"
 abi_manifest="$tmp_dir/metadata/xnu-boot-abi.generated"
 
-for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder"; do
+for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_plan_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider archive is missing required file: ${required#$tmp_dir/}" >&2
     exit 1
@@ -84,6 +85,7 @@ contract_path="$(manifest_value boot_contract "$media_manifest")"
 handoff_abi_path="$(manifest_value handoff_abi "$media_manifest")"
 handoff_builder_path="$(manifest_value handoff_builder "$media_manifest")"
 handoff_path="$(manifest_value boot_handoff "$media_manifest")"
+boot_plan_path="$(manifest_value boot_plan "$media_manifest")"
 
 if [ "$provider" != "xnu" ] || [ "$media_provider" != "xnu" ]; then
   echo "error: provider media does not identify the XNU provider" >&2
@@ -117,6 +119,11 @@ fi
 
 if [ "$handoff_path" != "metadata/xnu-boot-handoff.manifest" ]; then
   echo "error: provider media points at unexpected boot handoff: $handoff_path" >&2
+  exit 1
+fi
+
+if [ "$boot_plan_path" != "metadata/xnu-boot-plan.manifest" ]; then
+  echo "error: provider media points at unexpected boot plan: $boot_plan_path" >&2
   exit 1
 fi
 
@@ -166,6 +173,7 @@ handoff_framebuffer_offset="$(manifest_value handoff_framebuffer_offset "$handof
 handoff_arch_id="$(manifest_value handoff_arch_id "$handoff_manifest")"
 handoff_platform_kind="$(manifest_value handoff_platform_kind "$handoff_manifest")"
 handoff_required_flags="$(manifest_value handoff_required_flags "$handoff_manifest")"
+handoff_framebuffer="$(manifest_value framebuffer "$handoff_manifest")"
 
 for required_key in contract_version boot_args memory_map firmware_state cpu_topology timer platform_data framebuffer early_userspace handoff_abi handoff_magic handoff_version handoff_struct handoff_struct_size handoff_framebuffer_offset handoff_arch_id handoff_platform_kind handoff_required_flags; do
   if ! manifest_value "$required_key" "$handoff_manifest" >/dev/null; then
@@ -224,6 +232,11 @@ if [ "$handoff_policy" != "read-only" ]; then
   exit 1
 fi
 
+if [ "$handoff_framebuffer" != "required" ]; then
+  echo "error: boot handoff manifest must require framebuffer input" >&2
+  exit 1
+fi
+
 if [ "$handoff_abi_ref" != "boot/xnu/xnu_boot_handoff.h" ] ||
    [ "$handoff_magic" != "0x584E55424F4F5431" ] ||
    [ "$handoff_version" != "1" ] ||
@@ -262,6 +275,50 @@ if [ "$handoff_arch_id" != "$expected_arch_id" ] ||
    [ "$handoff_platform_kind" != "$expected_platform_kind" ] ||
    [ "$handoff_required_flags" != "$expected_flags" ]; then
   echo "error: boot handoff target metadata is inconsistent for $arch" >&2
+  exit 1
+fi
+
+boot_plan_provider="$(manifest_value provider "$boot_plan_manifest")"
+boot_plan_arch="$(manifest_value arch "$boot_plan_manifest")"
+boot_plan_kernel="$(manifest_value kernel_artifact "$boot_plan_manifest")"
+boot_plan_payload="$(manifest_value payload_mode "$boot_plan_manifest")"
+boot_plan_policy="$(manifest_value external_source_policy "$boot_plan_manifest")"
+boot_plan_abi="$(manifest_value handoff_abi "$boot_plan_manifest")"
+boot_plan_builder="$(manifest_value handoff_builder "$boot_plan_manifest")"
+boot_plan_handoff="$(manifest_value boot_handoff "$boot_plan_manifest")"
+boot_plan_platform_kind="$(manifest_value platform_kind "$boot_plan_manifest")"
+boot_plan_arch_id="$(manifest_value handoff_arch_id "$boot_plan_manifest")"
+boot_plan_flags="$(manifest_value handoff_required_flags "$boot_plan_manifest")"
+boot_plan_inputs="$(manifest_value required_loader_inputs "$boot_plan_manifest")"
+
+for required_key in plan_version entry_protocol firmware_state platform_data loader_step_1 loader_step_2 loader_step_3 loader_step_4 loader_step_5 loader_step_6 loader_step_7 loader_step_8; do
+  if ! manifest_value "$required_key" "$boot_plan_manifest" >/dev/null; then
+    echo "error: boot plan manifest is missing required key: $required_key" >&2
+    exit 1
+  fi
+done
+
+if [ "$boot_plan_provider" != "xnu" ] ||
+   [ "$boot_plan_arch" != "$arch" ] ||
+   [ "$boot_plan_kernel" != "$kernel_artifact" ] ||
+   [ "$boot_plan_payload" != "$payload_mode" ] ||
+   [ "$boot_plan_policy" != "read-only" ] ||
+   [ "$boot_plan_abi" != "boot/xnu/xnu_boot_handoff.h" ] ||
+   [ "$boot_plan_builder" != "boot/xnu/xnu_boot_handoff_builder.h" ] ||
+   [ "$boot_plan_handoff" != "metadata/xnu-boot-handoff.manifest" ]; then
+  echo "error: boot plan manifest does not match provider media metadata" >&2
+  exit 1
+fi
+
+if [ "$boot_plan_platform_kind" != "$handoff_platform_kind" ] ||
+   [ "$boot_plan_arch_id" != "$handoff_arch_id" ] ||
+   [ "$boot_plan_flags" != "$handoff_required_flags" ]; then
+  echo "error: boot plan target metadata does not match boot handoff manifest" >&2
+  exit 1
+fi
+
+if [ "$boot_plan_inputs" != "kernel,boot_args,memory_map,platform_data,timer,cpu_topology,framebuffer" ]; then
+  echo "error: boot plan loader input set is incomplete: $boot_plan_inputs" >&2
   exit 1
 fi
 

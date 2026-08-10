@@ -10,6 +10,7 @@ must live under project-owned paths.
 - Kernel payload: `build/<arch>/kernel/xnu-<arch>.kernel`
 - Provider manifest: `build/<arch>/kernel/xnu-provider.manifest`
 - Boot handoff manifest: `build/<arch>/xnu-boot/xnu-boot-handoff.manifest`
+- Boot plan manifest: `build/<arch>/xnu-boot/xnu-boot-plan.manifest`
 - Boot handoff ABI: `boot/xnu/xnu_boot_handoff.h`
 - Boot handoff builder: `boot/xnu/xnu_boot_handoff_builder.h`
 - Source boot surface verifier: `scripts/check-xnu-boot-surface.sh`
@@ -48,12 +49,16 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   header and compare it with the generated boot handoff manifest.
 - The packaged boot handoff builder must compile against the packaged ABI and
   populate all `os8_xnu_boot_handoff_t` fields from validated loader inputs.
+- The generated boot plan manifest must enumerate the selected XNU entry
+  protocol and the loader steps required to enter the selected kernel payload.
 - The external XNU checkout must pass the source boot surface verifier for the
   target architecture before CI accepts provider media.
 - Release or workflow artifacts must include this contract with the provider
   media.
 - Release or workflow artifacts must include the generated boot handoff
   manifest with the provider media.
+- Release or workflow artifacts must include the generated boot plan manifest
+  with the provider media.
 - A provider media archive that does not contain a compiled kernel payload must
   mark `payload_mode=source-validation`.
 - A provider media archive that contains a compiled kernel payload must mark

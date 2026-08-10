@@ -18,7 +18,9 @@ boot_contract="docs/XNU_BOOT_CONTRACT.md"
 handoff_abi="boot/xnu/xnu_boot_handoff.h"
 handoff_builder="boot/xnu/xnu_boot_handoff_builder.h"
 handoff_script="scripts/create-xnu-boot-handoff.sh"
+boot_plan_script="scripts/create-xnu-boot-plan.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
+boot_plan_manifest="$build_dir/xnu-boot/xnu-boot-plan.manifest"
 
 if [ ! -f "$manifest" ]; then
   echo "error: XNU provider manifest is missing: $manifest" >&2
@@ -40,6 +42,10 @@ if [ ! -x "$handoff_script" ]; then
   echo "error: XNU boot handoff generator is missing or not executable: $handoff_script" >&2
   exit 1
 fi
+if [ ! -x "$boot_plan_script" ]; then
+  echo "error: XNU boot plan generator is missing or not executable: $boot_plan_script" >&2
+  exit 1
+fi
 
 rm -rf "$media_root"
 mkdir -p "$media_root/kernel" "$media_root/metadata" "$media_root/docs" "$media_root/boot/xnu" "$image_dir"
@@ -56,7 +62,9 @@ else
 fi
 
 bash "$handoff_script" "$arch" "$build_dir" "$kernel_artifact" "$payload_mode"
+bash "$boot_plan_script" "$arch" "$build_dir" "$kernel_artifact" "$payload_mode"
 cp "$handoff_manifest" "$media_root/metadata/xnu-boot-handoff.manifest"
+cp "$boot_plan_manifest" "$media_root/metadata/xnu-boot-plan.manifest"
 
 {
   printf 'provider=xnu\n'
@@ -68,6 +76,7 @@ cp "$handoff_manifest" "$media_root/metadata/xnu-boot-handoff.manifest"
   printf 'handoff_abi=boot/xnu/xnu_boot_handoff.h\n'
   printf 'handoff_builder=boot/xnu/xnu_boot_handoff_builder.h\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
+  printf 'boot_plan=metadata/xnu-boot-plan.manifest\n'
 } > "$media_root/metadata/media.manifest"
 
 cat > "$media_root/README.txt" <<EOF
