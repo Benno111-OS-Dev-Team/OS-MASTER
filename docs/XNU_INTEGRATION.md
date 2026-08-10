@@ -27,6 +27,8 @@ media archive, and uploads the provider media as a workflow artifact.
 It also writes `build/<arch>/xnu-proof/xnu-provider-proof.manifest`, which ties
 the source commit, provider archive hash, kernel artifact hash, and, for x86_64,
 the compiled UEFI image and smoke-log hashes to the successful workflow run.
+The workflow verifies that manifest with `scripts/check-xnu-provider-proof.sh`
+before uploading artifacts.
 For reproducible proof runs, pass the optional `xnu_ref` input to build a
 specific Apple OSS XNU ref, tag, or commit; the provider manifest records the
 resolved source commit.

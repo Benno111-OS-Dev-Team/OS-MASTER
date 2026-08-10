@@ -116,12 +116,24 @@ jobs:
               "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel" \
               image/xnu-x86_64-uefi.img \
               build/x86_64/xnu-smoke/qemu-serial.log
+            bash scripts/check-xnu-provider-proof.sh \
+              "${{ inputs.arch }}" \
+              "build/${{ inputs.arch }}/xnu-proof/xnu-provider-proof.manifest" \
+              "$manifest" \
+              "$archive" \
+              image/xnu-x86_64-uefi.img \
+              build/x86_64/xnu-smoke/qemu-serial.log
           else
             bash scripts/create-xnu-provider-proof.sh \
               "${{ inputs.arch }}" \
               "$manifest" \
               "$archive" \
               "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
+            bash scripts/check-xnu-provider-proof.sh \
+              "${{ inputs.arch }}" \
+              "build/${{ inputs.arch }}/xnu-proof/xnu-provider-proof.manifest" \
+              "$manifest" \
+              "$archive"
           fi
           {
             echo "## XNU provider"
