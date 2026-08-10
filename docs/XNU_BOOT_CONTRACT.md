@@ -42,6 +42,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   boot flags used by the packaged ABI.
 - The generated boot handoff manifest must publish every
   `os8_xnu_boot_handoff_t` field as `handoff_field_<name>=<offset>:<type>`.
+- Provider media verification must derive ABI layout metadata from the packaged
+  header and compare it with the generated boot handoff manifest.
 - Release or workflow artifacts must include this contract with the provider
   media.
 - Release or workflow artifacts must include the generated boot handoff

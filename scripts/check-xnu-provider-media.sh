@@ -36,6 +36,8 @@ media_manifest="$tmp_dir/metadata/media.manifest"
 handoff_manifest="$tmp_dir/metadata/xnu-boot-handoff.manifest"
 boot_contract="$tmp_dir/docs/XNU_BOOT_CONTRACT.md"
 handoff_abi="$tmp_dir/boot/xnu/xnu_boot_handoff.h"
+abi_check_script="scripts/check-xnu-boot-abi.sh"
+abi_manifest="$tmp_dir/metadata/xnu-boot-abi.generated"
 
 for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract" "$handoff_abi"; do
   if [ ! -s "$required" ]; then
@@ -44,8 +46,25 @@ for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boo
   fi
 done
 
+if [ ! -x "$abi_check_script" ]; then
+  echo "error: XNU boot ABI checker is missing or not executable: $abi_check_script" >&2
+  exit 1
+fi
+
+bash "$abi_check_script" "$handoff_abi" --emit-manifest > "$abi_manifest"
+
 manifest_value() {
   awk -F= -v key="$1" '$1 == key { print substr($0, length(key) + 2); found=1; exit } END { if (!found) exit 1 }' "$2"
+}
+
+manifest_matches_abi() {
+  key="$1"
+  handoff_value="$(manifest_value "$key" "$handoff_manifest")"
+  abi_value="$(manifest_value "$key" "$abi_manifest")"
+  if [ "$handoff_value" != "$abi_value" ]; then
+    echo "error: boot handoff metadata does not match packaged ABI: $key" >&2
+    exit 1
+  fi
 }
 
 provider="$(manifest_value provider "$provider_manifest")"
@@ -207,6 +226,17 @@ if [ "$handoff_abi_ref" != "boot/xnu/xnu_boot_handoff.h" ] ||
   echo "error: boot handoff ABI metadata is inconsistent" >&2
   exit 1
 fi
+
+for abi_key in handoff_magic handoff_version handoff_struct handoff_struct_size handoff_framebuffer_offset; do
+  manifest_matches_abi "$abi_key"
+done
+
+printf '%s\n' "$expected_fields" | while IFS= read -r expected_field; do
+  if [ -z "$expected_field" ]; then
+    continue
+  fi
+  manifest_matches_abi "${expected_field%%=*}"
+done
 
 case "$arch" in
   x86_64)

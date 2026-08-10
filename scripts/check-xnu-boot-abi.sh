@@ -2,10 +2,13 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-header="$root/boot/xnu/xnu_boot_handoff.h"
+header="${1:-$root/boot/xnu/xnu_boot_handoff.h}"
+emit_manifest="${2:-}"
 work_dir="${TMPDIR:-/tmp}/os8-xnu-abi-check.$$"
 source_file="$work_dir/check.c"
 object_file="$work_dir/check.o"
+binary_file="$work_dir/check"
+local_header="$work_dir/xnu_boot_handoff.h"
 
 cleanup() {
   rm -rf "$work_dir"
@@ -27,10 +30,12 @@ if [ -z "$cc_bin" ]; then
 fi
 
 mkdir -p "$work_dir"
+cp "$header" "$local_header"
 cat > "$source_file" <<'C'
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
-#include "boot/xnu/xnu_boot_handoff.h"
+#include "xnu_boot_handoff.h"
 
 #define CHECK(cond, name) typedef char check_##name[(cond) ? 1 : -1]
 
@@ -57,9 +62,39 @@ CHECK(offsetof(os8_xnu_boot_handoff_t, framebuffer) == 136, framebuffer_offset);
 CHECK(sizeof(os8_xnu_boot_handoff_t) == 168, handoff_size);
 
 int main(void) {
+  printf("handoff_magic=0x%llX\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_MAGIC);
+  printf("handoff_version=%llu\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_VERSION);
+  printf("handoff_struct=os8_xnu_boot_handoff_t\n");
+  printf("handoff_struct_size=%zu\n", sizeof(os8_xnu_boot_handoff_t));
+  printf("handoff_framebuffer_offset=%zu\n", offsetof(os8_xnu_boot_handoff_t, framebuffer));
+  printf("handoff_field_magic=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, magic));
+  printf("handoff_field_version=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, version));
+  printf("handoff_field_flags=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, flags));
+  printf("handoff_field_arch=%zu:uint32\n", offsetof(os8_xnu_boot_handoff_t, arch));
+  printf("handoff_field_platform_kind=%zu:uint32\n", offsetof(os8_xnu_boot_handoff_t, platform_kind));
+  printf("handoff_field_kernel_base=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, kernel_base));
+  printf("handoff_field_kernel_size=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, kernel_size));
+  printf("handoff_field_kernel_entry=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, kernel_entry));
+  printf("handoff_field_boot_args_base=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, boot_args_base));
+  printf("handoff_field_boot_args_size=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, boot_args_size));
+  printf("handoff_field_memory_map_base=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, memory_map_base));
+  printf("handoff_field_memory_map_entry_count=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, memory_map_entry_count));
+  printf("handoff_field_memory_map_entry_size=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, memory_map_entry_size));
+  printf("handoff_field_platform_data_base=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, platform_data_base));
+  printf("handoff_field_platform_data_size=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, platform_data_size));
+  printf("handoff_field_timer_frequency_hz=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, timer_frequency_hz));
+  printf("handoff_field_cpu_topology_base=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, cpu_topology_base));
+  printf("handoff_field_cpu_topology_size=%zu:uint64\n", offsetof(os8_xnu_boot_handoff_t, cpu_topology_size));
+  printf("handoff_field_framebuffer=%zu:os8_xnu_framebuffer_t\n", offsetof(os8_xnu_boot_handoff_t, framebuffer));
   return 0;
 }
 C
 
-"$cc_bin" -std=c11 -Wall -Wextra -I"$root" -c "$source_file" -o "$object_file"
+if [ "$emit_manifest" = "--emit-manifest" ]; then
+  "$cc_bin" -std=c11 -Wall -Wextra -I"$work_dir" "$source_file" -o "$binary_file"
+  "$binary_file"
+  exit 0
+fi
+
+"$cc_bin" -std=c11 -Wall -Wextra -I"$work_dir" -c "$source_file" -o "$object_file"
 echo "[XNU] Boot handoff ABI verified"

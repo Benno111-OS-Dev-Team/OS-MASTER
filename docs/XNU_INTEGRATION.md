@@ -64,6 +64,8 @@ handoff ABI, and compiled kernel payload when present.
 `make check-xnu-boot-abi` compiles a small C translation unit against
 `boot/xnu/xnu_boot_handoff.h` and verifies the magic, version, enum values,
 field offsets, and struct sizes used by the repository-owned handoff contract.
+The provider media verifier also emits layout metadata from the packaged copy
+of that header and compares it with `metadata/xnu-boot-handoff.manifest`.
 
 Local usage:
 
