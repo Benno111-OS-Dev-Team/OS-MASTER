@@ -465,6 +465,7 @@ grep -Eq 'mov[[:space:]]+%r8d,[[:space:]]*%edi' "$x86_64_entry_handoff"
 grep -q 'kernel_format' "$x86_64_startup_loader"
 grep -q 'valid_xnu_macho64_kernel' "$x86_64_startup_loader"
 grep -q 'load_xnu_macho64_segments' "$x86_64_startup_loader"
+grep -q 'alloc_zero_pages_below(total / 4096' "$x86_64_startup_loader"
 grep -q 'startup_enter_xnu_kernel' "$x86_64_startup_loader"
 
 echo "[XNU] Provider media verified: $archive"

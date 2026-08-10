@@ -7,6 +7,7 @@ build_dir="$work_dir/build/x86_64"
 image_dir="$work_dir/image"
 kernel="$build_dir/kernel/xnu-x86_64.kernel"
 image="$image_dir/xnu-x86_64-uefi.img"
+startup_source="$root/boot/custom/startup.c"
 
 cleanup() {
   rm -rf "$work_dir"
@@ -27,6 +28,10 @@ require_cmd mmd
 require_cmd mcopy
 require_cmd mdir
 require_cmd mtype
+
+grep -q 'load_xnu_macho64_segments' "$startup_source"
+grep -q 'alloc_zero_pages_below(total / 4096' "$startup_source"
+grep -q 'OS8_XNU_BOOT_ARGS_MAX_ADDRESS' "$startup_source"
 
 mkdir -p "$build_dir/kernel" "$image_dir"
 printf 'synthetic-xnu-kernel-for-uefi-image-check\n' > "$kernel"

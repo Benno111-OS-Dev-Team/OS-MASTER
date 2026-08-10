@@ -521,7 +521,9 @@ static EFI_STATUS load_xnu_macho64_segments(
       return EFI_LOAD_ERROR;
     }
     total = rounded & ~0xfffULL;
-    status = alloc_zero_pages(total / 4096, &phys_start);
+    status = alloc_zero_pages_below(total / 4096,
+                                    OS8_XNU_BOOT_ARGS_MAX_ADDRESS,
+                                    &phys_start);
     if (EFI_ERROR(status)) return status;
 
     efi_memset((void *)(uintptr_t)(phys_start + delta), 0, segment.vmsize);
