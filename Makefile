@@ -13,7 +13,7 @@ MULTIARCH_ARGS := -f $(MULTIARCH_MAKEFILE) ARCH=$(ARCH) KERNEL_PROVIDER=$(KERNEL
 UNAME_S := $(shell uname -s)
 
 .PHONY: all kernel image sdk qemu qemu-bios qemu-uefi qemu-debug clean distclean \
-        check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff \
+        check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff check-xnu-entry-handoff \
         storage-format-stress storage-driver-compile-check custom-uefi-chain \
         os8-all os8-kernel os8-image xnu-kernel xnu-image \
         x86_64 x86_64-kernel x86_64-image x86_64-qemu x86_64-qemu-bios \
@@ -21,7 +21,7 @@ UNAME_S := $(shell uname -s)
         drivers libc userspace runtimes test run run-gui run-gpu toolchain help
 
 all kernel image sdk qemu qemu-bios qemu-uefi qemu-debug clean check-source-complete \
-check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff storage-format-stress storage-driver-compile-check \
+check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff check-xnu-entry-handoff storage-format-stress storage-driver-compile-check \
 custom-uefi-chain xnu-kernel xnu-image:
 	@$(MAKE) $(MULTIARCH_ARGS) $@
 

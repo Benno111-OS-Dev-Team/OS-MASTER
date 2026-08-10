@@ -87,6 +87,11 @@ handoff header and compares it with `metadata/xnu-boot-handoff.manifest`.
 the same freestanding x86_64 Windows target style used by the custom UEFI boot
 chain, proving the packaged helpers are consumable from loader code.
 
+`make check-xnu-entry-handoff` compile-checks the custom UEFI assembly shim
+that enters x86_64 XNU. The shim loads the selected page table and jumps to the
+kernel entry with the physical `boot_args` address in `%edi`, matching XNU's
+`osfmk/x86_64/start.s` bootstrap contract.
+
 Local usage:
 
 ```sh

@@ -41,10 +41,11 @@ handoff_builder="$tmp_dir/boot/xnu/xnu_boot_handoff_builder.h"
 macho_loader="$tmp_dir/boot/xnu/xnu_macho_loader.h"
 uefi_handoff="$tmp_dir/boot/xnu/xnu_uefi_handoff.h"
 x86_64_boot_args="$tmp_dir/boot/xnu/xnu_x86_64_boot_args.h"
+x86_64_entry_handoff="$tmp_dir/boot/custom/startup-handoff.S"
 abi_check_script="scripts/check-xnu-boot-abi.sh"
 abi_manifest="$tmp_dir/metadata/xnu-boot-abi.generated"
 
-for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_plan_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder" "$macho_loader" "$uefi_handoff" "$x86_64_boot_args"; do
+for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_plan_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder" "$macho_loader" "$uefi_handoff" "$x86_64_boot_args" "$x86_64_entry_handoff"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider archive is missing required file: ${required#$tmp_dir/}" >&2
     exit 1
@@ -90,6 +91,7 @@ handoff_builder_path="$(manifest_value handoff_builder "$media_manifest")"
 macho_loader_path="$(manifest_value macho_loader "$media_manifest")"
 uefi_handoff_path="$(manifest_value uefi_handoff "$media_manifest")"
 x86_64_boot_args_path="$(manifest_value x86_64_boot_args "$media_manifest")"
+x86_64_entry_handoff_path="$(manifest_value x86_64_entry_handoff "$media_manifest")"
 handoff_path="$(manifest_value boot_handoff "$media_manifest")"
 boot_plan_path="$(manifest_value boot_plan "$media_manifest")"
 
@@ -135,6 +137,11 @@ fi
 
 if [ "$x86_64_boot_args_path" != "boot/xnu/xnu_x86_64_boot_args.h" ]; then
   echo "error: provider media points at unexpected x86_64 boot args builder: $x86_64_boot_args_path" >&2
+  exit 1
+fi
+
+if [ "$x86_64_entry_handoff_path" != "boot/custom/startup-handoff.S" ]; then
+  echo "error: provider media points at unexpected x86_64 entry handoff shim: $x86_64_entry_handoff_path" >&2
   exit 1
 fi
 
@@ -309,6 +316,7 @@ boot_plan_builder="$(manifest_value handoff_builder "$boot_plan_manifest")"
 boot_plan_macho_loader="$(manifest_value macho_loader "$boot_plan_manifest")"
 boot_plan_uefi_handoff="$(manifest_value uefi_handoff "$boot_plan_manifest")"
 boot_plan_x86_64_boot_args="$(manifest_value x86_64_boot_args "$boot_plan_manifest")"
+boot_plan_x86_64_entry_handoff="$(manifest_value x86_64_entry_handoff "$boot_plan_manifest")"
 boot_plan_handoff="$(manifest_value boot_handoff "$boot_plan_manifest")"
 boot_plan_platform_kind="$(manifest_value platform_kind "$boot_plan_manifest")"
 boot_plan_arch_id="$(manifest_value handoff_arch_id "$boot_plan_manifest")"
@@ -371,6 +379,7 @@ if [ "$boot_plan_provider" != "xnu" ] ||
    [ "$boot_plan_macho_loader" != "boot/xnu/xnu_macho_loader.h" ] ||
    [ "$boot_plan_uefi_handoff" != "boot/xnu/xnu_uefi_handoff.h" ] ||
    [ "$boot_plan_x86_64_boot_args" != "boot/xnu/xnu_x86_64_boot_args.h" ] ||
+   [ "$boot_plan_x86_64_entry_handoff" != "boot/custom/startup-handoff.S" ] ||
    [ "$boot_plan_handoff" != "metadata/xnu-boot-handoff.manifest" ]; then
   echo "error: boot plan manifest does not match provider media metadata" >&2
   exit 1
@@ -409,5 +418,7 @@ grep -q 'OS8_XNU_X86_64_BOOT_ARGS_SIZE 4096U' "$x86_64_boot_args"
 grep -q 'os8_xnu_x86_64_boot_args_t' "$x86_64_boot_args"
 grep -q 'os8_xnu_x86_64_boot_args_build' "$x86_64_boot_args"
 grep -q 'os8_xnu_boot_handoff_apply_x86_64_boot_args' "$x86_64_boot_args"
+grep -q 'startup_enter_xnu_kernel' "$x86_64_entry_handoff"
+grep -Eq 'mov[[:space:]]+%r8d,[[:space:]]*%edi' "$x86_64_entry_handoff"
 
 echo "[XNU] Provider media verified: $archive"

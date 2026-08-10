@@ -62,6 +62,7 @@ mkdir -p "$plan_dir"
   printf 'macho_loader=boot/xnu/xnu_macho_loader.h\n'
   printf 'uefi_handoff=boot/xnu/xnu_uefi_handoff.h\n'
   printf 'x86_64_boot_args=boot/xnu/xnu_x86_64_boot_args.h\n'
+  printf 'x86_64_entry_handoff=boot/custom/startup-handoff.S\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'loader_step_1=inspect-mach-o-and-load-segments\n'
   printf 'loader_step_2=%s\n' "$loader_step_2"
