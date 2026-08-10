@@ -14,6 +14,7 @@ must live under project-owned paths.
 - Boot handoff ABI: `boot/xnu/xnu_boot_handoff.h`
 - Boot handoff builder: `boot/xnu/xnu_boot_handoff_builder.h`
 - Mach-O payload inspector: `boot/xnu/xnu_macho_loader.h`
+- UEFI handoff helper: `boot/xnu/xnu_uefi_handoff.h`
 - Source boot surface verifier: `scripts/check-xnu-boot-surface.sh`
 - Provider media: `image/xnu-<arch>-provider.tar.gz`
 
@@ -55,6 +56,9 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - The packaged boot handoff builder must validate and apply boot arguments,
   memory map, platform data, timer, CPU topology, and framebuffer inputs before
   the final handoff is built.
+- The packaged UEFI handoff helper must convert UEFI memory descriptors into
+  `os8_xnu_range_t` entries and convert UEFI framebuffer geometry into the
+  repository-owned XNU handoff framebuffer format.
 - The packaged Mach-O payload inspector must compile against the packaged ABI
   and expose validated segment file offsets, virtual ranges, protections, and
   entry metadata for the selected architecture before a loader enters XNU.

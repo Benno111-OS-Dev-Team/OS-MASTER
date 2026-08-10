@@ -11,8 +11,10 @@ binary_file="$work_dir/check"
 local_header="$work_dir/xnu_boot_handoff.h"
 builder_header="$(dirname "$header")/xnu_boot_handoff_builder.h"
 macho_loader_header="$(dirname "$header")/xnu_macho_loader.h"
+uefi_handoff_header="$(dirname "$header")/xnu_uefi_handoff.h"
 local_builder="$work_dir/xnu_boot_handoff_builder.h"
 local_macho_loader="$work_dir/xnu_macho_loader.h"
+local_uefi_handoff="$work_dir/xnu_uefi_handoff.h"
 
 cleanup() {
   rm -rf "$work_dir"
@@ -41,6 +43,9 @@ fi
 if [ -f "$macho_loader_header" ]; then
   cp "$macho_loader_header" "$local_macho_loader"
 fi
+if [ -f "$uefi_handoff_header" ]; then
+  cp "$uefi_handoff_header" "$local_uefi_handoff"
+fi
 cat > "$source_file" <<'C'
 #include <stddef.h>
 #include <stdio.h>
@@ -56,6 +61,12 @@ cat > "$source_file" <<'C'
 #if __has_include("xnu_macho_loader.h")
 #include "xnu_macho_loader.h"
 #define OS8_XNU_HAVE_MACHO_LOADER 1
+#endif
+#endif
+#ifdef __has_include
+#if __has_include("xnu_uefi_handoff.h")
+#include "xnu_uefi_handoff.h"
+#define OS8_XNU_HAVE_UEFI_HANDOFF 1
 #endif
 #endif
 
@@ -177,6 +188,47 @@ int main(void) {
   if (input.kernel_base != 0x800000 ||
       input.kernel_size != sizeof(macho.payload) ||
       input.kernel_entry != 0x800000) {
+    return 1;
+  }
+#endif
+#ifdef OS8_XNU_HAVE_UEFI_HANDOFF
+  os8_xnu_efi_memory_descriptor_t efi_map[] = {
+      {
+          .type = OS8_XNU_EFI_CONVENTIONAL_MEMORY,
+          .physical_start = 0x100000,
+          .number_of_pages = 2,
+      },
+      {
+          .type = OS8_XNU_EFI_ACPI_RECLAIM_MEMORY,
+          .physical_start = 0x300000,
+          .number_of_pages = 1,
+          .attribute = 0x8000000000000000ULL,
+      },
+  };
+  os8_xnu_range_t ranges[2];
+  uint64_t range_count = 0;
+  if (os8_xnu_uefi_memory_map_convert(
+          efi_map, sizeof(efi_map), sizeof(efi_map[0]), ranges, 2,
+          &range_count) != 0) {
+    return 1;
+  }
+  if (range_count != 2 ||
+      ranges[0].base != 0x100000 ||
+      ranges[0].size != 0x2000 ||
+      ranges[0].type != OS8_XNU_RANGE_USABLE ||
+      ranges[1].type != OS8_XNU_RANGE_ACPI_RECLAIM ||
+      ranges[1].attributes != 0) {
+    return 1;
+  }
+  if (os8_xnu_boot_handoff_apply_uefi_memory_map(&input, ranges, range_count) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_uefi_framebuffer(
+          &input, 0x900000, 0x100000, 800, 600, 800, 4, 1) != 0) {
+    return 1;
+  }
+  if (input.memory_map_entry_count != 2 ||
+      input.memory_map_entry_size != sizeof(os8_xnu_range_t) ||
+      input.framebuffer.pitch != 3200) {
     return 1;
   }
 #endif

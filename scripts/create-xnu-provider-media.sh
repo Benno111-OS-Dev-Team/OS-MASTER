@@ -18,6 +18,7 @@ boot_contract="docs/XNU_BOOT_CONTRACT.md"
 handoff_abi="boot/xnu/xnu_boot_handoff.h"
 handoff_builder="boot/xnu/xnu_boot_handoff_builder.h"
 macho_loader="boot/xnu/xnu_macho_loader.h"
+uefi_handoff="boot/xnu/xnu_uefi_handoff.h"
 handoff_script="scripts/create-xnu-boot-handoff.sh"
 boot_plan_script="scripts/create-xnu-boot-plan.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
@@ -43,6 +44,10 @@ if [ ! -f "$macho_loader" ]; then
   echo "error: XNU Mach-O loader contract is missing: $macho_loader" >&2
   exit 1
 fi
+if [ ! -f "$uefi_handoff" ]; then
+  echo "error: XNU UEFI handoff helper is missing: $uefi_handoff" >&2
+  exit 1
+fi
 if [ ! -x "$handoff_script" ]; then
   echo "error: XNU boot handoff generator is missing or not executable: $handoff_script" >&2
   exit 1
@@ -60,6 +65,7 @@ cp "$boot_contract" "$media_root/docs/XNU_BOOT_CONTRACT.md"
 cp "$handoff_abi" "$media_root/boot/xnu/xnu_boot_handoff.h"
 cp "$handoff_builder" "$media_root/boot/xnu/xnu_boot_handoff_builder.h"
 cp "$macho_loader" "$media_root/boot/xnu/xnu_macho_loader.h"
+cp "$uefi_handoff" "$media_root/boot/xnu/xnu_uefi_handoff.h"
 if [ -f "$kernel_artifact" ]; then
   cp "$kernel_artifact" "$media_root/kernel/$(basename "$kernel_artifact")"
   payload_mode="compiled"
@@ -82,6 +88,7 @@ cp "$boot_plan_manifest" "$media_root/metadata/xnu-boot-plan.manifest"
   printf 'handoff_abi=boot/xnu/xnu_boot_handoff.h\n'
   printf 'handoff_builder=boot/xnu/xnu_boot_handoff_builder.h\n'
   printf 'macho_loader=boot/xnu/xnu_macho_loader.h\n'
+  printf 'uefi_handoff=boot/xnu/xnu_uefi_handoff.h\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'boot_plan=metadata/xnu-boot-plan.manifest\n'
 } > "$media_root/metadata/media.manifest"
