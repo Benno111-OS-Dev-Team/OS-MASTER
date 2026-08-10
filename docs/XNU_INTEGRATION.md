@@ -61,6 +61,10 @@ validates the provider manifest, media manifest, boot contract, source policy,
 architecture, payload mode, generated boot handoff manifest, packaged boot
 handoff ABI, and compiled kernel payload when present.
 
+`make check-xnu-boot-abi` compiles a small C translation unit against
+`boot/xnu/xnu_boot_handoff.h` and verifies the magic, version, enum values,
+field offsets, and struct sizes used by the repository-owned handoff contract.
+
 Local usage:
 
 ```sh

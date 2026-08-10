@@ -36,6 +36,7 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - Generated loader metadata must be staged under `build/<arch>/`.
 - The packaged boot handoff ABI must use magic `0x584E55424F4F5431` and
   version `1`.
+- The packaged boot handoff ABI must pass `make check-xnu-boot-abi`.
 - Release or workflow artifacts must include this contract with the provider
   media.
 - Release or workflow artifacts must include the generated boot handoff
