@@ -134,8 +134,14 @@ handoff_policy="$(manifest_value external_source_policy "$handoff_manifest")"
 handoff_abi_ref="$(manifest_value handoff_abi "$handoff_manifest")"
 handoff_magic="$(manifest_value handoff_magic "$handoff_manifest")"
 handoff_version="$(manifest_value handoff_version "$handoff_manifest")"
+handoff_struct="$(manifest_value handoff_struct "$handoff_manifest")"
+handoff_struct_size="$(manifest_value handoff_struct_size "$handoff_manifest")"
+handoff_framebuffer_offset="$(manifest_value handoff_framebuffer_offset "$handoff_manifest")"
+handoff_arch_id="$(manifest_value handoff_arch_id "$handoff_manifest")"
+handoff_platform_kind="$(manifest_value handoff_platform_kind "$handoff_manifest")"
+handoff_required_flags="$(manifest_value handoff_required_flags "$handoff_manifest")"
 
-for required_key in contract_version boot_args memory_map firmware_state cpu_topology timer platform_data framebuffer early_userspace handoff_abi handoff_magic handoff_version; do
+for required_key in contract_version boot_args memory_map firmware_state cpu_topology timer platform_data framebuffer early_userspace handoff_abi handoff_magic handoff_version handoff_struct handoff_struct_size handoff_framebuffer_offset handoff_arch_id handoff_platform_kind handoff_required_flags; do
   if ! manifest_value "$required_key" "$handoff_manifest" >/dev/null; then
     echo "error: boot handoff manifest is missing required key: $required_key" >&2
     exit 1
@@ -159,13 +165,40 @@ fi
 
 if [ "$handoff_abi_ref" != "boot/xnu/xnu_boot_handoff.h" ] ||
    [ "$handoff_magic" != "0x584E55424F4F5431" ] ||
-   [ "$handoff_version" != "1" ]; then
+   [ "$handoff_version" != "1" ] ||
+   [ "$handoff_struct" != "os8_xnu_boot_handoff_t" ] ||
+   [ "$handoff_struct_size" != "168" ] ||
+   [ "$handoff_framebuffer_offset" != "136" ]; then
   echo "error: boot handoff ABI metadata is inconsistent" >&2
+  exit 1
+fi
+
+case "$arch" in
+  x86_64)
+    expected_arch_id="1"
+    expected_platform_kind="1"
+    expected_flags="0x00000003"
+    ;;
+  arm64)
+    expected_arch_id="2"
+    expected_platform_kind="2"
+    expected_flags="0x00000005"
+    ;;
+esac
+
+if [ "$handoff_arch_id" != "$expected_arch_id" ] ||
+   [ "$handoff_platform_kind" != "$expected_platform_kind" ] ||
+   [ "$handoff_required_flags" != "$expected_flags" ]; then
+  echo "error: boot handoff target metadata is inconsistent for $arch" >&2
   exit 1
 fi
 
 grep -q 'OS8_XNU_BOOT_HANDOFF_MAGIC 0x584E55424F4F5431ULL' "$handoff_abi"
 grep -q 'OS8_XNU_BOOT_HANDOFF_VERSION 1ULL' "$handoff_abi"
+grep -q 'OS8_XNU_ARCH_X86_64 1U' "$handoff_abi"
+grep -q 'OS8_XNU_ARCH_ARM64 2U' "$handoff_abi"
+grep -q 'OS8_XNU_PLATFORM_ACPI 1U' "$handoff_abi"
+grep -q 'OS8_XNU_PLATFORM_DEVICE_TREE 2U' "$handoff_abi"
 grep -q 'os8_xnu_boot_handoff_t' "$handoff_abi"
 
 echo "[XNU] Provider media verified: $archive"

@@ -37,6 +37,9 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - The packaged boot handoff ABI must use magic `0x584E55424F4F5431` and
   version `1`.
 - The packaged boot handoff ABI must pass `make check-xnu-boot-abi`.
+- The generated boot handoff manifest must publish the ABI struct name, struct
+  size, framebuffer offset, target architecture ID, platform kind, and required
+  boot flags used by the packaged ABI.
 - Release or workflow artifacts must include this contract with the provider
   media.
 - Release or workflow artifacts must include the generated boot handoff

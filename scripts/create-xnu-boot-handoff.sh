@@ -31,11 +31,17 @@ mkdir -p "$handoff_dir"
 
 case "$arch" in
   x86_64)
+    arch_id="1"
     platform_data="acpi"
+    platform_kind="1"
+    required_flags="0x00000003"
     firmware_state="uefi-exit-boot-services"
     ;;
   arm64)
+    arch_id="2"
     platform_data="device-tree"
+    platform_kind="2"
+    required_flags="0x00000005"
     firmware_state="uefi-exit-boot-services"
     ;;
 esac
@@ -49,6 +55,12 @@ esac
   printf 'handoff_abi=%s\n' "$handoff_abi"
   printf 'handoff_magic=0x584E55424F4F5431\n'
   printf 'handoff_version=1\n'
+  printf 'handoff_struct=os8_xnu_boot_handoff_t\n'
+  printf 'handoff_struct_size=168\n'
+  printf 'handoff_framebuffer_offset=136\n'
+  printf 'handoff_arch_id=%s\n' "$arch_id"
+  printf 'handoff_platform_kind=%s\n' "$platform_kind"
+  printf 'handoff_required_flags=%s\n' "$required_flags"
   printf 'boot_args=required\n'
   printf 'memory_map=required\n'
   printf 'firmware_state=%s\n' "$firmware_state"

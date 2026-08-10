@@ -48,6 +48,11 @@ CHECK(offsetof(os8_xnu_boot_handoff_t, flags) == 16, flags_offset);
 CHECK(offsetof(os8_xnu_boot_handoff_t, arch) == 24, arch_offset);
 CHECK(offsetof(os8_xnu_boot_handoff_t, platform_kind) == 28, platform_offset);
 CHECK(offsetof(os8_xnu_boot_handoff_t, kernel_base) == 32, kernel_base_offset);
+CHECK(offsetof(os8_xnu_boot_handoff_t, boot_args_base) == 56, boot_args_offset);
+CHECK(offsetof(os8_xnu_boot_handoff_t, memory_map_base) == 72, memory_map_offset);
+CHECK(offsetof(os8_xnu_boot_handoff_t, platform_data_base) == 96, platform_data_offset);
+CHECK(offsetof(os8_xnu_boot_handoff_t, timer_frequency_hz) == 112, timer_offset);
+CHECK(offsetof(os8_xnu_boot_handoff_t, cpu_topology_base) == 120, cpu_topology_offset);
 CHECK(offsetof(os8_xnu_boot_handoff_t, framebuffer) == 136, framebuffer_offset);
 CHECK(sizeof(os8_xnu_boot_handoff_t) == 168, handoff_size);
 
