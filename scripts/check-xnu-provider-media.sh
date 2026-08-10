@@ -481,6 +481,8 @@ grep -q 'valid_xnu_macho64_kernel' "$x86_64_startup_loader"
 grep -q 'load_xnu_macho64_segments' "$x86_64_startup_loader"
 grep -q 'alloc_zero_pages_below(total / 4096' "$x86_64_startup_loader"
 grep -q 'build_xnu_boot_args_pre_exit' "$x86_64_startup_loader"
+grep -q 'Entering XNU kernel after ExitBootServices' "$x86_64_startup_loader"
+grep -q 'Entered ExitBootServices; jumping to XNU kernel' "$x86_64_startup_loader"
 grep -q 'startup_enter_xnu_kernel' "$x86_64_startup_loader"
 if grep -q 'startup_enter_xnu_kernel(pml4_phys, entry, 0)' "$x86_64_startup_loader"; then
   echo "error: packaged XNU startup loader can enter without boot_args" >&2

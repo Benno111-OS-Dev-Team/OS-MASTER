@@ -54,7 +54,7 @@ jobs:
       - name: Install XNU boot image tools
         run: |
           set -euxo pipefail
-          brew install mtools
+          brew install coreutils mtools qemu
 
       - name: Check XNU build environment
         run: |
@@ -93,6 +93,7 @@ jobs:
             grep -q '^kernel_format=xnu$' build/x86_64/boot/custom-uefi/os8boot.cfg
             tar -tzf "$archive" | grep -q '^./boot/custom-uefi/STARTUPX64.EFI$'
             tar -tzf "$archive" | grep -q '^./image/xnu-x86_64-uefi.img$'
+            make -f Makefile.multiarch ARCH=x86_64 check-xnu-compiled-uefi-boot-smoke
           fi
           test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
 

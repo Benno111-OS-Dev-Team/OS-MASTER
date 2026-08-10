@@ -119,6 +119,12 @@ through QEMU/OVMF and requires the custom startup executable to reach the XNU
 Mach-O validation error path. This proves the firmware can load the XNU-configured
 boot chain, while still stopping before any real XNU payload is required.
 
+`make ARCH=x86_64 check-xnu-compiled-uefi-boot-smoke` boots an existing compiled
+`image/xnu-x86_64-uefi.img` through QEMU/OVMF and requires the startup executable
+to validate the compiled XNU payload, build boot inputs, exit boot services, and
+print the post-`ExitBootServices` serial handoff marker. The macOS provider
+workflow runs this for compiled x86_64 XNU media.
+
 The custom x86_64 startup executable now keeps the OS8 ELF path as the default
 and selects the XNU Mach-O64 path when `os8boot.cfg` contains
 `kernel_format=xnu`. That path validates the trusted payload as XNU Mach-O64,

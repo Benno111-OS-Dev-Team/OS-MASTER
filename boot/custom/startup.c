@@ -197,6 +197,31 @@ static EFI_STATUS error(const char *code, const char *message, EFI_STATUS status
   return status ? status : EFI_LOAD_ERROR;
 }
 
+static uint8_t serial_in8(uint16_t port) {
+  uint8_t value;
+  __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
+  return value;
+}
+
+static void serial_out8(uint16_t port, uint8_t value) {
+  __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static void serial_write_after_exit_boot_services(const char *message) {
+  while (*message) {
+    if (*message == '\n') {
+      for (uint32_t i = 0; i < 100000U; i++) {
+        if (serial_in8(0x3fd) & 0x20U) break;
+      }
+      serial_out8(0x3f8, '\r');
+    }
+    for (uint32_t i = 0; i < 100000U; i++) {
+      if (serial_in8(0x3fd) & 0x20U) break;
+    }
+    serial_out8(0x3f8, (uint8_t)*message++);
+  }
+}
+
 static int verify_buffer(const void *buffer, uint64_t size, const char *expected_hex) {
   uint8_t actual[32];
   uint8_t expected[32];
@@ -943,6 +968,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     xnu_pre_exit.command_line_size = sizeof(xnu_command_line) - 1;
     xnu_pre_exit.gop = gop;
 
+    efi_print(st, "Entering XNU kernel after ExitBootServices...\n");
     status = exit_boot_services_with_map(&memory_map_base, &memory_map_size,
                                          &descriptor_size,
                                          &descriptor_version,
@@ -953,6 +979,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     (void)memory_map_size;
     (void)descriptor_size;
     (void)descriptor_version;
+    serial_write_after_exit_boot_services("Entered ExitBootServices; jumping to XNU kernel...\n");
     startup_enter_xnu_kernel(pml4_phys, entry, xnu_boot_args_phys);
     return EFI_SUCCESS;
   } else {
