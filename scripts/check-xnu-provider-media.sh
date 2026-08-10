@@ -36,10 +36,11 @@ media_manifest="$tmp_dir/metadata/media.manifest"
 handoff_manifest="$tmp_dir/metadata/xnu-boot-handoff.manifest"
 boot_contract="$tmp_dir/docs/XNU_BOOT_CONTRACT.md"
 handoff_abi="$tmp_dir/boot/xnu/xnu_boot_handoff.h"
+handoff_builder="$tmp_dir/boot/xnu/xnu_boot_handoff_builder.h"
 abi_check_script="scripts/check-xnu-boot-abi.sh"
 abi_manifest="$tmp_dir/metadata/xnu-boot-abi.generated"
 
-for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract" "$handoff_abi"; do
+for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider archive is missing required file: ${required#$tmp_dir/}" >&2
     exit 1
@@ -81,6 +82,7 @@ payload_mode="$(manifest_value payload_mode "$media_manifest")"
 source_policy="$(manifest_value external_source_policy "$media_manifest")"
 contract_path="$(manifest_value boot_contract "$media_manifest")"
 handoff_abi_path="$(manifest_value handoff_abi "$media_manifest")"
+handoff_builder_path="$(manifest_value handoff_builder "$media_manifest")"
 handoff_path="$(manifest_value boot_handoff "$media_manifest")"
 
 if [ "$provider" != "xnu" ] || [ "$media_provider" != "xnu" ]; then
@@ -105,6 +107,11 @@ fi
 
 if [ "$handoff_abi_path" != "boot/xnu/xnu_boot_handoff.h" ]; then
   echo "error: provider media points at unexpected boot handoff ABI: $handoff_abi_path" >&2
+  exit 1
+fi
+
+if [ "$handoff_builder_path" != "boot/xnu/xnu_boot_handoff_builder.h" ]; then
+  echo "error: provider media points at unexpected boot handoff builder: $handoff_builder_path" >&2
   exit 1
 fi
 

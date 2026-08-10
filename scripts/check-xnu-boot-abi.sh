@@ -9,6 +9,8 @@ source_file="$work_dir/check.c"
 object_file="$work_dir/check.o"
 binary_file="$work_dir/check"
 local_header="$work_dir/xnu_boot_handoff.h"
+builder_header="$(dirname "$header")/xnu_boot_handoff_builder.h"
+local_builder="$work_dir/xnu_boot_handoff_builder.h"
 
 cleanup() {
   rm -rf "$work_dir"
@@ -31,11 +33,20 @@ fi
 
 mkdir -p "$work_dir"
 cp "$header" "$local_header"
+if [ -f "$builder_header" ]; then
+  cp "$builder_header" "$local_builder"
+fi
 cat > "$source_file" <<'C'
 #include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 #include "xnu_boot_handoff.h"
+#ifdef __has_include
+#if __has_include("xnu_boot_handoff_builder.h")
+#include "xnu_boot_handoff_builder.h"
+#define OS8_XNU_HAVE_BUILDER 1
+#endif
+#endif
 
 #define CHECK(cond, name) typedef char check_##name[(cond) ? 1 : -1]
 
@@ -62,6 +73,41 @@ CHECK(offsetof(os8_xnu_boot_handoff_t, framebuffer) == 136, framebuffer_offset);
 CHECK(sizeof(os8_xnu_boot_handoff_t) == 168, handoff_size);
 
 int main(void) {
+#ifdef OS8_XNU_HAVE_BUILDER
+  os8_xnu_boot_handoff_t handoff;
+  os8_xnu_boot_handoff_input_t input = {
+      .arch = OS8_XNU_ARCH_X86_64,
+      .kernel_base = 0x100000,
+      .kernel_size = 0x200000,
+      .kernel_entry = 0x101000,
+      .boot_args_base = 0x300000,
+      .boot_args_size = 0x1000,
+      .memory_map_base = 0x400000,
+      .memory_map_entry_count = 1,
+      .memory_map_entry_size = sizeof(os8_xnu_range_t),
+      .platform_data_base = 0x500000,
+      .platform_data_size = 0x1000,
+      .timer_frequency_hz = 1000000000ULL,
+      .cpu_topology_base = 0x600000,
+      .cpu_topology_size = 0x1000,
+      .framebuffer = {
+          .base = 0x700000,
+          .size = 0x100000,
+          .width = 1024,
+          .height = 768,
+          .pitch = 4096,
+          .pixel_format = 1,
+      },
+  };
+  if (os8_xnu_boot_handoff_build(&handoff, &input) != 0) return 1;
+  if (handoff.magic != OS8_XNU_BOOT_HANDOFF_MAGIC ||
+      handoff.version != OS8_XNU_BOOT_HANDOFF_VERSION ||
+      handoff.flags != (OS8_XNU_BOOT_FLAG_GRAPHICS | OS8_XNU_BOOT_FLAG_ACPI) ||
+      handoff.platform_kind != OS8_XNU_PLATFORM_ACPI ||
+      handoff.memory_map_entry_size != sizeof(os8_xnu_range_t)) {
+    return 1;
+  }
+#endif
   printf("handoff_magic=0x%llX\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_MAGIC);
   printf("handoff_version=%llu\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_VERSION);
   printf("handoff_struct=os8_xnu_boot_handoff_t\n");

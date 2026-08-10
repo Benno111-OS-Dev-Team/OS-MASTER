@@ -11,6 +11,7 @@ must live under project-owned paths.
 - Provider manifest: `build/<arch>/kernel/xnu-provider.manifest`
 - Boot handoff manifest: `build/<arch>/xnu-boot/xnu-boot-handoff.manifest`
 - Boot handoff ABI: `boot/xnu/xnu_boot_handoff.h`
+- Boot handoff builder: `boot/xnu/xnu_boot_handoff_builder.h`
 - Provider media: `image/xnu-<arch>-provider.tar.gz`
 
 The provider manifest must identify the external source origin, commit, source
@@ -44,6 +45,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   `os8_xnu_boot_handoff_t` field as `handoff_field_<name>=<offset>:<type>`.
 - Provider media verification must derive ABI layout metadata from the packaged
   header and compare it with the generated boot handoff manifest.
+- The packaged boot handoff builder must compile against the packaged ABI and
+  populate all `os8_xnu_boot_handoff_t` fields from validated loader inputs.
 - Release or workflow artifacts must include this contract with the provider
   media.
 - Release or workflow artifacts must include the generated boot handoff
