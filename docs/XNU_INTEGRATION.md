@@ -58,7 +58,10 @@ headers that loader code must use before entering XNU. It also carries
 `boot/xnu/xnu_macho_loader.h`, the repository-owned Mach-O64 payload inspection
 contract for validating and locating selected XNU kernel payload ranges, and
 `boot/xnu/xnu_uefi_handoff.h`, the repository-owned helper for converting UEFI
-memory-map and framebuffer inputs into the XNU handoff format.
+memory-map and framebuffer inputs into the XNU handoff format. For x86_64 EFI
+boot, the media also carries `boot/xnu/xnu_x86_64_boot_args.h`, which builds
+XNU's 4096-byte `boot_args` payload from validated kernel, EFI memory-map,
+firmware table, command-line, and framebuffer inputs.
 
 `scripts/check-xnu-boot-surface.sh` verifies the selected external XNU checkout
 still exposes the architecture boot entry, boot argument fields, platform
@@ -74,8 +77,11 @@ and compiled kernel payload when present.
 `make check-xnu-boot-abi` compiles a small C translation unit against
 `boot/xnu/xnu_boot_handoff.h` and verifies the magic, version, enum values,
 field offsets, and struct sizes used by the repository-owned handoff contract.
-The provider media verifier also emits layout metadata from the packaged copy
-of that header and compares it with `metadata/xnu-boot-handoff.manifest`.
+It also compiles the packaged x86_64 `boot_args` builder and checks the XNU
+revision, version, EFI mode, memory-map fields, kernel fields, framebuffer
+fields, command-line copy behavior, and 4096-byte size invariant. The provider
+media verifier also emits layout metadata from the packaged copy of the
+handoff header and compares it with `metadata/xnu-boot-handoff.manifest`.
 
 `make check-xnu-uefi-handoff` compile-checks the XNU UEFI handoff helpers with
 the same freestanding x86_64 Windows target style used by the custom UEFI boot

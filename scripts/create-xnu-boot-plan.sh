@@ -19,6 +19,7 @@ case "$arch" in
     platform_kind="1"
     handoff_arch_id="1"
     handoff_required_flags="0x00000003"
+    loader_step_2="build-x86_64-efi-boot-args"
     ;;
   arm64)
     entry_protocol="arm64-device-tree-boot-args"
@@ -27,6 +28,7 @@ case "$arch" in
     platform_kind="2"
     handoff_arch_id="2"
     handoff_required_flags="0x00000005"
+    loader_step_2="prepare-architecture-boot-args"
     ;;
   *)
     echo "error: XNU boot plan supports ARCH=x86_64 or ARCH=arm64, got: $arch" >&2
@@ -59,9 +61,10 @@ mkdir -p "$plan_dir"
   printf 'handoff_builder=boot/xnu/xnu_boot_handoff_builder.h\n'
   printf 'macho_loader=boot/xnu/xnu_macho_loader.h\n'
   printf 'uefi_handoff=boot/xnu/xnu_uefi_handoff.h\n'
+  printf 'x86_64_boot_args=boot/xnu/xnu_x86_64_boot_args.h\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'loader_step_1=inspect-mach-o-and-load-segments\n'
-  printf 'loader_step_2=prepare-architecture-boot-args\n'
+  printf 'loader_step_2=%s\n' "$loader_step_2"
   printf 'loader_step_3=convert-uefi-memory-map\n'
   printf 'loader_step_4=prepare-platform-data\n'
   printf 'loader_step_5=prepare-timer-and-cpu-topology\n'

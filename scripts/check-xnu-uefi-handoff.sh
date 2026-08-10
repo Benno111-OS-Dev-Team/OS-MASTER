@@ -27,6 +27,7 @@ cat > "$source_file" <<'C'
 
 #include "uefi.h"
 #include "xnu_uefi_handoff.h"
+#include "xnu_x86_64_boot_args.h"
 
 #define CHECK(cond, name) typedef char check_##name[(cond) ? 1 : -1]
 
@@ -52,6 +53,8 @@ int xnu_uefi_handoff_compile_check(EFI_GRAPHICS_OUTPUT_PROTOCOL *gop,
                                    uint64_t memory_map_size,
                                    uint64_t descriptor_size) {
   os8_xnu_boot_handoff_input_t input = {0};
+  os8_xnu_x86_64_boot_args_t boot_args;
+  os8_xnu_x86_64_boot_args_input_t boot_args_input = {0};
   os8_xnu_range_t ranges[8];
   uint64_t range_count = 0;
 
@@ -72,6 +75,22 @@ int xnu_uefi_handoff_compile_check(EFI_GRAPHICS_OUTPUT_PROTOCOL *gop,
           gop->Mode->Info->VerticalResolution,
           gop->Mode->Info->PixelsPerScanLine, 4,
           (uint32_t)gop->Mode->Info->PixelFormat) != 0) {
+    return -1;
+  }
+  boot_args_input.boot_args_base = 0x300000;
+  boot_args_input.memory_map_base = (uint64_t)(uintptr_t)memory_map;
+  boot_args_input.memory_map_size = memory_map_size;
+  boot_args_input.memory_map_descriptor_size = descriptor_size;
+  boot_args_input.memory_map_descriptor_version = 1;
+  boot_args_input.kernel_base = 0x100000;
+  boot_args_input.kernel_size = 0x200000;
+  boot_args_input.efi_system_table = 0x700000;
+  boot_args_input.framebuffer = input.framebuffer;
+  if (os8_xnu_x86_64_boot_args_build(&boot_args, &boot_args_input) != 0) {
+    return -1;
+  }
+  if (os8_xnu_boot_handoff_apply_x86_64_boot_args(&input,
+                                                  &boot_args_input) != 0) {
     return -1;
   }
   return 0;

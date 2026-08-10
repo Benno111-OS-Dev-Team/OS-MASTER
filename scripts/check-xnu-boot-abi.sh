@@ -12,9 +12,11 @@ local_header="$work_dir/xnu_boot_handoff.h"
 builder_header="$(dirname "$header")/xnu_boot_handoff_builder.h"
 macho_loader_header="$(dirname "$header")/xnu_macho_loader.h"
 uefi_handoff_header="$(dirname "$header")/xnu_uefi_handoff.h"
+x86_64_boot_args_header="$(dirname "$header")/xnu_x86_64_boot_args.h"
 local_builder="$work_dir/xnu_boot_handoff_builder.h"
 local_macho_loader="$work_dir/xnu_macho_loader.h"
 local_uefi_handoff="$work_dir/xnu_uefi_handoff.h"
+local_x86_64_boot_args="$work_dir/xnu_x86_64_boot_args.h"
 
 cleanup() {
   rm -rf "$work_dir"
@@ -46,6 +48,9 @@ fi
 if [ -f "$uefi_handoff_header" ]; then
   cp "$uefi_handoff_header" "$local_uefi_handoff"
 fi
+if [ -f "$x86_64_boot_args_header" ]; then
+  cp "$x86_64_boot_args_header" "$local_x86_64_boot_args"
+fi
 cat > "$source_file" <<'C'
 #include <stddef.h>
 #include <stdio.h>
@@ -55,6 +60,12 @@ cat > "$source_file" <<'C'
 #if __has_include("xnu_boot_handoff_builder.h")
 #include "xnu_boot_handoff_builder.h"
 #define OS8_XNU_HAVE_BUILDER 1
+#endif
+#ifdef __has_include
+#if __has_include("xnu_x86_64_boot_args.h")
+#include "xnu_x86_64_boot_args.h"
+#define OS8_XNU_HAVE_X86_64_BOOT_ARGS 1
+#endif
 #endif
 #endif
 #ifdef __has_include
@@ -231,6 +242,58 @@ int main(void) {
       input.framebuffer.pitch != 3200) {
     return 1;
   }
+#endif
+#ifdef OS8_XNU_HAVE_X86_64_BOOT_ARGS
+  os8_xnu_x86_64_boot_args_t x86_boot_args;
+  const char boot_line[] = "serial=3 keepsyms=1";
+  os8_xnu_x86_64_boot_args_input_t x86_input = {
+      .boot_args_base = 0x300000,
+      .memory_map_base = 0x400000,
+      .memory_map_size = 0x90,
+      .memory_map_descriptor_size = 48,
+      .memory_map_descriptor_version = 1,
+      .kernel_base = 0x100000,
+      .kernel_size = 0x200000,
+      .efi_system_table = 0x700000,
+      .physical_memory_size = 0x8000000,
+      .command_line = boot_line,
+      .command_line_size = sizeof(boot_line) - 1,
+      .framebuffer = {
+          .base = 0x900000,
+          .size = 0x100000,
+          .width = 800,
+          .height = 600,
+          .pitch = 3200,
+          .pixel_format = 1,
+      },
+  };
+  if (sizeof(os8_xnu_x86_64_boot_args_t) != 4096) return 1;
+  if (os8_xnu_x86_64_boot_args_build(&x86_boot_args, &x86_input) != 0)
+    return 1;
+  if (x86_boot_args.Revision != OS8_XNU_X86_64_BOOT_ARGS_REVISION ||
+      x86_boot_args.Version != OS8_XNU_X86_64_BOOT_ARGS_VERSION ||
+      x86_boot_args.efiMode != OS8_XNU_X86_64_BOOT_ARGS_EFI_MODE_64 ||
+      x86_boot_args.MemoryMap != 0x400000 ||
+      x86_boot_args.MemoryMapSize != 0x90 ||
+      x86_boot_args.MemoryMapDescriptorSize != 48 ||
+      x86_boot_args.MemoryMapDescriptorVersion != 1 ||
+      x86_boot_args.kaddr != 0x100000 ||
+      x86_boot_args.ksize != 0x200000 ||
+      x86_boot_args.efiSystemTable != 0x700000 ||
+      x86_boot_args.Video.v_baseAddr != 0x900000 ||
+      x86_boot_args.Video.v_rowBytes != 3200 ||
+      x86_boot_args.CommandLine[0] != 's') {
+    return 1;
+  }
+  if (os8_xnu_boot_handoff_apply_x86_64_boot_args(&input, &x86_input) != 0)
+    return 1;
+  if (input.boot_args_base != x86_input.boot_args_base ||
+      input.boot_args_size != OS8_XNU_X86_64_BOOT_ARGS_SIZE) {
+    return 1;
+  }
+  x86_input.kernel_base = 0x100000000ULL;
+  if (os8_xnu_x86_64_boot_args_build(&x86_boot_args, &x86_input) == 0)
+    return 1;
 #endif
   printf("handoff_magic=0x%llX\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_MAGIC);
   printf("handoff_version=%llu\n", (unsigned long long)OS8_XNU_BOOT_HANDOFF_VERSION);
