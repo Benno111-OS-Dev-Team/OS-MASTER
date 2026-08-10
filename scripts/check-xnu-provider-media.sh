@@ -44,6 +44,7 @@ x86_64_boot_args="$tmp_dir/boot/xnu/xnu_x86_64_boot_args.h"
 x86_64_entry_handoff="$tmp_dir/boot/custom/startup-handoff.S"
 x86_64_startup_loader="$tmp_dir/boot/custom/startup.c"
 abi_check_script="scripts/check-xnu-boot-abi.sh"
+kernel_artifact_check_script="scripts/check-xnu-kernel-artifact.sh"
 abi_manifest="$tmp_dir/metadata/xnu-boot-abi.generated"
 
 for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_plan_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder" "$macho_loader" "$uefi_handoff" "$x86_64_boot_args" "$x86_64_entry_handoff" "$x86_64_startup_loader"; do
@@ -55,6 +56,10 @@ done
 
 if [ ! -x "$abi_check_script" ]; then
   echo "error: XNU boot ABI checker is missing or not executable: $abi_check_script" >&2
+  exit 1
+fi
+if [ ! -f "$kernel_artifact_check_script" ]; then
+  echo "error: XNU kernel artifact verifier is missing: $kernel_artifact_check_script" >&2
   exit 1
 fi
 
@@ -178,6 +183,7 @@ if [ "$payload_mode" = "compiled" ]; then
     echo "error: compiled provider media is missing kernel payload: kernel/$kernel_name" >&2
     exit 1
   fi
+  bash "$kernel_artifact_check_script" "$arch" "$tmp_dir/kernel/$kernel_name" >/dev/null
   if [ "$provider_mode" != "compiled" ]; then
     echo "error: compiled provider media has provider mode $provider_mode" >&2
     exit 1

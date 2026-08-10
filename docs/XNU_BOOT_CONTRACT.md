@@ -14,6 +14,7 @@ must live under project-owned paths.
 - Boot handoff ABI: `boot/xnu/xnu_boot_handoff.h`
 - Boot handoff builder: `boot/xnu/xnu_boot_handoff_builder.h`
 - Mach-O payload inspector: `boot/xnu/xnu_macho_loader.h`
+- Compiled kernel artifact verifier: `scripts/check-xnu-kernel-artifact.sh`
 - UEFI handoff helper: `boot/xnu/xnu_uefi_handoff.h`
 - x86_64 EFI boot args builder: `boot/xnu/xnu_x86_64_boot_args.h`
 - x86_64 entry handoff shim: `boot/custom/startup-handoff.S`
@@ -92,6 +93,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - The packaged Mach-O payload inspector must compile against the packaged ABI
   and expose validated segment file offsets, virtual ranges, protections, and
   entry metadata for the selected architecture before a loader enters XNU.
+- A compiled provider media archive must include a kernel payload that passes
+  the repository-owned Mach-O artifact verifier for the selected architecture.
 - The generated boot plan manifest must enumerate the selected XNU entry
   protocol and the loader steps required to enter the selected kernel payload.
 - The external XNU checkout must pass the source boot surface verifier for the

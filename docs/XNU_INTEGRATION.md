@@ -82,6 +82,11 @@ architecture, payload mode, generated boot handoff manifest, generated boot
 plan manifest, packaged boot handoff ABI, packaged Mach-O payload inspector,
 and compiled kernel payload when present.
 
+`scripts/check-xnu-kernel-artifact.sh` validates compiled provider payloads with
+the repository-owned Mach-O inspector before packaging compiled media. The manual
+macOS provider workflow runs this directly, and the provider media verifier runs
+it again against the packaged kernel payload.
+
 `make check-xnu-boot-abi` compiles a small C translation unit against
 `boot/xnu/xnu_boot_handoff.h` and verifies the magic, version, enum values,
 field offsets, and struct sizes used by the repository-owned handoff contract.

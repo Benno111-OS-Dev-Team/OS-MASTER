@@ -22,6 +22,7 @@ uefi_handoff="boot/xnu/xnu_uefi_handoff.h"
 x86_64_boot_args="boot/xnu/xnu_x86_64_boot_args.h"
 x86_64_entry_handoff="boot/custom/startup-handoff.S"
 x86_64_startup_loader="boot/custom/startup.c"
+kernel_artifact_check_script="scripts/check-xnu-kernel-artifact.sh"
 handoff_script="scripts/create-xnu-boot-handoff.sh"
 boot_plan_script="scripts/create-xnu-boot-plan.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
@@ -78,6 +79,10 @@ if [ ! -x "$boot_plan_script" ]; then
   echo "error: XNU boot plan generator is missing or not executable: $boot_plan_script" >&2
   exit 1
 fi
+if [ ! -f "$kernel_artifact_check_script" ]; then
+  echo "error: XNU kernel artifact verifier is missing: $kernel_artifact_check_script" >&2
+  exit 1
+fi
 
 rm -rf "$media_root"
 mkdir -p "$media_root/kernel" "$media_root/metadata" "$media_root/docs" "$media_root/boot/xnu" "$media_root/boot/custom" "$image_dir"
@@ -96,6 +101,7 @@ if [ "$provider_mode" = "compiled" ]; then
     echo "error: compiled XNU provider manifest is missing kernel payload: $kernel_artifact" >&2
     exit 1
   fi
+  bash "$kernel_artifact_check_script" "$arch" "$kernel_artifact" >/dev/null
   cp "$kernel_artifact" "$media_root/kernel/$(basename "$kernel_artifact")"
   payload_mode="compiled"
 else

@@ -90,6 +90,7 @@ jobs:
           grep -Eq '^source_commit=[0-9a-f]{40}$' "$manifest"
           grep -q '^source_state=clean$' "$manifest"
           test -s "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
+          bash scripts/check-xnu-kernel-artifact.sh "${{ inputs.arch }}" "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
           bash scripts/check-xnu-provider-media.sh "${{ inputs.arch }}" "$archive" compiled
           if [ "${{ inputs.arch }}" = "x86_64" ]; then
             test -s build/x86_64/boot/custom-uefi/STARTUPX64.EFI
