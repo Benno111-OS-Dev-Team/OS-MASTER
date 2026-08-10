@@ -30,6 +30,10 @@ jobs:
     runs-on: macos-latest
     permissions:
       contents: read
+    env:
+      SDKROOT: ${{ inputs.sdkroot }}
+      KERNEL_CONFIGS: ${{ inputs.kernel_configs }}
+      KDKROOT: ${{ inputs.kdkroot }}
 
     steps:
       - name: Checkout OS8 integration
@@ -55,23 +59,14 @@ jobs:
       - name: Check XNU build environment
         run: |
           set -euxo pipefail
-          if [ -n "${{ inputs.kdkroot }}" ]; then
-            export KDKROOT="${{ inputs.kdkroot }}"
-          fi
           make -f Makefile.multiarch \
             KERNEL_PROVIDER=xnu \
             ARCH="${{ inputs.arch }}" \
-            SDKROOT="${{ inputs.sdkroot }}" \
             check-xnu-build-env
 
       - name: Build selected XNU provider
         run: |
           set -euxo pipefail
-          if [ -n "${{ inputs.kdkroot }}" ]; then
-            export KDKROOT="${{ inputs.kdkroot }}"
-          fi
-          SDKROOT="${{ inputs.sdkroot }}" \
-          KERNEL_CONFIGS="${{ inputs.kernel_configs }}" \
           make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH="${{ inputs.arch }}" kernel
           if [ "${{ inputs.arch }}" = "x86_64" ]; then
             make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 xnu-uefi-chain

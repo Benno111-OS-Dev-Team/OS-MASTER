@@ -464,7 +464,7 @@ sdk: $(BUILD_PREPARED_STAMP)
 
 kernel:
 ifeq ($(KERNEL_PROVIDER),xnu)
-	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" xnu-kernel
+	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" SDKROOT="$(SDKROOT)" KERNEL_CONFIGS="$(KERNEL_CONFIGS)" KDKROOT="$(KDKROOT)" xnu-kernel
 else ifeq ($(KERNEL_PROVIDER),os8)
 	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" os8-kernel
 else
@@ -589,7 +589,7 @@ endif
 
 image:
 ifeq ($(KERNEL_PROVIDER),xnu)
-	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" xnu-image
+	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" XNU_SOURCE_DIR="$(XNU_SOURCE_DIR)" SDKROOT="$(SDKROOT)" KERNEL_CONFIGS="$(KERNEL_CONFIGS)" KDKROOT="$(KDKROOT)" xnu-image
 else ifeq ($(KERNEL_PROVIDER),os8)
 	@$(MAKE) -f "$(ROOT_DIR)/Makefile.multiarch" ARCH="$(ARCH)" os8-image
 else
