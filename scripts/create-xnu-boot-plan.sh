@@ -66,8 +66,9 @@ mkdir -p "$plan_dir"
   printf 'loader_step_5=prepare-timer-and-cpu-topology\n'
   printf 'loader_step_6=prepare-framebuffer\n'
   printf 'loader_step_7=derive-handoff-kernel-fields-from-mach-o\n'
-  printf 'loader_step_8=build-os8-xnu-handoff\n'
-  printf 'loader_step_9=enter-xnu-kernel\n'
+  printf 'loader_step_8=validate-and-apply-handoff-inputs\n'
+  printf 'loader_step_9=build-os8-xnu-handoff\n'
+  printf 'loader_step_10=enter-xnu-kernel\n'
   printf 'required_loader_inputs=kernel,boot_args,memory_map,platform_data,timer,cpu_topology,framebuffer\n'
   printf 'external_source_policy=read-only\n'
 } > "$plan_manifest"

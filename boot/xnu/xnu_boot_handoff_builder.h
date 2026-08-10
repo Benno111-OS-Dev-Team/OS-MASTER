@@ -61,6 +61,61 @@ static inline int os8_xnu_boot_handoff_apply_macho(
   return 0;
 }
 
+static inline int os8_xnu_boot_handoff_apply_boot_args(
+    os8_xnu_boot_handoff_input_t *in, uint64_t base, uint64_t size) {
+  if (!in || !base || !size) return -1;
+  in->boot_args_base = base;
+  in->boot_args_size = size;
+  return 0;
+}
+
+static inline int os8_xnu_boot_handoff_apply_memory_map(
+    os8_xnu_boot_handoff_input_t *in, uint64_t base, uint64_t entry_count,
+    uint64_t entry_size) {
+  if (!in || !base || !entry_count) return -1;
+  if (entry_size != sizeof(os8_xnu_range_t)) return -1;
+  in->memory_map_base = base;
+  in->memory_map_entry_count = entry_count;
+  in->memory_map_entry_size = entry_size;
+  return 0;
+}
+
+static inline int os8_xnu_boot_handoff_apply_platform_data(
+    os8_xnu_boot_handoff_input_t *in, uint64_t base, uint64_t size) {
+  if (!in || !base || !size) return -1;
+  in->platform_data_base = base;
+  in->platform_data_size = size;
+  return 0;
+}
+
+static inline int os8_xnu_boot_handoff_apply_timer(
+    os8_xnu_boot_handoff_input_t *in, uint64_t frequency_hz) {
+  if (!in || !frequency_hz) return -1;
+  in->timer_frequency_hz = frequency_hz;
+  return 0;
+}
+
+static inline int os8_xnu_boot_handoff_apply_cpu_topology(
+    os8_xnu_boot_handoff_input_t *in, uint64_t base, uint64_t size) {
+  if (!in || !base || !size) return -1;
+  in->cpu_topology_base = base;
+  in->cpu_topology_size = size;
+  return 0;
+}
+
+static inline int os8_xnu_boot_handoff_apply_framebuffer(
+    os8_xnu_boot_handoff_input_t *in, uint64_t base, uint64_t size,
+    uint32_t width, uint32_t height, uint32_t pitch, uint32_t pixel_format) {
+  if (!in || !base || !size || !width || !height || !pitch) return -1;
+  in->framebuffer.base = base;
+  in->framebuffer.size = size;
+  in->framebuffer.width = width;
+  in->framebuffer.height = height;
+  in->framebuffer.pitch = pitch;
+  in->framebuffer.pixel_format = pixel_format;
+  return 0;
+}
+
 static inline int os8_xnu_boot_handoff_build(
     os8_xnu_boot_handoff_t *out,
     const os8_xnu_boot_handoff_input_t *in) {

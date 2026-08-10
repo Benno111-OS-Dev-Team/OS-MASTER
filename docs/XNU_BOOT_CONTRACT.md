@@ -52,6 +52,9 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   populate all `os8_xnu_boot_handoff_t` fields from validated loader inputs.
 - The packaged boot handoff builder must derive kernel base, size, and entry
   from validated Mach-O payload metadata before the final handoff is built.
+- The packaged boot handoff builder must validate and apply boot arguments,
+  memory map, platform data, timer, CPU topology, and framebuffer inputs before
+  the final handoff is built.
 - The packaged Mach-O payload inspector must compile against the packaged ABI
   and expose validated segment file offsets, virtual ranges, protections, and
   entry metadata for the selected architecture before a loader enters XNU.

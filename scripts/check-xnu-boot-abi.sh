@@ -91,25 +91,23 @@ int main(void) {
       .kernel_base = 0x100000,
       .kernel_size = 0x200000,
       .kernel_entry = 0x101000,
-      .boot_args_base = 0x300000,
-      .boot_args_size = 0x1000,
-      .memory_map_base = 0x400000,
-      .memory_map_entry_count = 1,
-      .memory_map_entry_size = sizeof(os8_xnu_range_t),
-      .platform_data_base = 0x500000,
-      .platform_data_size = 0x1000,
-      .timer_frequency_hz = 1000000000ULL,
-      .cpu_topology_base = 0x600000,
-      .cpu_topology_size = 0x1000,
-      .framebuffer = {
-          .base = 0x700000,
-          .size = 0x100000,
-          .width = 1024,
-          .height = 768,
-          .pitch = 4096,
-          .pixel_format = 1,
-      },
   };
+  if (os8_xnu_boot_handoff_apply_boot_args(&input, 0x300000, 0x1000) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_memory_map(
+          &input, 0x400000, 1, sizeof(os8_xnu_range_t)) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_platform_data(&input, 0x500000, 0x1000) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_timer(&input, 1000000000ULL) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_cpu_topology(&input, 0x600000, 0x1000) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_framebuffer(
+          &input, 0x700000, 0x100000, 1024, 768, 4096, 1) != 0)
+    return 1;
+  if (os8_xnu_boot_handoff_apply_memory_map(&input, 0x400000, 1, 16) == 0)
+    return 1;
   if (os8_xnu_boot_handoff_build(&handoff, &input) != 0) return 1;
   if (handoff.magic != OS8_XNU_BOOT_HANDOFF_MAGIC ||
       handoff.version != OS8_XNU_BOOT_HANDOFF_VERSION ||
