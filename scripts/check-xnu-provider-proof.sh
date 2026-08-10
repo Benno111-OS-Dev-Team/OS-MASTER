@@ -33,6 +33,17 @@ sha256_file() {
   fi
 }
 
+canonical_path() {
+  dir="$(dirname "$1")"
+  base="$(basename "$1")"
+  if [ ! -e "$dir/$base" ]; then
+    printf '%s\n' "$1"
+    return 0
+  fi
+  dir_abs="$(cd "$dir" && pwd -P)"
+  printf '%s/%s\n' "$dir_abs" "$base"
+}
+
 for required in "$proof_manifest" "$provider_manifest" "$provider_archive"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider proof verification input is missing or empty: $required" >&2
@@ -85,9 +96,9 @@ if [ "$proof_origin" != "$provider_origin" ] ||
   exit 1
 fi
 
-if [ "$proof_provider_manifest" != "$provider_manifest" ] ||
-   [ "$proof_provider_archive" != "$provider_archive" ] ||
-   [ "$proof_kernel_artifact" != "$provider_kernel" ]; then
+if [ "$(canonical_path "$proof_provider_manifest")" != "$(canonical_path "$provider_manifest")" ] ||
+   [ "$(canonical_path "$proof_provider_archive")" != "$(canonical_path "$provider_archive")" ] ||
+   [ "$(canonical_path "$proof_kernel_artifact")" != "$(canonical_path "$provider_kernel")" ]; then
   echo "error: XNU provider proof paths do not match provider inputs" >&2
   exit 1
 fi
@@ -111,8 +122,8 @@ if [ "$arch" = "x86_64" ]; then
   proof_smoke_log="$(manifest_value compiled_smoke_log "$proof_manifest")"
   proof_smoke_hash="$(manifest_value compiled_smoke_log_sha256 "$proof_manifest")"
   proof_smoke_marker="$(manifest_value compiled_smoke_marker "$proof_manifest")"
-  if [ "$proof_uefi_image" != "$uefi_image" ] ||
-     [ "$proof_smoke_log" != "$smoke_log" ] ||
+  if [ "$(canonical_path "$proof_uefi_image")" != "$(canonical_path "$uefi_image")" ] ||
+     [ "$(canonical_path "$proof_smoke_log")" != "$(canonical_path "$smoke_log")" ] ||
      [ "$proof_smoke_marker" != "startup-and-post-exit-handoff" ]; then
     echo "error: x86_64 XNU provider proof handoff metadata is inconsistent" >&2
     exit 1
