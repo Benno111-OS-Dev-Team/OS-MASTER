@@ -1,9 +1,8 @@
 /*
  * OS8 - Wi-Fi Driver Abstraction
  *
- * Wireless support used by Settings and system status surfaces.
- * This layer detects a small set of supported adapters and exposes only
- * hardware-backed scan/connect state; it no longer fabricates nearby networks.
+ * Wireless support used by Settings and system status surfaces. This layer
+ * detects supported adapters and exposes backend-provided scan/connect state.
  */
 
 #ifndef DRIVERS_WIFI_H

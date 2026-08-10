@@ -5,6 +5,7 @@
  */
 
 #include "net/net.h"
+#include "arch/arch.h"
 #include "printk.h"
 #include "mm/kmalloc.h"
 #include "string.h"
@@ -143,8 +144,11 @@ static int num_interfaces = 0;
 /* ===================================================================== */
 
 /* Forward declaration */
-void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
-                        struct tcp_hdr *tcp, size_t tcp_len);
+void tcp_handle_segment(struct net_interface *iface, struct eth_hdr *eth,
+                        struct ip_hdr *ip, struct tcp_hdr *tcp, size_t tcp_len);
+void dns_handle_udp_response(uint32_t src_ip, uint16_t src_port, uint16_t dst_port,
+                             const void *data, size_t len);
+static uint16_t checksum(void *data, size_t len);
 
 /* Handle incoming ARP packets */
 static void arp_handle(struct net_interface *iface, struct arp_hdr *arp)
@@ -192,21 +196,71 @@ static void arp_handle(struct net_interface *iface, struct arp_hdr *arp)
     }
 }
 
-/* Handle incoming IP packets */
-static void ip_handle(struct net_interface *iface, struct ip_hdr *ip, size_t len)
+static int icmp_send_echo_reply(struct net_interface *iface, struct eth_hdr *rx_eth,
+                                struct ip_hdr *rx_ip, const uint8_t *rx_payload,
+                                size_t payload_len)
 {
-    (void)iface;
-    
+    if (!iface || !iface->send || !rx_eth || !rx_ip || !rx_payload)
+        return -1;
+    if (payload_len < sizeof(struct icmp_hdr))
+        return -1;
+    if (payload_len > 0xFFFFu - sizeof(struct ip_hdr))
+        return -1;
+
+    size_t packet_len = ETH_HLEN + sizeof(struct ip_hdr) + payload_len;
+    uint8_t *packet = kmalloc(packet_len);
+    if (!packet)
+        return -1;
+
+    struct eth_hdr *eth = (struct eth_hdr *)packet;
+    struct ip_hdr *ip = (struct ip_hdr *)(packet + ETH_HLEN);
+    struct icmp_hdr *icmp = (struct icmp_hdr *)(packet + ETH_HLEN + sizeof(struct ip_hdr));
+
+    for (int i = 0; i < ETH_ALEN; i++) {
+        eth->dest[i] = rx_eth->src[i];
+        eth->src[i] = iface->mac[i];
+    }
+    eth->type = htons(ETH_P_IP);
+
+    ip->version_ihl = 0x45;
+    ip->tos = 0;
+    ip->total_len = htons(sizeof(struct ip_hdr) + payload_len);
+    ip->id = rx_ip->id;
+    ip->flags_frag = 0;
+    ip->ttl = 64;
+    ip->protocol = IP_PROTO_ICMP;
+    ip->src_ip = iface->ip ? iface->ip : rx_ip->dst_ip;
+    ip->dst_ip = rx_ip->src_ip;
+    ip->checksum = 0;
+    ip->checksum = checksum(ip, sizeof(struct ip_hdr));
+
+    memcpy(icmp, rx_payload, payload_len);
+    icmp->type = 0;
+    icmp->code = 0;
+    icmp->checksum = 0;
+    icmp->checksum = checksum(icmp, payload_len);
+
+    int rc = iface->send(iface, packet, packet_len);
+    iface->tx_packets++;
+    iface->tx_bytes += packet_len;
+
+    kfree(packet);
+    return rc;
+}
+
+/* Handle incoming IP packets */
+static void ip_handle(struct net_interface *iface, struct eth_hdr *eth, struct ip_hdr *ip, size_t len)
+{
     /* Verify header */
     if ((ip->version_ihl >> 4) != 4) return;  /* Not IPv4 */
     
     size_t ip_hlen = (ip->version_ihl & 0xF) * 4;
     size_t total_len = ntohs(ip->total_len);
-    
+
     if (ip_hlen < sizeof(struct ip_hdr)) return;
     if (total_len < ip_hlen) return;
     if (len < total_len) return;  /* Truncated packet */
-    
+
     uint8_t *payload = (uint8_t *)ip + ip_hlen;
     size_t payload_len = total_len - ip_hlen;
     
@@ -222,7 +276,7 @@ static void ip_handle(struct net_interface *iface, struct ip_hdr *ip, size_t len
                 } else if (icmp->type == 8) {
                     /* Echo request - send reply */
                     printk(KERN_DEBUG "ICMP: Received echo request, sending reply\n");
-                    /* TODO: Send ICMP echo reply */
+                    icmp_send_echo_reply(iface, eth, ip, payload, payload_len);
                 }
             }
             break;
@@ -231,13 +285,28 @@ static void ip_handle(struct net_interface *iface, struct ip_hdr *ip, size_t len
             {
                 if (payload_len < sizeof(struct tcp_hdr)) return;
                 struct tcp_hdr *tcp = (struct tcp_hdr *)payload;
-                tcp_handle_segment(ip->src_ip, ip->dst_ip, tcp, payload_len);
+                tcp_handle_segment(iface, eth, ip, tcp, payload_len);
             }
             break;
             
         case IP_PROTO_UDP:
-            /* Handle UDP */
-            printk(KERN_DEBUG "UDP: Received packet\n");
+            {
+                if (payload_len < sizeof(struct udp_hdr)) return;
+                struct udp_hdr *udp = (struct udp_hdr *)payload;
+                size_t udp_len = ntohs(udp->length);
+                if (udp_len < sizeof(struct udp_hdr) || udp_len > payload_len) return;
+
+                uint8_t *udp_payload = payload + sizeof(struct udp_hdr);
+                size_t udp_payload_len = udp_len - sizeof(struct udp_hdr);
+                uint16_t src_port = ntohs(udp->src_port);
+                uint16_t dst_port = ntohs(udp->dst_port);
+
+                dns_handle_udp_response(ip->src_ip, src_port, dst_port,
+                                        udp_payload, udp_payload_len);
+                socket_udp_deliver(ip->src_ip, src_port, ip->dst_ip, dst_port,
+                                   udp_payload, udp_payload_len);
+                printk(KERN_DEBUG "UDP: Received packet %u -> %u\n", src_port, dst_port);
+            }
             break;
             
         default:
@@ -267,7 +336,7 @@ void net_rx(struct net_interface *iface, const void *data, size_t len)
             
         case ETH_P_IP:
             if (payload_len >= sizeof(struct ip_hdr)) {
-                ip_handle(iface, (struct ip_hdr *)payload, payload_len);
+                ip_handle(iface, eth, (struct ip_hdr *)payload, payload_len);
             }
             break;
             
@@ -374,8 +443,14 @@ static uint16_t tcp_checksum(struct ip_hdr *ip, struct tcp_hdr *tcp, size_t tcp_
 
 static struct arp_entry *arp_lookup(uint32_t ip)
 {
+    uint64_t now = arch_timer_get_ms();
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
         if (arp_cache[i].valid && arp_cache[i].ip == ip) {
+            if (now >= arp_cache[i].timestamp &&
+                now - arp_cache[i].timestamp > (uint64_t)ARP_TIMEOUT * 1000ULL) {
+                arp_cache[i].valid = false;
+                continue;
+            }
             return &arp_cache[i];
         }
     }
@@ -403,7 +478,7 @@ static void arp_add(uint32_t ip, uint8_t *mac)
     for (int i = 0; i < ETH_ALEN; i++) {
         arp_cache[oldest].mac[i] = mac[i];
     }
-    arp_cache[oldest].timestamp = 0; /* TODO: get_time() */
+    arp_cache[oldest].timestamp = arch_timer_get_ms();
     arp_cache[oldest].valid = true;
 }
 
@@ -471,10 +546,12 @@ int icmp_send_echo(uint32_t dest_ip, uint16_t id, uint16_t seq)
     /* Fill headers */
     struct net_interface *iface = &interfaces[0];
     
-    /* Ethernet - need ARP lookup */
+    /* Ethernet */
     eth->type = htons(ETH_P_IP);
+    struct arp_entry *entry = arp_lookup(dest_ip);
     for (int i = 0; i < ETH_ALEN; i++) {
         eth->src[i] = iface->mac[i];
+        eth->dest[i] = entry ? entry->mac[i] : 0xFF;
     }
     
     /* IP header */
@@ -542,15 +619,24 @@ static void tcp_free_connection(struct tcp_connection *conn)
     conn->in_use = false;
 }
 
+static struct tcp_connection *tcp_get_connection(int sock)
+{
+    if (sock < 0 || sock >= MAX_TCP_CONNECTIONS)
+        return NULL;
+    if (!tcp_connections[sock].in_use)
+        return NULL;
+    return &tcp_connections[sock];
+}
+
 /* Build and send a TCP packet */
-static int tcp_send_packet(struct tcp_connection *conn, uint8_t flags, 
+static int tcp_send_packet(struct tcp_connection *conn, uint8_t flags,
                            const void *data, size_t data_len)
 {
     if (num_interfaces == 0) return -1;
     struct net_interface *iface = &interfaces[0];
     if (data_len > 0xFFFFu - sizeof(struct ip_hdr) - sizeof(struct tcp_hdr))
         return -1;
-    
+
     size_t tcp_len = sizeof(struct tcp_hdr) + data_len;
     if (tcp_len > ((size_t)-1) - ETH_HLEN - sizeof(struct ip_hdr))
         return -1;
@@ -566,9 +652,10 @@ static int tcp_send_packet(struct tcp_connection *conn, uint8_t flags,
     
     /* Ethernet header */
     eth->type = htons(ETH_P_IP);
+    struct arp_entry *entry = arp_lookup(conn->remote_ip);
     for (int i = 0; i < ETH_ALEN; i++) {
         eth->src[i] = iface->mac[i];
-        eth->dest[i] = 0xFF; /* TODO: ARP lookup for real dest MAC */
+        eth->dest[i] = entry ? entry->mac[i] : 0xFF;
     }
     
     /* IP header */
@@ -740,6 +827,39 @@ int tcp_close(struct tcp_connection *conn)
     return 0;
 }
 
+int tcp_send_socket(int sock, const void *data, uint32_t len)
+{
+    struct tcp_connection *conn = tcp_get_connection(sock);
+
+    if (!conn)
+        return -1;
+    return tcp_send(conn, data, len);
+}
+
+int tcp_recv_socket(int sock, void *data, uint32_t maxlen)
+{
+    struct tcp_connection *conn = tcp_get_connection(sock);
+
+    if (!conn)
+        return -1;
+    return tcp_recv(conn, data, maxlen);
+}
+
+void tcp_close_socket(int sock)
+{
+    struct tcp_connection *conn = tcp_get_connection(sock);
+
+    if (conn)
+        (void)tcp_close(conn);
+}
+
+int tcp_is_connected_socket(int sock)
+{
+    struct tcp_connection *conn = tcp_get_connection(sock);
+
+    return conn && conn->state == TCP_ESTABLISHED;
+}
+
 /* Find a connection by remote IP/port */
 static struct tcp_connection *tcp_find_connection(uint32_t remote_ip, uint16_t remote_port,
                                                    uint32_t local_ip, uint16_t local_port)
@@ -755,9 +875,76 @@ static struct tcp_connection *tcp_find_connection(uint32_t remote_ip, uint16_t r
     return NULL;
 }
 
+static int tcp_send_reset(struct net_interface *iface, struct eth_hdr *rx_eth,
+                          struct ip_hdr *rx_ip, struct tcp_hdr *rx_tcp,
+                          size_t data_len, uint8_t rx_flags)
+{
+    if (!iface || !iface->send || !rx_eth || !rx_ip || !rx_tcp)
+        return -1;
+
+    size_t packet_len = ETH_HLEN + sizeof(struct ip_hdr) + sizeof(struct tcp_hdr);
+    uint8_t *packet = kmalloc(packet_len);
+    if (!packet)
+        return -1;
+
+    struct eth_hdr *eth = (struct eth_hdr *)packet;
+    struct ip_hdr *ip = (struct ip_hdr *)(packet + ETH_HLEN);
+    struct tcp_hdr *tcp = (struct tcp_hdr *)(packet + ETH_HLEN + sizeof(struct ip_hdr));
+
+    for (int i = 0; i < ETH_ALEN; i++) {
+        eth->dest[i] = rx_eth->src[i];
+        eth->src[i] = iface->mac[i];
+    }
+    eth->type = htons(ETH_P_IP);
+
+    ip->version_ihl = 0x45;
+    ip->tos = 0;
+    ip->total_len = htons(sizeof(struct ip_hdr) + sizeof(struct tcp_hdr));
+    ip->id = rx_ip->id;
+    ip->flags_frag = 0;
+    ip->ttl = 64;
+    ip->protocol = IP_PROTO_TCP;
+    ip->src_ip = iface->ip ? iface->ip : rx_ip->dst_ip;
+    ip->dst_ip = rx_ip->src_ip;
+    ip->checksum = 0;
+    ip->checksum = checksum(ip, sizeof(struct ip_hdr));
+
+    uint32_t seq = ntohl(rx_tcp->seq);
+    uint32_t ack = ntohl(rx_tcp->ack);
+    uint32_t ack_len = (uint32_t)data_len;
+    if (rx_flags & TCP_SYN) ack_len++;
+    if (rx_flags & TCP_FIN) ack_len++;
+
+    tcp->src_port = rx_tcp->dst_port;
+    tcp->dst_port = rx_tcp->src_port;
+    tcp->data_offset = (sizeof(struct tcp_hdr) / 4) << 4;
+    tcp->window = 0;
+    tcp->urgent = 0;
+    tcp->checksum = 0;
+
+    if (rx_flags & TCP_ACK) {
+        tcp->seq = htonl(ack);
+        tcp->ack = 0;
+        tcp->flags = TCP_RST;
+    } else {
+        tcp->seq = 0;
+        tcp->ack = htonl(seq + ack_len);
+        tcp->flags = TCP_RST | TCP_ACK;
+    }
+
+    tcp->checksum = tcp_checksum(ip, tcp, sizeof(struct tcp_hdr));
+
+    int rc = iface->send(iface, packet, packet_len);
+    iface->tx_packets++;
+    iface->tx_bytes += packet_len;
+
+    kfree(packet);
+    return rc;
+}
+
 /* Handle incoming TCP segment - called from IP layer */
-void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
-                        struct tcp_hdr *tcp, size_t tcp_len)
+void tcp_handle_segment(struct net_interface *iface, struct eth_hdr *eth,
+                        struct ip_hdr *ip, struct tcp_hdr *tcp, size_t tcp_len)
 {
     if (!tcp || tcp_len < sizeof(struct tcp_hdr)) return;
 
@@ -766,20 +953,21 @@ void tcp_handle_segment(uint32_t src_ip, uint32_t dst_ip,
     uint32_t seq = ntohl(tcp->seq);
     uint32_t ack = ntohl(tcp->ack);
     uint8_t flags = tcp->flags;
-    
-    struct tcp_connection *conn = tcp_find_connection(src_ip, src_port, dst_ip, dst_port);
-    
-    if (!conn) {
-        /* No connection - send RST if not a RST */
-        if (!(flags & TCP_RST)) {
-            printk(KERN_DEBUG "TCP: No connection for port %u, would send RST\n", dst_port);
-        }
-        return;
-    }
-    
     size_t header_len = ((tcp->data_offset >> 4) & 0xF) * 4;
     if (header_len < sizeof(struct tcp_hdr) || header_len > tcp_len) return;
     size_t data_len = tcp_len - header_len;
+
+    struct tcp_connection *conn = tcp_find_connection(ip->src_ip, src_port,
+                                                      ip->dst_ip, dst_port);
+
+    if (!conn) {
+        if (!(flags & TCP_RST)) {
+            tcp_send_reset(iface, eth, ip, tcp, data_len, flags);
+            printk(KERN_DEBUG "TCP: Sent RST for closed port %u\n", dst_port);
+        }
+        return;
+    }
+
     uint8_t *data = (uint8_t *)tcp + header_len;
     
     /* TCP State Machine */
@@ -886,8 +1074,8 @@ int udp_send(uint32_t dest_ip, uint16_t src_port, uint16_t dest_port,
     if (num_interfaces == 0) return -1;
     if (len > 0xFFFFu - sizeof(struct ip_hdr) - sizeof(struct udp_hdr))
         return -1;
-    
-    size_t total_len = ETH_HLEN + sizeof(struct ip_hdr) + 
+
+    size_t total_len = ETH_HLEN + sizeof(struct ip_hdr) +
                        sizeof(struct udp_hdr) + len;
     uint8_t *packet = kmalloc(total_len);
     if (!packet) return -1;
@@ -901,8 +1089,10 @@ int udp_send(uint32_t dest_ip, uint16_t src_port, uint16_t dest_port,
     
     /* Ethernet */
     eth->type = htons(ETH_P_IP);
+    struct arp_entry *entry = arp_lookup(dest_ip);
     for (int i = 0; i < ETH_ALEN; i++) {
         eth->src[i] = iface->mac[i];
+        eth->dest[i] = entry ? entry->mac[i] : 0xFF;
     }
     
     /* IP */

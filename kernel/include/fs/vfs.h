@@ -124,6 +124,7 @@
 #define EROFS           30
 #define EMLINK          31
 #define EPIPE           32
+#define ERANGE          34
 #define ENAMETOOLONG    36
 #define ENOSYS          38
 #define ENOTEMPTY       39
@@ -240,6 +241,48 @@ struct file {
     mode_t f_mode;
     atomic_t f_count;
     void *private_data;
+    char f_path[PATH_MAX];
+};
+
+struct vfs_stat {
+    dev_t dev;
+    ino_t ino;
+    mode_t mode;
+    nlink_t nlink;
+    uid_t uid;
+    gid_t gid;
+    dev_t rdev;
+    loff_t size;
+    blksize_t blksize;
+    blkcnt_t blocks;
+    struct timespec atime;
+    struct timespec mtime;
+    struct timespec ctime;
+};
+
+struct vfs_statfs {
+    long type;
+    long bsize;
+    uint64_t blocks;
+    uint64_t bfree;
+    uint64_t bavail;
+    uint64_t files;
+    uint64_t ffree;
+    uint64_t fsid[2];
+    long namelen;
+    long frsize;
+    long flags;
+};
+
+#define VFS_ATTR_MODE 0x00000001u
+#define VFS_ATTR_UID  0x00000002u
+#define VFS_ATTR_GID  0x00000004u
+
+struct vfs_iattr {
+    uint32_t valid;
+    mode_t mode;
+    uid_t uid;
+    gid_t gid;
 };
 
 /* ===================================================================== */
@@ -335,6 +378,26 @@ int vfs_sync_all(void);
 int vfs_readdir(struct file *file, void *ctx, int (*filldir)(void *, const char *, int, loff_t, ino_t, unsigned));
 
 /**
+ * vfs_stat_path - Get metadata for a path
+ */
+int vfs_stat_path(const char *path, struct vfs_stat *stat);
+
+/**
+ * vfs_statfs_path - Get filesystem metadata for a path
+ */
+int vfs_statfs_path(const char *path, struct vfs_statfs *stat);
+
+/**
+ * vfs_statfs_file - Get filesystem metadata for an open file
+ */
+int vfs_statfs_file(struct file *file, struct vfs_statfs *stat);
+
+/**
+ * vfs_file_path - Copy the path used to open a file
+ */
+int vfs_file_path(struct file *file, char *buf, size_t size);
+
+/**
  * vfs_read - Read from a file
  */
 ssize_t vfs_read(struct file *file, char *buf, size_t count);
@@ -393,6 +456,36 @@ int vfs_link(const char *oldpath, const char *newpath);
  * vfs_rename - Rename a file or directory
  */
 int vfs_rename(const char *oldpath, const char *newpath);
+
+/**
+ * vfs_symlink - Create a symbolic link
+ */
+int vfs_symlink(const char *target, const char *linkpath);
+
+/**
+ * vfs_readlink - Read a symbolic link target
+ */
+ssize_t vfs_readlink(const char *path, char *buf, size_t bufsiz);
+
+/**
+ * vfs_chmod_path - Change mode bits for a path
+ */
+int vfs_chmod_path(const char *path, mode_t mode);
+
+/**
+ * vfs_chmod_file - Change mode bits for an open file
+ */
+int vfs_chmod_file(struct file *file, mode_t mode);
+
+/**
+ * vfs_chown_path - Change owner/group for a path
+ */
+int vfs_chown_path(const char *path, uid_t uid, gid_t gid);
+
+/**
+ * vfs_chown_file - Change owner/group for an open file
+ */
+int vfs_chown_file(struct file *file, uid_t uid, gid_t gid);
 
 /**
  * vfs_mount - Mount a filesystem

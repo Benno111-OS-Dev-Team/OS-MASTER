@@ -5,6 +5,7 @@
  */
 
 #include "types.h"
+#include "arch/arch.h"
 #include "printk.h"
 #include "mm/kmalloc.h"
 
@@ -30,6 +31,7 @@
 #define DNS_FLAG_RD         0x0100  /* Recursion Desired */
 #define DNS_FLAG_RA         0x0080  /* Recursion Available */
 #define DNS_RCODE_MASK      0x000F
+#define DNS_INADDR_LOOPBACK 0x7f000001U
 
 /* ===================================================================== */
 /* DNS Structures */
@@ -78,6 +80,22 @@ static uint32_t dns_servers[4] = { 0x08080808, 0x08080404, 0, 0 }; /* Google DNS
 static int num_dns_servers = 2;
 static uint16_t dns_query_id = 1;
 
+struct dns_pending_query {
+    bool active;
+    uint16_t id;
+    uint16_t port;
+    uint32_t server_ip;
+    uint32_t answer_ip;
+    int result;
+};
+
+static struct dns_pending_query dns_pending;
+
+extern int udp_send(uint32_t dest_ip, uint16_t src_port, uint16_t dest_port,
+                    const void *data, size_t len);
+extern void virtio_net_poll(void);
+extern void vbox_net_poll(void);
+
 /* ===================================================================== */
 /* Helper Functions */
 /* ===================================================================== */
@@ -99,6 +117,54 @@ static bool dns_name_fits(const char *name)
     }
 
     return false;
+}
+
+static int dns_text_equal(const char *a, const char *b)
+{
+    if (!a || !b) return 0;
+    while (*a && *b) {
+        if (*a != *b) return 0;
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static int dns_parse_ipv4_literal(const char *name, uint32_t *ip_out)
+{
+    uint32_t parts[4] = {0, 0, 0, 0};
+    int part = 0;
+    int digits = 0;
+
+    if (!name || !ip_out)
+        return -1;
+
+    for (const char *p = name; ; p++) {
+        char ch = *p;
+
+        if (ch >= '0' && ch <= '9') {
+            parts[part] = parts[part] * 10U + (uint32_t)(ch - '0');
+            if (parts[part] > 255U || ++digits > 3)
+                return -1;
+        } else if (ch == '.' || ch == '\0') {
+            if (digits == 0)
+                return -1;
+            if (ch == '\0')
+                break;
+            if (++part >= 4)
+                return -1;
+            digits = 0;
+        } else {
+            return -1;
+        }
+    }
+
+    if (part != 3)
+        return -1;
+
+    *ip_out = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) |
+              parts[3];
+    return 0;
 }
 
 /* Encode domain name to DNS format (labels) */
@@ -213,12 +279,13 @@ static int dns_skip_name(const uint8_t *response, size_t response_len, size_t *o
 /* ===================================================================== */
 
 /* Build DNS query packet */
-static int dns_build_query(const char *name, uint16_t type, uint8_t *buf, size_t buf_len)
+static int dns_build_query(const char *name, uint16_t type, uint16_t id,
+                           uint8_t *buf, size_t buf_len)
 {
     if (buf_len < DNS_HEADER_SIZE + DNS_MAX_NAME_LEN + 4) return -1;
     
     struct dns_header *hdr = (struct dns_header *)buf;
-    hdr->id = htons(dns_query_id++);
+    hdr->id = htons(id);
     hdr->flags = htons(DNS_FLAG_RD);  /* Recursion desired */
     hdr->qdcount = htons(1);
     hdr->ancount = 0;
@@ -291,11 +358,39 @@ static int dns_parse_response(const uint8_t *response, size_t len, uint32_t *ip_
     return -1;
 }
 
+void dns_handle_udp_response(uint32_t src_ip, uint16_t src_port, uint16_t dst_port,
+                             const void *data, size_t len)
+{
+    if (!dns_pending.active || !data || len < DNS_HEADER_SIZE)
+        return;
+    if (src_ip != dns_pending.server_ip || src_port != DNS_PORT ||
+        dst_port != dns_pending.port)
+        return;
+
+    const uint8_t *response = (const uint8_t *)data;
+    const struct dns_header *hdr = (const struct dns_header *)response;
+    if (ntohs(hdr->id) != dns_pending.id)
+        return;
+
+    uint32_t ip = 0;
+    dns_pending.result = dns_parse_response(response, len, &ip);
+    if (dns_pending.result == 0)
+        dns_pending.answer_ip = ip;
+    dns_pending.active = false;
+}
+
 /* Cache lookup */
 static struct dns_cache_entry *dns_cache_lookup(const char *name)
 {
+    uint64_t now = arch_timer_get_ms();
     for (int i = 0; i < DNS_CACHE_SIZE; i++) {
         if (dns_cache[i].valid) {
+            if (dns_cache[i].ttl > 0 && now >= dns_cache[i].timestamp &&
+                now - dns_cache[i].timestamp > (uint64_t)dns_cache[i].ttl * 1000ULL) {
+                dns_cache[i].valid = false;
+                continue;
+            }
+
             /* Compare names */
             bool match = true;
             for (int j = 0; name[j] || dns_cache[i].name[j]; j++) {
@@ -328,7 +423,7 @@ static void dns_cache_add(const char *name, uint32_t ip, uint32_t ttl)
     dns_cache[slot].valid = true;
     dns_cache[slot].ip = ip;
     dns_cache[slot].ttl = ttl;
-    dns_cache[slot].timestamp = 0;  /* TODO: get_time() */
+    dns_cache[slot].timestamp = arch_timer_get_ms();
     
     for (int i = 0; i < DNS_MAX_NAME_LEN - 1 && name[i]; i++) {
         dns_cache[slot].name[i] = name[i];
@@ -345,6 +440,13 @@ int dns_resolve(const char *hostname, uint32_t *ip_out)
     if (!ip_out || !dns_name_fits(hostname)) return -1;
 
     printk(KERN_DEBUG "DNS: Resolving %s\n", hostname);
+
+    if (dns_text_equal(hostname, "localhost")) {
+        *ip_out = DNS_INADDR_LOOPBACK;
+        return 0;
+    }
+    if (dns_parse_ipv4_literal(hostname, ip_out) == 0)
+        return 0;
     
     /* Check cache first */
     struct dns_cache_entry *cached = dns_cache_lookup(hostname);
@@ -354,22 +456,46 @@ int dns_resolve(const char *hostname, uint32_t *ip_out)
         return 0;
     }
     
-    /* Build query */
     uint8_t query[512];
-    int query_len = dns_build_query(hostname, DNS_TYPE_A, query, sizeof(query));
-    if (query_len < 0) {
-        printk(KERN_ERR "DNS: Failed to build query\n");
-        return -1;
+    for (int i = 0; i < num_dns_servers; i++) {
+        if (dns_servers[i] == 0)
+            continue;
+
+        uint16_t id = dns_query_id++;
+        uint16_t port = (uint16_t)(49152 + (id % 1024));
+        int query_len = dns_build_query(hostname, DNS_TYPE_A, id, query, sizeof(query));
+        if (query_len < 0) {
+            printk(KERN_ERR "DNS: Failed to build query\n");
+            return -1;
+        }
+
+        dns_pending.active = true;
+        dns_pending.id = id;
+        dns_pending.port = port;
+        dns_pending.server_ip = dns_servers[i];
+        dns_pending.answer_ip = 0;
+        dns_pending.result = -1;
+
+        if (udp_send(dns_servers[i], port, DNS_PORT, query, (size_t)query_len) < 0) {
+            dns_pending.active = false;
+            continue;
+        }
+
+        for (int attempt = 0; attempt < 256 && dns_pending.active; attempt++) {
+            virtio_net_poll();
+            vbox_net_poll();
+        }
+
+        if (!dns_pending.active && dns_pending.result == 0) {
+            *ip_out = dns_pending.answer_ip;
+            dns_cache_add(hostname, *ip_out, 300);
+            printk(KERN_DEBUG "DNS: Resolved %s\n", hostname);
+            return 0;
+        }
     }
-    
-    /* TODO: Send UDP query to DNS server */
-    /* TODO: Wait for response */
-    /* TODO: Parse response */
-    
-    /* For now, return localhost for testing */
-    printk(KERN_DEBUG "DNS: Query built (%d bytes), would send to server\n", query_len);
-    
-    return -1;  /* Not implemented yet */
+
+    dns_pending.active = false;
+    return -1;
 }
 
 int dns_set_server(int index, uint32_t ip)
@@ -389,6 +515,7 @@ void dns_init(void)
     for (int i = 0; i < DNS_CACHE_SIZE; i++) {
         dns_cache[i].valid = false;
     }
+    dns_pending.active = false;
     
     printk(KERN_INFO "DNS: Using servers 8.8.8.8, 8.8.4.4\n");
 }

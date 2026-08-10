@@ -19,6 +19,7 @@
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/printk.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/shared-api/password_hash.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/gui/toolbar_icons.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/string.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/newwindows/include/window_skin.h
 /mnt/c/Users/Benno111/Documents/GitHub/os8/build/x86_64/generated/build_uuid.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/arch/arch.h:
@@ -39,4 +40,5 @@
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/printk.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/shared-api/password_hash.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/gui/toolbar_icons.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/string.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/newwindows/include/window_skin.h:

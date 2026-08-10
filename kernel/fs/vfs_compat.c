@@ -13,6 +13,16 @@
 /* Current working directory */
 static char cwd[256] = "/";
 
+static size_t compat_strlen(const char *s) {
+  size_t len = 0;
+
+  if (!s)
+    return 0;
+  while (s[len])
+    len++;
+  return len;
+}
+
 /* Static node pool for simplicity */
 #define MAX_VFS_NODES 32
 static vfs_node_t node_pool[MAX_VFS_NODES];
@@ -272,9 +282,16 @@ int vfs_readdir_compat(vfs_node_t *dir, int index, char *name, size_t name_size,
 
 /* Set CWD */
 int vfs_set_cwd(const char *path) {
+  struct vfs_stat st;
+
   if (!path || path[0] == '\0')
     return -1;
-  strlcpy(cwd, path, sizeof(cwd));
+  if (vfs_stat_path(path, &st) < 0)
+    return -1;
+  if (!S_ISDIR(st.mode))
+    return -1;
+  if (strlcpy(cwd, path, sizeof(cwd)) >= sizeof(cwd))
+    return -1;
   return 0;
 }
 
@@ -285,3 +302,5 @@ int vfs_get_cwd_path(char *buf, size_t size) {
   strlcpy(buf, cwd, size);
   return 0;
 }
+
+int vfs_get_cwd_length(void) { return (int)compat_strlen(cwd); }

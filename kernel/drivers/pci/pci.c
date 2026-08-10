@@ -134,6 +134,21 @@ void pci_write32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset,
   uint32_t address = 0x80000000U | ((uint32_t)bus << 16) |
                      ((uint32_t)slot << 11) | ((uint32_t)func << 8) |
                      (offset & 0xFC);
+<<<<<<< HEAD
+  outl(0xCF8, address);
+  outl(0xCFC, value);
+#else
+  volatile uint32_t *addr = pci_ecam_addr(bus, slot, func, offset);
+  *addr = value;
+#endif
+}
+
+/* Find a device by vendor/device ID */
+pci_device_t *pci_find_device(uint16_t vendor, uint16_t device) {
+  pci_device_t *dev = device_list;
+  while (dev) {
+    if (dev->vendor_id == vendor && dev->device_id == device) {
+=======
   outl(0xCF8, address);
   outl(0xCFC, value);
 #else
@@ -163,6 +178,7 @@ pci_device_t *pci_find_next_class(pci_device_t *after, uint8_t class_code,
     if (dev->class_code == class_code &&
         (subclass == 0xFF || dev->subclass == subclass) &&
         (prog_if == 0xFF || dev->prog_if == prog_if)) {
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
       return dev;
     }
     dev = dev->next;
@@ -170,6 +186,8 @@ pci_device_t *pci_find_next_class(pci_device_t *after, uint8_t class_code,
   return NULL;
 }
 
+<<<<<<< HEAD
+=======
 pci_device_t *pci_find_class(uint8_t class_code, uint8_t subclass,
                              uint8_t prog_if) {
   return pci_find_next_class(NULL, class_code, subclass, prog_if);
@@ -204,6 +222,7 @@ uint8_t pci_find_capability(pci_device_t *dev, uint8_t cap_id) {
   return 0;
 }
 
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 static uint64_t pci_read_bar(uint8_t bus, uint8_t slot, uint8_t func,
                              uint8_t bar_offset) {
   uint32_t bar_raw = pci_read32(bus, slot, func, bar_offset);
@@ -233,8 +252,124 @@ static int pci_bar_raw_is_64bit(uint32_t bar_raw) {
   return (bar_raw & 0x6) == 0x4;
 }
 
+#if !(defined(ARCH_X86_64) || defined(ARCH_X86))
+static uint64_t pci_align_up_u64(uint64_t value, uint64_t alignment) {
+  if (alignment == 0)
+    return value;
+  return (value + alignment - 1) & ~(alignment - 1);
+}
+#endif
+
 /* Allocate BAR if unassigned */
 static uint64_t pci_alloc_bar(uint8_t bus, uint8_t slot, uint8_t func,
+<<<<<<< HEAD
+                              uint8_t bar_offset) {
+#if defined(ARCH_X86_64) || defined(ARCH_X86)
+  /* Real hardware is sensitive to BAR sizing/probing during bring-up. */
+  return pci_read_bar(bus, slot, func, bar_offset);
+#else
+  uint32_t bar_raw = pci_read32(bus, slot, func, bar_offset);
+  uint32_t flags = bar_raw & 0xF;
+  uint32_t high_raw = 0;
+  uint32_t size_low;
+  uint32_t size_high = 0;
+  uint32_t command;
+  uint64_t size_mask;
+  uint64_t size;
+  bool is_64bit;
+  uint64_t addr;
+
+  /* Check if BAR is already assigned with valid address */
+  if ((bar_raw & 0xFFFFFFF0) != 0 && bar_raw != 0xFFFFFFFF) {
+    return pci_read_bar(bus, slot, func, bar_offset);
+  }
+
+  if (bar_raw == 0xFFFFFFFF || (bar_raw & 0x1))
+    return 0;
+
+  is_64bit = (flags & 0x6) == 0x4;
+  if (is_64bit)
+    high_raw = pci_read32(bus, slot, func, (uint8_t)(bar_offset + 4));
+
+  /*
+   * Probe with memory and I/O decode disabled so all-ones writes cannot
+   * collide with another device's active decode window.
+   */
+  command = pci_read32(bus, slot, func, PCI_COMMAND);
+  pci_write32(bus, slot, func, PCI_COMMAND,
+              command & ~(PCI_CMD_IO | PCI_CMD_MEM));
+
+  pci_write32(bus, slot, func, bar_offset, 0xFFFFFFFF);
+  if (is_64bit)
+    pci_write32(bus, slot, func, (uint8_t)(bar_offset + 4), 0xFFFFFFFF);
+  size_low = pci_read32(bus, slot, func, bar_offset);
+  if (is_64bit)
+    size_high = pci_read32(bus, slot, func, (uint8_t)(bar_offset + 4));
+
+  if (is_64bit)
+    pci_write32(bus, slot, func, (uint8_t)(bar_offset + 4), high_raw);
+  pci_write32(bus, slot, func, bar_offset, bar_raw); /* Restore */
+  pci_write32(bus, slot, func, PCI_COMMAND, command);
+
+  /* Check if BAR responds to sizing */
+  if (size_low == 0 || size_low == 0xFFFFFFFF)
+    return 0;
+
+  /* Calculate size from response */
+  size_mask = (uint64_t)(size_low & 0xFFFFFFF0U);
+  if (is_64bit)
+    size_mask |= (uint64_t)size_high << 32;
+  size = (~size_mask) + 1;
+  if (size == 0 || size > 0x10000000ULL)
+    return 0;
+
+  /* Align allocation */
+  next_mmio_base = pci_align_up_u64(next_mmio_base, size);
+  addr = next_mmio_base;
+
+  /* Write new address */
+  pci_write32(bus, slot, func, bar_offset, (uint32_t)addr | (flags & 0xF));
+
+  /* Handle 64-bit BAR */
+  if (is_64bit) {
+    pci_write32(bus, slot, func, (uint8_t)(bar_offset + 4),
+                (uint32_t)(addr >> 32));
+  }
+
+  next_mmio_base += size;
+
+  printk("PCI:   [%02x:%02x.%x] BAR@0x%02x allocated at 0x%llx (size 0x%llx)\n",
+         bus, slot, func, bar_offset, addr, size);
+  return addr;
+#endif
+}
+
+static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
+  uint32_t vendor_dev = pci_read32(bus, slot, func, PCI_VENDOR_ID);
+  uint16_t vendor = vendor_dev & 0xFFFF;
+  uint16_t device = (vendor_dev >> 16) & 0xFFFF;
+
+  if (vendor == 0xFFFF || vendor == 0x0000)
+    return;
+
+  printk("PCI: Found %04x:%04x at %02x:%02x.%x\n", vendor, device, bus, slot,
+         func);
+
+  if (device_count >= (int)(sizeof(device_pool) / sizeof(device_pool[0]))) {
+    printk("PCI: Device pool full!\n");
+    return;
+  }
+
+  pci_device_t *pci_dev = &device_pool[device_count++];
+  pci_dev->bus = bus;
+  pci_dev->slot = slot;
+  pci_dev->func = func;
+  pci_dev->vendor_id = vendor;
+  pci_dev->device_id = device;
+
+  uint32_t class_rev = pci_read32(bus, slot, func, PCI_CLASS_REV);
+  pci_dev->class_code = (class_rev >> 24) & 0xFF;
+=======
                               uint8_t bar_offset) {
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
   /* Real hardware is sensitive to BAR sizing/probing during bring-up. */
@@ -329,6 +464,7 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
 
   uint32_t class_rev = pci_read32(bus, slot, func, PCI_CLASS_REV);
   pci_dev->class_code = (class_rev >> 24) & 0xFF;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   pci_dev->subclass = (class_rev >> 16) & 0xFF;
   pci_dev->prog_if = (class_rev >> 8) & 0xFF;
 
@@ -340,6 +476,46 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   uint32_t irq_line = pci_read32(bus, slot, func, PCI_INTERRUPT);
   pci_dev->irq = irq_line & 0xFF;
 
+<<<<<<< HEAD
+  pci_dev->next = device_list;
+  device_list = pci_dev;
+
+  storage_register_pci_controller(pci_dev);
+
+  if (pci_generic_drivers_only && intel_hda_is_device_supported(pci_dev)) {
+    printk("PCI: generic driver mode skipping Intel HDA at %02x:%02x.%x\n",
+           pci_dev->bus, pci_dev->slot, pci_dev->func);
+  } else if (intel_hda_is_device_supported(pci_dev)) {
+    printk("PCI: Found Intel HDA Audio Controller!\n");
+    printk("PCI: HDA BAR0=0x%llx, IRQ=%d\n", pci_dev->bar0, pci_dev->irq);
+    intel_hda_init(pci_dev);
+  }
+
+  if (pci_generic_drivers_only && vendor == INTEL_GPU_VENDOR_ID &&
+      pci_dev->class_code == 0x03) {
+    printk("PCI: generic driver mode skipping Intel integrated graphics at %02x:%02x.%x\n",
+           pci_dev->bus, pci_dev->slot, pci_dev->func);
+  } else if (vendor == INTEL_GPU_VENDOR_ID && pci_dev->class_code == 0x03) {
+    printk("PCI: Found Intel integrated graphics controller\n");
+    printk("PCI: Intel GPU BAR0=0x%llx BAR2=0x%llx IRQ=%d\n", pci_dev->bar0,
+           pci_dev->bar2, pci_dev->irq);
+    intel_gfx_init(pci_dev);
+  }
+
+  if (vendor == PCI_VENDOR_VIRTIO && device == PCI_DEVICE_VIRTIO_GPU) {
+    if (pci_generic_drivers_only) {
+      printk("PCI: generic driver mode skipping virtio-gpu at %02x:%02x.%x\n",
+             pci_dev->bus, pci_dev->slot, pci_dev->func);
+    } else {
+      printk("PCI: Found virtio-gpu device!\n");
+      printk("PCI: virtio-gpu BAR0=0x%llx\n", pci_dev->bar0);
+    }
+  }
+
+  pci_try_init_xhci_controller(pci_dev, 0);
+}
+
+=======
   if (pci_dev->cap_msi || pci_dev->cap_msix || pci_dev->cap_pcie) {
     printk("PCI:   capabilities MSI=0x%x MSI-X=0x%x PCIe=0x%x\n",
            pci_dev->cap_msi, pci_dev->cap_msix, pci_dev->cap_pcie);
@@ -383,6 +559,7 @@ static void pci_register_device(uint8_t bus, uint8_t slot, uint8_t func) {
   pci_try_init_xhci_controller(pci_dev, 0);
 }
 
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 void pci_init(void) {
 #if defined(ARCH_X86_64) || defined(ARCH_X86)
   int allow_xhci_after_scan = 0;

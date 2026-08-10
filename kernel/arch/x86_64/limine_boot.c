@@ -66,6 +66,24 @@ struct limine_hhdm_request {
     struct limine_hhdm_response *response;
 };
 
+struct limine_memmap_entry {
+    uint64_t base;
+    uint64_t length;
+    uint64_t type;
+};
+
+struct limine_memmap_response {
+    uint64_t revision;
+    uint64_t entry_count;
+    struct limine_memmap_entry **entries;
+};
+
+struct limine_memmap_request {
+    uint64_t id[4];
+    uint64_t revision;
+    struct limine_memmap_response *response;
+};
+
 struct limine_uuid {
     uint32_t a;
     uint16_t b;
@@ -140,6 +158,13 @@ static volatile struct limine_hhdm_request hhdm_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
+static volatile struct limine_memmap_request memmap_request = {
+    .id = {0x67cf3d9d378a806f, 0xe304acdfc50c3c62, 0, 0},
+    .revision = 0,
+    .response = 0
+};
+
+__attribute__((used, section(".limine_requests")))
 static volatile struct limine_kernel_file_request kernel_file_request = {
     .id = {0xc7b1dd30df4c8b88, 0x0a82e883a194f07b,
            0xad97e90e83f1ed67, 0x31eb5d1c5ff23b69},
@@ -207,6 +232,9 @@ static void *g_bootstrap_file_addr = 0;
 static uint64_t g_bootstrap_file_size = 0;
 static void *g_kernel_file_addr = 0;
 static uint64_t g_kernel_file_size = 0;
+static uint64_t g_usable_memory_base = 0;
+static uint64_t g_usable_memory_size = 0;
+static uint64_t g_total_usable_memory = 0;
 
 struct idt_entry64 {
     uint16_t offset_low;
@@ -384,6 +412,12 @@ void *limine_get_kernel_file_addr(void) { return g_kernel_file_addr; }
 
 uint64_t limine_get_kernel_file_size(void) { return g_kernel_file_size; }
 
+uint64_t limine_get_usable_memory_base(void) { return g_usable_memory_base; }
+
+uint64_t limine_get_usable_memory_size(void) { return g_usable_memory_size; }
+
+uint64_t limine_get_total_usable_memory(void) { return g_total_usable_memory; }
+
 /* ========== Direct Screen Test ========== */
 
 static int boot_framebuffer_is_sane(const struct limine_framebuffer *fb) {
@@ -547,6 +581,32 @@ void x86_64_boot_emergency_exception(uint64_t int_no, uint64_t rip,
 
 extern void kernel_main(void *dtb);
 
+static void limine_capture_memory_map(void) {
+    struct limine_memmap_response *response = memmap_request.response;
+    uint64_t best_base = 0;
+    uint64_t best_size = 0;
+    uint64_t total = 0;
+
+    if (!response || !response->entries)
+        return;
+
+    for (uint64_t i = 0; i < response->entry_count; i++) {
+        struct limine_memmap_entry *entry = response->entries[i];
+        if (!entry || entry->type != 0 || entry->length == 0)
+            continue;
+
+        total += entry->length;
+        if (entry->length > best_size) {
+            best_base = entry->base;
+            best_size = entry->length;
+        }
+    }
+
+    g_usable_memory_base = best_base;
+    g_usable_memory_size = best_size;
+    g_total_usable_memory = total;
+}
+
 static void limine_capture_direct_boot_state(void) {
     if (rsdp_request.response) {
         g_rsdp = rsdp_request.response->address;
@@ -561,6 +621,7 @@ static void limine_capture_direct_boot_state(void) {
         g_kernel_file_addr = g_bootstrap_file_addr;
         g_kernel_file_size = g_bootstrap_file_size;
     }
+    limine_capture_memory_map();
 }
 
 static int limine_seed_loader_handoff(const os8_boot_handoff_t *handoff) {
@@ -594,6 +655,9 @@ static int limine_seed_loader_handoff(const os8_boot_handoff_t *handoff) {
     g_bootstrap_file_size = handoff->bootstrap_file_size;
     g_kernel_file_addr = (void *)(uintptr_t)handoff->kernel_file_addr;
     g_kernel_file_size = handoff->kernel_file_size;
+    g_usable_memory_base = 0;
+    g_usable_memory_size = 0;
+    g_total_usable_memory = 0;
     return 0;
 }
 
@@ -654,6 +718,10 @@ void limine_entry_main(void) {
     serial_puthex(g_hhdm_offset);
     serial_puts("\n  Cmdline ptr: ");
     serial_puthex((uint64_t)g_kernel_cmdline);
+    serial_puts("\n  Usable memory base: ");
+    serial_puthex(g_usable_memory_base);
+    serial_puts("\n  Usable memory size: ");
+    serial_puthex(g_usable_memory_size);
     serial_puts("\n");
 
     serial_puts("Calling kernel_main...\n");

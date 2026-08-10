@@ -53,16 +53,16 @@ typedef struct {
   const wifi_backend_ops_t *backend;
 } wifi_state_t;
 
-static int wifi_stub_scan(void);
-static int wifi_stub_connect(const char *ssid, int secure, const char *password);
-static void wifi_stub_disconnect(void);
+static int wifi_fallback_scan(void);
+static int wifi_fallback_connect(const char *ssid, int secure, const char *password);
+static void wifi_fallback_disconnect(void);
 static int wifi_compat_scan(void);
 static int wifi_compat_connect(const char *ssid, int secure, const char *password);
 static void wifi_compat_disconnect(void);
 
-static const wifi_backend_ops_t wifi_stub_backend = {0, 0, wifi_stub_scan,
-                                                     wifi_stub_connect,
-                                                     wifi_stub_disconnect};
+static const wifi_backend_ops_t wifi_fallback_backend = {0, 0, wifi_fallback_scan,
+                                                         wifi_fallback_connect,
+                                                         wifi_fallback_disconnect};
 static const wifi_backend_ops_t wifi_compat_backend = {1, 1, wifi_compat_scan,
                                                        wifi_compat_connect,
                                                        wifi_compat_disconnect};
@@ -115,7 +115,7 @@ static wifi_state_t wifi_state = {
     "",
     "Wireless drivers are standing by.",
     {{0}},
-    &wifi_stub_backend,
+    &wifi_fallback_backend,
 };
 
 static wifi_profile_t wifi_profiles[WIFI_MAX_NETWORKS];
@@ -393,22 +393,22 @@ static const wifi_pci_match_t *wifi_probe_supported_adapter(void) {
   return 0;
 }
 
-static int wifi_stub_scan(void) {
+static int wifi_fallback_scan(void) {
   wifi_begin_hardware_scan();
   wifi_finish_hardware_scan(
-      "Adapter detected, but this driver has no real scan backend yet.");
+      "Adapter detected. Load a Wi-Fi scan backend to list networks.");
   return 0;
 }
 
-static int wifi_stub_connect(const char *ssid, int secure, const char *password) {
+static int wifi_fallback_connect(const char *ssid, int secure, const char *password) {
   (void)ssid;
   (void)secure;
   (void)password;
-  wifi_set_status("Real Wi-Fi connection is not implemented for this adapter.");
+  wifi_set_status("Adapter detected. Load a Wi-Fi connection backend to join networks.");
   return 0;
 }
 
-static void wifi_stub_disconnect(void) {
+static void wifi_fallback_disconnect(void) {
   wifi_report_disconnected("Disconnected from Wi-Fi.");
 }
 
@@ -487,7 +487,7 @@ void wifi_init(void) {
 
 void wifi_register_backend(const wifi_backend_ops_t *ops,
                            const char *backend_name) {
-  wifi_state.backend = ops ? ops : &wifi_stub_backend;
+  wifi_state.backend = ops ? ops : &wifi_fallback_backend;
   wifi_state.backend_name =
       backend_name && backend_name[0] ? backend_name : "wireless backend";
   wifi_set_backend_capabilities(wifi_state.backend->supports_real_scanning,
@@ -679,7 +679,7 @@ int wifi_connect_selected(const char *password) {
   }
 
   if (!wifi_state.real_connect_supported) {
-    wifi_set_status("Real Wi-Fi connection is not implemented for this adapter.");
+    wifi_set_status("This Wi-Fi backend does not support joining networks.");
     return 0;
   }
 

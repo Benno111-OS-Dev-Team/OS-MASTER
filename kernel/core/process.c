@@ -154,27 +154,34 @@ int process_count_ready(void) {
   return count;
 }
 
+int process_count_active(void) {
+  uint64_t flags = spin_lock_irqsave(&proc_table_lock);
+  int count = 0;
+  for (int i = 0; i < MAX_PROCESSES; i++) {
+    if (proc_table[i].state != PROC_STATE_FREE)
+      count++;
+  }
+  spin_unlock_irqrestore(&proc_table_lock, flags);
+  return count;
+}
+
 int process_get_info(int index, char *name, int name_size, int *state) {
   if (index < 0 || index >= MAX_PROCESSES)
     return 0;
+  uint64_t flags = spin_lock_irqsave(&proc_table_lock);
   process_t *p = &proc_table[index];
-  if (p->state == PROC_STATE_FREE)
+  if (p->state == PROC_STATE_FREE) {
+    spin_unlock_irqrestore(&proc_table_lock, flags);
     return 0;
-
-  // Copy name
-  if (name && name_size > 0) {
-    int len = strlen(p->name);
-    if (len >= name_size)
-      len = name_size - 1;
-    for (int i = 0; i < len; i++)
-      name[i] = p->name[i];
-    name[len] = '\0';
   }
 
-  // Return state
+  if (name && name_size > 0)
+    strlcpy(name, p->name, (size_t)name_size);
+
   if (state)
     *state = (int)p->state;
 
+  spin_unlock_irqrestore(&proc_table_lock, flags);
   return 1;
 }
 

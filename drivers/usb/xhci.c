@@ -40,6 +40,14 @@
 #define XHCI_DCBAAP 0x30
 #define XHCI_CONFIG 0x38
 
+/* Runtime Register offsets */
+#define XHCI_RT_IR0 0x20
+#define XHCI_RT_IMAN 0x00
+#define XHCI_RT_IMOD 0x04
+#define XHCI_RT_ERSTSZ 0x08
+#define XHCI_RT_ERSTBA 0x10
+#define XHCI_RT_ERDP 0x18
+
 /* Port Register offsets */
 #define XHCI_PORTSC 0x00
 #define XHCI_PORTPMSC 0x04
@@ -95,10 +103,29 @@
 #define TRB_TYPE_CMD_COMPLETE 33
 #define TRB_TYPE_PORT_STATUS 34
 
+#define XHCI_CMD_RING_TRBS 64
+#define XHCI_CMD_RING_LINK_INDEX (XHCI_CMD_RING_TRBS - 1)
+#define XHCI_EVENT_RING_TRBS (XHCI_PAGE_SIZE / sizeof(struct xhci_trb))
+#define XHCI_TRB_CYCLE (1U << 0)
+#define XHCI_TRB_LINK_TOGGLE (1U << 1)
+#define XHCI_TRB_TYPE_SHIFT 10
+#define XHCI_TRB_TYPE_MASK (0x3FU << XHCI_TRB_TYPE_SHIFT)
+#define XHCI_TRB_TYPE(type) ((uint32_t)(type) << XHCI_TRB_TYPE_SHIFT)
+#define XHCI_TRB_COMPLETION_CODE(status) (((status) >> 24) & 0xFF)
+#define XHCI_TRB_SLOT_ID(control) (((control) >> 24) & 0xFF)
+#define XHCI_COMPLETION_SUCCESS 1
+#define XHCI_ERDP_EHB (1ULL << 3)
+
 struct xhci_trb {
   uint64_t param;
   uint32_t status;
   uint32_t control;
+} __attribute__((packed));
+
+struct xhci_erst_entry {
+  uint64_t base;
+  uint32_t size;
+  uint32_t reserved;
 } __attribute__((packed));
 
 /* ===================================================================== */
@@ -151,6 +178,8 @@ struct xhci_device {
   /* Event Ring */
   struct xhci_trb *event_ring;
   phys_addr_t event_ring_phys;
+  struct xhci_erst_entry *erst;
+  phys_addr_t erst_phys;
   int event_ring_dequeue;
   bool event_ring_cycle;
 
@@ -264,6 +293,18 @@ static inline void xhci_op_write64(uint32_t offset, uint64_t val) {
   *(volatile uint64_t *)(xhci.op_base + offset) = val;
 }
 
+static inline uint32_t xhci_rt_read32(uint32_t offset) {
+  return *(volatile uint32_t *)(xhci.run_base + XHCI_RT_IR0 + offset);
+}
+
+static inline void xhci_rt_write32(uint32_t offset, uint32_t val) {
+  *(volatile uint32_t *)(xhci.run_base + XHCI_RT_IR0 + offset) = val;
+}
+
+static inline void xhci_rt_write64(uint32_t offset, uint64_t val) {
+  *(volatile uint64_t *)(xhci.run_base + XHCI_RT_IR0 + offset) = val;
+}
+
 static inline uint32_t xhci_port_read32(int port, uint32_t offset) {
   return *(volatile uint32_t *)(xhci.op_base + 0x400 + port * 0x10 + offset);
 }
@@ -315,23 +356,28 @@ static void xhci_delay_ms(uint32_t delay_ms) {
 /* Ring Operations */
 /* ===================================================================== */
 
-static void xhci_ring_cmd(uint64_t param, uint32_t status, uint32_t control) {
+static phys_addr_t xhci_ring_cmd(uint64_t param, uint32_t status,
+                                 uint32_t control) {
+  int index = xhci.cmd_ring_enqueue;
   struct xhci_trb *trb = &xhci.cmd_ring[xhci.cmd_ring_enqueue];
+  phys_addr_t trb_phys = xhci.cmd_ring_phys +
+                         (phys_addr_t)(index * sizeof(struct xhci_trb));
 
   trb->param = param;
   trb->status = status;
-  trb->control = control | (xhci.cmd_ring_cycle ? 1 : 0);
+  trb->control = control | (xhci.cmd_ring_cycle ? XHCI_TRB_CYCLE : 0);
 
   xhci.cmd_ring_enqueue++;
 
   /* Handle ring wrap */
-  if (xhci.cmd_ring_enqueue >= 63) {
+  if (xhci.cmd_ring_enqueue >= XHCI_CMD_RING_LINK_INDEX) {
     /* Insert link TRB */
-    struct xhci_trb *link = &xhci.cmd_ring[63];
+    struct xhci_trb *link = &xhci.cmd_ring[XHCI_CMD_RING_LINK_INDEX];
     link->param = xhci.cmd_ring_phys;
     link->status = 0;
-    link->control =
-        (TRB_TYPE_LINK << 10) | (xhci.cmd_ring_cycle ? 1 : 0) | (1 << 1);
+    link->control = XHCI_TRB_TYPE(TRB_TYPE_LINK) |
+                    (xhci.cmd_ring_cycle ? XHCI_TRB_CYCLE : 0) |
+                    XHCI_TRB_LINK_TOGGLE;
 
     xhci.cmd_ring_enqueue = 0;
     xhci.cmd_ring_cycle = !xhci.cmd_ring_cycle;
@@ -339,6 +385,80 @@ static void xhci_ring_cmd(uint64_t param, uint32_t status, uint32_t control) {
 
   /* Ring doorbell */
   *(volatile uint32_t *)(xhci.db_base) = 0;
+
+  return trb_phys;
+}
+
+static void xhci_ack_event_dequeue(void) {
+  uint64_t erdp = xhci.event_ring_phys +
+                  (uint64_t)(xhci.event_ring_dequeue *
+                             sizeof(struct xhci_trb));
+  xhci_rt_write64(XHCI_RT_ERDP, erdp | XHCI_ERDP_EHB);
+}
+
+static int xhci_wait_for_command(phys_addr_t cmd_trb_phys,
+                                 struct xhci_trb *event_out,
+                                 uint32_t timeout_ms) {
+  uint64_t deadline = arch_timer_get_ms() + timeout_ms;
+
+  while (arch_timer_get_ms() < deadline) {
+    struct xhci_trb *event = &xhci.event_ring[xhci.event_ring_dequeue];
+    uint32_t control = event->control;
+
+    if (((control & XHCI_TRB_CYCLE) != 0) == xhci.event_ring_cycle) {
+      uint32_t type = (control & XHCI_TRB_TYPE_MASK) >> XHCI_TRB_TYPE_SHIFT;
+
+      if (event_out)
+        *event_out = *event;
+
+      xhci.event_ring_dequeue++;
+      if (xhci.event_ring_dequeue >= (int)XHCI_EVENT_RING_TRBS) {
+        xhci.event_ring_dequeue = 0;
+        xhci.event_ring_cycle = !xhci.event_ring_cycle;
+      }
+      xhci_ack_event_dequeue();
+
+      if (type == TRB_TYPE_CMD_COMPLETE &&
+          event->param == (uint64_t)cmd_trb_phys) {
+        return (int)XHCI_TRB_COMPLETION_CODE(event->status);
+      }
+
+      continue;
+    }
+
+    xhci_cpu_relax();
+  }
+
+  return -1;
+}
+
+static int xhci_enable_slot(void) {
+  struct xhci_trb event;
+  phys_addr_t cmd_trb_phys;
+  int code;
+  int slot_id;
+
+  cmd_trb_phys = xhci_ring_cmd(0, 0, XHCI_TRB_TYPE(TRB_TYPE_ENABLE_SLOT));
+  code = xhci_wait_for_command(cmd_trb_phys, &event, 500);
+  if (code < 0) {
+    printk(KERN_WARNING "XHCI: Enable Slot command timed out\n");
+    return -1;
+  }
+  if (code != XHCI_COMPLETION_SUCCESS) {
+    printk(KERN_WARNING "XHCI: Enable Slot failed, completion code %d\n",
+           code);
+    return -1;
+  }
+
+  slot_id = (int)XHCI_TRB_SLOT_ID(event.control);
+  if (slot_id <= 0 || slot_id > (int)xhci.max_slots ||
+      slot_id >= XHCI_MAX_SLOTS) {
+    printk(KERN_WARNING "XHCI: Enable Slot returned invalid slot %d\n",
+           slot_id);
+    return -1;
+  }
+
+  return slot_id;
 }
 
 /* ===================================================================== */
@@ -425,6 +545,29 @@ static int xhci_setup_rings(void) {
   xhci.event_ring_dequeue = 0;
   xhci.event_ring_cycle = true;
 
+  /* Publish Event Ring Segment Table for interrupter 0. */
+  xhci.erst_phys = pmm_alloc_page();
+  if (!xhci.erst_phys)
+    return -1;
+  xhci.erst = (struct xhci_erst_entry *)xhci_phys_to_cpu_virt(xhci.erst_phys);
+  if (!xhci.erst)
+    return -1;
+  for (uint32_t i = 0; i < XHCI_PAGE_SIZE / sizeof(struct xhci_erst_entry);
+       i++) {
+    xhci.erst[i].base = 0;
+    xhci.erst[i].size = 0;
+    xhci.erst[i].reserved = 0;
+  }
+  xhci.erst[0].base = xhci.event_ring_phys;
+  xhci.erst[0].size = XHCI_EVENT_RING_TRBS;
+  xhci.erst[0].reserved = 0;
+
+  xhci_rt_write32(XHCI_RT_IMAN, xhci_rt_read32(XHCI_RT_IMAN) & ~1U);
+  xhci_rt_write32(XHCI_RT_IMOD, 0);
+  xhci_rt_write32(XHCI_RT_ERSTSZ, 1);
+  xhci_rt_write64(XHCI_RT_ERSTBA, xhci.erst_phys);
+  xhci_ack_event_dequeue();
+
   printk(KERN_INFO "XHCI: Rings initialized\n");
   return 0;
 }
@@ -437,6 +580,7 @@ static int xhci_setup_rings(void) {
 
 static void xhci_enumerate_device(int port) {
   struct usb_device *dev;
+  int slot_id;
 
   if (port < 0 || port >= (int)xhci.max_ports)
     return;
@@ -445,32 +589,25 @@ static void xhci_enumerate_device(int port) {
 
   printk(KERN_INFO "XHCI: Enumerating device on port %d\n", port + 1);
 
-  /* TODO:
-   * 1. Enable Slot
-   * 2. Address Device
-   * 3. Read Device Descriptor
-   * 4. Read Configuration Descriptor
-   */
-
-  /* access to drivers */
   dev = kzalloc(sizeof(struct usb_device), GFP_KERNEL);
   if (!dev)
     return;
 
+  slot_id = xhci_enable_slot();
+  if (slot_id < 0) {
+    kfree(dev);
+    return;
+  }
+
   dev->controller = &xhci;
   dev->bus_id = 0;
-  dev->dev_addr = (uint8_t)(port + 1);
+  dev->dev_addr = (uint8_t)slot_id;
   dev->speed = xhci.ports[port].speed;
-  xhci.ports[port].slot_id = (uint8_t)(port + 1);
+  xhci.ports[port].slot_id = (uint8_t)slot_id;
   xhci.ports[port].dev = dev;
 
-  /* Mock Dispatch for demonstration until descriptors are read */
-  /* Checks would be based on bDeviceClass/bInterfaceClass */
-
-  /* Attempt to load drivers */
-  // In a real implementation we would match against descriptors first.
+  printk(KERN_INFO "XHCI: Port %d assigned slot %d\n", port + 1, slot_id);
   usb_hid_init(dev);
-  // usb_msd_init(dev);
 }
 
 static void xhci_ack_port_changes(int port, uint32_t portsc) {
@@ -676,13 +813,7 @@ int xhci_init(phys_addr_t mmio_base) {
     return -1;
   }
 
-  /*
-   * Start controller in polling-safe mode.
-   *
-   * We currently do not program interrupter state (ERST/ERDP/IMAN/IMOD), so
-   * enabling host interrupts here can trigger faults as soon as USB input
-   * events arrive. Keep INTE cleared until full interrupt plumbing lands.
-   */
+  /* Start controller in polling-safe mode; IRQ dispatch is still disabled. */
   uint32_t cmd = xhci_op_read32(XHCI_USBCMD);
   xhci_op_write32(XHCI_USBCMD, (cmd | XHCI_CMD_RUN) & ~XHCI_CMD_INTE);
   if (xhci_wait_for_mask(XHCI_USBSTS, XHCI_STS_HCH, 0, 100) < 0) {

@@ -5,9 +5,18 @@
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/apps/kapi.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/shared-api/app_api.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/arch/arch.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/process.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/../include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/../include/arch/arch.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/rtc.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/uart.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs_compat.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/../include/types.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/pmm.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/ipc/pipe.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/kmalloc.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/net/net.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/printk.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/sched/sched.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/vmm.h \
@@ -19,9 +28,18 @@
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/apps/kapi.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/shared-api/app_api.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/arch/arch.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/process.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/../include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/../include/arch/arch.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/rtc.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/uart.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs_compat.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/../include/types.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/pmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/ipc/pipe.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/kmalloc.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/net/net.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/printk.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/sched/sched.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/vmm.h:

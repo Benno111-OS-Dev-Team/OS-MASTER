@@ -26,6 +26,26 @@
 #ifndef ECONNREFUSED
 #define ECONNREFUSED 111
 #endif
+#ifndef EDESTADDRREQ
+#define EDESTADDRREQ 89
+#endif
+#ifndef EMSGSIZE
+#define EMSGSIZE 90
+#endif
+
+#define UDP_RECV_CAPACITY 2048
+
+struct udp_recv_queue {
+  uint8_t data[UDP_RECV_CAPACITY];
+  size_t len;
+  uint32_t src_ip;
+  uint16_t src_port;
+  bool has_packet;
+};
+
+struct tcp_socket_state {
+  int conn_id;
+};
 
 /* ===================================================================== */
 /* Socket table */
@@ -35,6 +55,7 @@
 
 static struct socket *socket_table[MAX_SOCKETS];
 static int next_sockfd = 0;
+static uint16_t next_udp_port = 49152;
 
 /* ===================================================================== */
 /* Byte order functions */
@@ -108,7 +129,33 @@ static int alloc_sockfd(void) {
   return -EMFILE;
 }
 
-int socket_create(int family, int type, int protocol) {
+static int reserve_sockfd(int sockfd) {
+  if (sockfd < 0 || sockfd >= MAX_SOCKETS || socket_table[sockfd]) {
+    return -EMFILE;
+  }
+  if (sockfd >= next_sockfd) {
+    next_sockfd = sockfd + 1;
+  }
+  return sockfd;
+}
+
+static struct sockaddr_in *socket_addr_in(struct sockaddr_storage *addr) {
+  return (struct sockaddr_in *)addr;
+}
+
+static uint16_t socket_get_local_port(struct socket *sock) {
+  struct sockaddr_in *local = socket_addr_in(&sock->local_addr);
+  if (local->sin_port == 0) {
+    local->sin_port = htons(next_udp_port++);
+    if (next_udp_port < 49152) {
+      next_udp_port = 49152;
+    }
+  }
+  return ntohs(local->sin_port);
+}
+
+static int socket_create_in_slot(int sockfd, int family, int type,
+                                 int protocol) {
   if (family != AF_INET && family != AF_INET6) {
     return -EAFNOSUPPORT;
   }
@@ -117,7 +164,7 @@ int socket_create(int family, int type, int protocol) {
     return -ESOCKTNOSUPPORT;
   }
 
-  int fd = alloc_sockfd();
+  int fd = sockfd >= 0 ? reserve_sockfd(sockfd) : alloc_sockfd();
   if (fd < 0) {
     return fd;
   }
@@ -132,13 +179,37 @@ int socket_create(int family, int type, int protocol) {
   sock->state = SS_UNCONNECTED;
   sock->local_addr.ss_family = family;
   sock->remote_addr.ss_family = family;
-  sock->sk = NULL;
+  if (type == SOCK_STREAM) {
+    struct tcp_socket_state *tcp = kzalloc(sizeof(struct tcp_socket_state), GFP_KERNEL);
+    if (!tcp) {
+      kfree(sock);
+      return -ENOMEM;
+    }
+    tcp->conn_id = -1;
+    sock->sk = tcp;
+  } else if (type == SOCK_DGRAM) {
+    sock->sk = kzalloc(sizeof(struct udp_recv_queue), GFP_KERNEL);
+    if (!sock->sk) {
+      kfree(sock);
+      return -ENOMEM;
+    }
+  } else {
+    sock->sk = NULL;
+  }
 
   socket_table[fd] = sock;
 
   printk(KERN_DEBUG "NET: Created socket %d (type=%d)\n", fd, type);
 
   return fd;
+}
+
+int socket_create(int family, int type, int protocol) {
+  return socket_create_in_slot(-1, family, type, protocol);
+}
+
+int socket_create_at(int sockfd, int family, int type, int protocol) {
+  return socket_create_in_slot(sockfd, family, type, protocol);
 }
 
 int socket_bind(int sockfd, const struct sockaddr *addr, unsigned int addrlen) {
@@ -213,13 +284,37 @@ int socket_connect(int sockfd, const struct sockaddr *addr,
     dst[i] = src[i];
   }
 
+  if (sock->type == SOCK_DGRAM) {
+    sock->state = SS_CONNECTED;
+    return 0;
+  }
+
   if (sock->type != SOCK_STREAM) {
     return -EOPNOTSUPP;
   }
 
   sock->state = SS_CONNECTING;
-  sock->state = SS_UNCONNECTED;
-  return -ECONNREFUSED;
+  struct sockaddr_in *remote = socket_addr_in(&sock->remote_addr);
+  if (remote->sin_family != AF_INET || remote->sin_port == 0) {
+    sock->state = SS_UNCONNECTED;
+    return -EINVAL;
+  }
+
+  int conn_id = tcp_connect(remote->sin_addr.s_addr, ntohs(remote->sin_port));
+  if (conn_id < 0) {
+    sock->state = SS_UNCONNECTED;
+    return -ECONNREFUSED;
+  }
+
+  struct tcp_socket_state *tcp = (struct tcp_socket_state *)sock->sk;
+  if (!tcp) {
+    tcp_close_socket(conn_id);
+    sock->state = SS_UNCONNECTED;
+    return -ENOMEM;
+  }
+  tcp->conn_id = conn_id;
+  sock->state = SS_CONNECTED;
+  return 0;
 }
 
 ssize_t socket_send(int sockfd, const void *buf, size_t len, int flags) {
@@ -231,13 +326,43 @@ ssize_t socket_send(int sockfd, const void *buf, size_t len, int flags) {
     return -EINVAL;
   }
 
-  (void)len;
   (void)flags;
 
   struct socket *sock = socket_table[sockfd];
 
   if (sock->state != SS_CONNECTED && sock->type == SOCK_STREAM) {
     return -ENOTCONN;
+  }
+
+  if (sock->type == SOCK_STREAM) {
+    if (len > 0xFFFFFFFFu) {
+      return -EMSGSIZE;
+    }
+    struct tcp_socket_state *tcp = (struct tcp_socket_state *)sock->sk;
+    if (!tcp || tcp->conn_id < 0 || !tcp_is_connected_socket(tcp->conn_id)) {
+      return -ENOTCONN;
+    }
+    int sent = tcp_send_socket(tcp->conn_id, buf, (uint32_t)len);
+    return sent < 0 ? -ENOTCONN : (ssize_t)sent;
+  }
+
+  if (sock->type == SOCK_DGRAM) {
+    if (len > 0xFFFFu) {
+      return -EMSGSIZE;
+    }
+    if (sock->remote_addr.ss_family != AF_INET) {
+      return -EDESTADDRREQ;
+    }
+
+    struct sockaddr_in *remote = socket_addr_in(&sock->remote_addr);
+    uint16_t src_port = socket_get_local_port(sock);
+    uint16_t dst_port = ntohs(remote->sin_port);
+    if (dst_port == 0) {
+      return -EDESTADDRREQ;
+    }
+
+    int sent = udp_send(remote->sin_addr.s_addr, src_port, dst_port, buf, len);
+    return sent < 0 ? sent : (ssize_t)sent;
   }
 
   return -ENOTCONN;
@@ -261,7 +386,76 @@ ssize_t socket_recv(int sockfd, void *buf, size_t len, int flags) {
     return -ENOTCONN;
   }
 
+  if (sock->type == SOCK_STREAM) {
+    if (len > 0xFFFFFFFFu) {
+      len = 0xFFFFFFFFu;
+    }
+    struct tcp_socket_state *tcp = (struct tcp_socket_state *)sock->sk;
+    if (!tcp || tcp->conn_id < 0 || !tcp_is_connected_socket(tcp->conn_id)) {
+      return -ENOTCONN;
+    }
+    int received = tcp_recv_socket(tcp->conn_id, buf, (uint32_t)len);
+    return received < 0 ? -ENOTCONN : (ssize_t)received;
+  }
+
+  if (sock->type == SOCK_DGRAM) {
+    struct udp_recv_queue *queue = (struct udp_recv_queue *)sock->sk;
+    if (!queue || !queue->has_packet) {
+      return 0;
+    }
+
+    size_t to_copy = len < queue->len ? len : queue->len;
+    uint8_t *dst = (uint8_t *)buf;
+    for (size_t i = 0; i < to_copy; i++) {
+      dst[i] = queue->data[i];
+    }
+    queue->has_packet = false;
+    return (ssize_t)to_copy;
+  }
+
   return 0;
+}
+
+void socket_udp_deliver(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip,
+                        uint16_t dst_port, const void *data, size_t len) {
+  if (!data || len > UDP_RECV_CAPACITY) {
+    return;
+  }
+
+  for (int i = 0; i < MAX_SOCKETS; i++) {
+    struct socket *sock = socket_table[i];
+    if (!sock || sock->type != SOCK_DGRAM || !sock->sk) {
+      continue;
+    }
+
+    struct sockaddr_in *local = socket_addr_in(&sock->local_addr);
+    if (local->sin_family != AF_INET || ntohs(local->sin_port) != dst_port) {
+      continue;
+    }
+    if (local->sin_addr.s_addr != INADDR_ANY && local->sin_addr.s_addr != dst_ip) {
+      continue;
+    }
+
+    if (sock->state == SS_CONNECTED) {
+      struct sockaddr_in *remote = socket_addr_in(&sock->remote_addr);
+      if (remote->sin_family == AF_INET &&
+          (remote->sin_addr.s_addr != src_ip || ntohs(remote->sin_port) != src_port)) {
+        continue;
+      }
+    }
+
+    struct udp_recv_queue *queue = (struct udp_recv_queue *)sock->sk;
+    uint8_t *dst = queue->data;
+    const uint8_t *src = (const uint8_t *)data;
+    for (size_t j = 0; j < len; j++) {
+      dst[j] = src[j];
+    }
+    queue->len = len;
+    queue->src_ip = src_ip;
+    queue->src_port = src_port;
+    queue->has_packet = true;
+    return;
+  }
 }
 
 int socket_close(int sockfd) {
@@ -271,6 +465,15 @@ int socket_close(int sockfd) {
 
   struct socket *sock = socket_table[sockfd];
 
+  if (sock->type == SOCK_STREAM && sock->sk) {
+    struct tcp_socket_state *tcp = (struct tcp_socket_state *)sock->sk;
+    if (tcp->conn_id >= 0) {
+      tcp_close_socket(tcp->conn_id);
+    }
+  }
+  if (sock->sk) {
+    kfree(sock->sk);
+  }
   kfree(sock);
   socket_table[sockfd] = NULL;
 

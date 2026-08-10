@@ -38,8 +38,14 @@ static phys_addr_t memory_end;
 /* Bitmap for early page tracking before page_array is set up */
 /* Track 64K pages = 256MB - enough for initial boot */
 #define EARLY_BITMAP_SIZE   (64 * 1024 / 8)  /* 8KB bitmap */
+#define MAX_TRACKED_PAGES   (EARLY_BITMAP_SIZE * 8)
 static uint8_t early_bitmap[EARLY_BITMAP_SIZE];
 static bool early_mode = true;
+static struct page page_storage[MAX_TRACKED_PAGES];
+
+extern uint64_t limine_get_usable_memory_base(void) __attribute__((weak));
+extern uint64_t limine_get_usable_memory_size(void) __attribute__((weak));
+extern uint64_t limine_get_total_usable_memory(void) __attribute__((weak));
 
 /* ===================================================================== */
 /* Helper functions */
@@ -65,6 +71,62 @@ static inline unsigned int size_to_order(size_t size)
     }
     
     return order;
+}
+
+static uint64_t boot_usable_memory_base(void)
+{
+    if (limine_get_usable_memory_base) {
+        return limine_get_usable_memory_base();
+    }
+    return 0;
+}
+
+static uint64_t boot_usable_memory_size(void)
+{
+    if (limine_get_usable_memory_size) {
+        return limine_get_usable_memory_size();
+    }
+    return 0;
+}
+
+static uint64_t boot_total_usable_memory(void)
+{
+    if (limine_get_total_usable_memory) {
+        return limine_get_total_usable_memory();
+    }
+    return 0;
+}
+
+static void pmm_configure_memory_range(void)
+{
+    uint64_t boot_base = boot_usable_memory_base();
+    uint64_t boot_size = boot_usable_memory_size();
+    uint64_t boot_total = boot_total_usable_memory();
+
+    memory_start = MEMORY_BASE;
+    total_memory = MEMORY_SIZE;
+
+    if (boot_size >= PAGE_SIZE && boot_base + boot_size > boot_base) {
+        phys_addr_t aligned_start = PAGE_ALIGN(boot_base);
+        phys_addr_t aligned_end = PAGE_ALIGN_DOWN(boot_base + boot_size);
+
+        if (aligned_end > aligned_start) {
+            memory_start = aligned_start;
+            total_memory = (size_t)(aligned_end - aligned_start);
+        }
+    }
+
+    total_pages = total_memory / PAGE_SIZE;
+    if (total_pages > MAX_TRACKED_PAGES) {
+        total_pages = MAX_TRACKED_PAGES;
+        total_memory = total_pages * PAGE_SIZE;
+    }
+
+    memory_end = memory_start + total_memory;
+
+    if (boot_total > total_memory) {
+        printk("PMM: Limine reports more usable RAM than this allocator can track\n");
+    }
 }
 
 /* ===================================================================== */
@@ -141,6 +203,9 @@ static inline phys_addr_t buddy_address(phys_addr_t addr, unsigned int order)
 static void buddy_add_to_list(phys_addr_t addr, unsigned int order)
 {
     struct page *page = pmm_phys_to_page(addr);
+    if (!page) {
+        return;
+    }
     page->order = order;
     page->flags = PAGE_FLAG_FREE;
     page->next = free_lists[order];
@@ -161,6 +226,96 @@ static phys_addr_t buddy_remove_from_list(unsigned int order)
     return pmm_page_to_phys(page);
 }
 
+static int buddy_remove_specific(phys_addr_t addr, unsigned int order)
+{
+    struct page **link;
+
+    if (order > MAX_ORDER) {
+        return 0;
+    }
+
+    link = &free_lists[order];
+    while (*link) {
+        struct page *page = *link;
+        if (pmm_page_to_phys(page) == addr) {
+            *link = page->next;
+            page->next = NULL;
+            page->flags = PAGE_FLAG_USED;
+            return 1;
+        }
+        link = &page->next;
+    }
+    return 0;
+}
+
+static void buddy_add_free_range(phys_addr_t start, phys_addr_t end)
+{
+    phys_addr_t addr = PAGE_ALIGN(start);
+
+    end = PAGE_ALIGN_DOWN(end);
+    while (addr < end) {
+        unsigned int order = MAX_ORDER;
+        size_t remaining_pages = (size_t)((end - addr) / PAGE_SIZE);
+
+        while (order > 0) {
+            size_t block_size = order_to_size(order);
+            if (((addr - memory_start) & (block_size - 1)) == 0 &&
+                order_to_pages(order) <= remaining_pages) {
+                break;
+            }
+            order--;
+        }
+
+        for (size_t i = 0; i < order_to_pages(order); i++) {
+            struct page *page = pmm_phys_to_page(addr + i * PAGE_SIZE);
+            if (page) {
+                page->flags = PAGE_FLAG_FREE;
+                page->order = order;
+                page->next = NULL;
+            }
+        }
+        buddy_add_to_list(addr, order);
+        free_pages_count += order_to_pages(order);
+        addr += order_to_size(order);
+    }
+}
+
+static void buddy_init_from_early_bitmap(void)
+{
+    page_array = page_storage;
+
+    for (size_t i = 0; i < total_pages; i++) {
+        page_array[i].flags = PAGE_FLAG_USED;
+        page_array[i].order = 0;
+        page_array[i].next = NULL;
+        page_array[i].slab = NULL;
+        atomic_set(&page_array[i].refcount, 0);
+    }
+
+    free_pages_count = 0;
+    phys_addr_t range_start = 0;
+    for (size_t i = 0; i < total_pages; i++) {
+        phys_addr_t addr = memory_start + i * PAGE_SIZE;
+        if (early_is_free(addr)) {
+            if (!range_start) {
+                range_start = addr;
+            }
+            continue;
+        }
+
+        if (range_start) {
+            buddy_add_free_range(range_start, addr);
+            range_start = 0;
+        }
+    }
+
+    if (range_start) {
+        buddy_add_free_range(range_start, memory_end);
+    }
+
+    early_mode = false;
+}
+
 /* ===================================================================== */
 /* Public functions */
 /* ===================================================================== */
@@ -168,14 +323,8 @@ static phys_addr_t buddy_remove_from_list(unsigned int order)
 int pmm_init(void)
 {
     printk("PMM: Starting init\n");
-    
-    /* For now, use hardcoded memory range */
-    /* TODO: Parse device tree or UEFI memory map */
-    
-    memory_start = MEMORY_BASE;
-    memory_end = MEMORY_BASE + MEMORY_SIZE;
-    total_memory = MEMORY_SIZE;
-    total_pages = total_memory / PAGE_SIZE;
+
+    pmm_configure_memory_range();
     
     printk("PMM: Memory configured\n");
     
@@ -215,10 +364,9 @@ int pmm_init(void)
         }
     }
     
-    printk("PMM: Init complete\n");
-    
-    /* TODO: Initialize buddy allocator with free pages */
-    /* For now, we stay in early mode using bitmap */
+    buddy_init_from_early_bitmap();
+
+    printk("PMM: Buddy allocator initialized\n");
     
     return 0;
 }
@@ -316,10 +464,8 @@ void pmm_free_pages(phys_addr_t addr, unsigned int order)
         
         /* Check if buddy is free and same order */
         if (buddy_page && buddy_page->flags == PAGE_FLAG_FREE &&
-            buddy_page->order == order) {
-            /* Remove buddy from free list */
-            /* ... */
-            
+            buddy_page->order == order &&
+            buddy_remove_specific(buddy, order)) {
             /* Merge with buddy */
             if (buddy < addr) {
                 addr = buddy;

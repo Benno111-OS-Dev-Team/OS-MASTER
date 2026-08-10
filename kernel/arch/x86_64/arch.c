@@ -308,6 +308,26 @@ uint32_t arch_cpu_count(void)
     return cpu_count ? cpu_count : 1;
 }
 
+uint32_t arch_cpu_frequency_mhz(void)
+{
+    uint32_t max_leaf;
+    uint32_t eax;
+    uint32_t ebx;
+    uint32_t ecx;
+    uint32_t edx;
+
+    asm volatile("cpuid"
+                 : "=a"(max_leaf), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                 : "a"(0));
+    if (max_leaf < 0x16)
+        return 0;
+
+    asm volatile("cpuid"
+                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                 : "a"(0x16));
+    return eax;
+}
+
 /* ===================================================================== */
 /* SMP (Symmetric Multi-Processing) */
 /* ===================================================================== */

@@ -205,6 +205,20 @@ void arch_context_switch(cpu_context_t *old_ctx, cpu_context_t *new_ctx);
  */
 void arch_context_init(cpu_context_t *ctx, void (*entry)(void*), void *stack, void *arg);
 
+#if defined(ARCH_X86_64)
+/**
+ * arch_enter_userspace - Enter x86_64 ring-3 execution
+ * @entry: User instruction pointer
+ * @sp: User stack pointer
+ * @argc: Argument count
+ * @argv: User argv pointer
+ *
+ * Does not return on success.
+ */
+void arch_enter_userspace(uint64_t entry, uint64_t sp, uint64_t argc,
+                          uint64_t argv);
+#endif
+
 /**
  * arch_context_get_pc - Get program counter from context
  * @ctx: Context to read from
@@ -299,6 +313,12 @@ uint32_t arch_cpu_id(void);
  * @return: Number of CPUs
  */
 uint32_t arch_cpu_count(void);
+
+/**
+ * arch_cpu_frequency_mhz - Get CPU base frequency in MHz when available
+ * @return: Frequency in MHz, or 0 when unavailable
+ */
+uint32_t arch_cpu_frequency_mhz(void);
 
 /**
  * arch_cpu_info - Get CPU information string

@@ -7,6 +7,7 @@
 #include "drivers/storage.h"
 #include "mm/kmalloc.h"
 #include "printk.h"
+#include "string.h"
 
 extern int ramfs_truncate_file(void *inode_private);
 extern int ramfs_resize_file(void *inode_private, size_t size);
@@ -92,6 +93,12 @@ static void path_copy(char *dst, const char *src, int max) {
     i++;
   }
   dst[i] = '\0';
+}
+
+static void file_set_path(struct file *file, const char *path) {
+  if (!file)
+    return;
+  path_copy(file->f_path, path ? path : "", sizeof(file->f_path));
 }
 
 static int dentry_is_mount_root(const struct dentry *dentry) {
@@ -256,6 +263,66 @@ static int resolve_disk_index(const char *source) {
   if (!source || source[0] == '\0')
     return -1;
   return storage_get_disk_index_by_location(source);
+}
+
+static long vfs_fs_type_magic(const char *name) {
+  if (!name)
+    return 0;
+  if (path_compare(name, "ramfs") == 0)
+    return 0x858458f6;
+  if (path_compare(name, "fat32") == 0)
+    return 0x4d44;
+  if (path_compare(name, "iso9660") == 0)
+    return 0x9660;
+  if (path_compare(name, "ext4") == 0)
+    return 0xef53;
+  if (path_compare(name, "apfs") == 0)
+    return 0x4253584e;
+  return 0;
+}
+
+static int vfs_statfs_super(struct super_block *sb, struct vfs_statfs *stat) {
+  uint64_t dev = 0;
+
+  if (!sb || !stat)
+    return -EINVAL;
+  if (sb->s_op && sb->s_op->statfs) {
+    int ret = sb->s_op->statfs(sb, stat);
+    if (ret < 0)
+      return ret;
+  } else {
+    memset(stat, 0, sizeof(*stat));
+  }
+
+  if (!stat->type)
+    stat->type = vfs_fs_type_magic(sb->s_type ? sb->s_type->name : NULL);
+  if (!stat->bsize)
+    stat->bsize = sb->s_blocksize ? (long)sb->s_blocksize : 4096;
+  if (!stat->frsize)
+    stat->frsize = stat->bsize;
+  if (!stat->namelen)
+    stat->namelen = NAME_MAX;
+  if (sb->s_dev)
+    dev = sb->s_dev;
+  else if (sb->s_disk_index >= 0)
+    dev = (uint64_t)sb->s_disk_index + 1;
+  stat->fsid[0] = dev;
+  stat->fsid[1] = (uint64_t)(uintptr_t)sb;
+  return 0;
+}
+
+static void vfs_release_superblock(struct file_system_type *fs,
+                                   struct super_block *sb) {
+  if (!sb)
+    return;
+  if (!fs && sb->s_type)
+    fs = sb->s_type;
+  if (fs && fs->kill_sb) {
+    fs->kill_sb(sb);
+    return;
+  }
+  if (sb->s_op && sb->s_op->put_super)
+    sb->s_op->put_super(sb);
 }
 
 /* ===================================================================== */
@@ -501,6 +568,7 @@ struct file *vfs_open(const char *path, int flags, mode_t mode) {
     f->f_mode = mode;
     f->f_flags = flags;
     f->f_count.counter = 1;
+    file_set_path(f, "/");
     return f;
   }
 
@@ -516,6 +584,7 @@ struct file *vfs_open(const char *path, int flags, mode_t mode) {
     f->f_mode = mode;
     f->f_flags = flags;
     f->f_count.counter = 1;
+    file_set_path(f, path);
     return f;
   }
 
@@ -599,6 +668,7 @@ struct file *vfs_open(const char *path, int flags, mode_t mode) {
   f->f_mode = mode;
   f->f_flags = flags;
   f->f_count.counter = 1;
+  file_set_path(f, path);
 
   if ((flags & O_TRUNC) && child->d_inode && S_ISREG(child->d_inode->i_mode)) {
     if (!inode_is_ramfs(child->d_inode)) {
@@ -700,6 +770,91 @@ int vfs_readdir(struct file *file, void *ctx,
     return -EINVAL;
   }
   return file->f_op->readdir(file, ctx, filldir);
+}
+
+static int vfs_stat_inode(struct inode *inode, struct vfs_stat *stat) {
+  if (!inode || !stat)
+    return -EINVAL;
+
+  stat->dev = inode->i_sb ? inode->i_sb->s_dev : 0;
+  stat->ino = inode->i_ino;
+  stat->mode = inode->i_mode;
+  stat->nlink = inode->i_nlink ? inode->i_nlink : 1;
+  stat->uid = inode->i_uid;
+  stat->gid = inode->i_gid;
+  stat->rdev = inode->i_rdev;
+  stat->size = inode->i_size;
+  stat->blksize = inode->i_blksize ? inode->i_blksize : 4096;
+  stat->blocks = inode->i_blocks;
+  if (stat->blocks == 0 && stat->size > 0) {
+    stat->blocks = (stat->size + 511) / 512;
+  }
+  stat->atime = inode->i_atime;
+  stat->mtime = inode->i_mtime;
+  stat->ctime = inode->i_ctime;
+  return 0;
+}
+
+int vfs_stat_path(const char *path, struct vfs_stat *stat) {
+  struct dentry *dentry;
+  int ret;
+
+  if (!path || !stat)
+    return -EINVAL;
+
+  dentry = vfs_lookup_path(path, NULL);
+  if (!dentry || !dentry->d_inode) {
+    if (dentry)
+      vfs_free_dentry_chain(dentry);
+    return -ENOENT;
+  }
+
+  ret = vfs_stat_inode(dentry->d_inode, stat);
+  if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+    vfs_free_dentry_chain(dentry);
+  return ret;
+}
+
+int vfs_statfs_path(const char *path, struct vfs_statfs *stat) {
+  struct dentry *dentry;
+  struct super_block *sb;
+  int ret;
+
+  if (!path || !stat)
+    return -EINVAL;
+
+  dentry = vfs_lookup_path(path, NULL);
+  if (!dentry || !dentry->d_inode) {
+    if (dentry)
+      vfs_free_dentry_chain(dentry);
+    return -ENOENT;
+  }
+
+  sb = dentry->d_sb ? dentry->d_sb : dentry->d_inode->i_sb;
+  ret = vfs_statfs_super(sb, stat);
+  if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+    vfs_free_dentry_chain(dentry);
+  return ret;
+}
+
+int vfs_statfs_file(struct file *file, struct vfs_statfs *stat) {
+  struct super_block *sb;
+
+  if (!file || !file->f_dentry || !file->f_dentry->d_inode || !stat)
+    return -EBADF;
+  sb = file->f_dentry->d_sb ? file->f_dentry->d_sb :
+                              file->f_dentry->d_inode->i_sb;
+  return vfs_statfs_super(sb, stat);
+}
+
+int vfs_file_path(struct file *file, char *buf, size_t size) {
+  if (!file || !buf || size == 0)
+    return -EINVAL;
+  if (file->f_path[0] == '\0')
+    return -ENOSYS;
+  if (strlcpy(buf, file->f_path, size) >= size)
+    return -ERANGE;
+  return 0;
 }
 
 int vfs_close(struct file *file) {
@@ -1085,6 +1240,8 @@ int vfs_rename(const char *old, const char *new) {
 
   if (!old_child->d_inode) {
     vfs_free_dentry_chain(old_child);
+    if (new_parent != root_dentry && !dentry_is_mount_root(new_parent))
+      vfs_free_dentry_chain(new_parent);
     return -ENOENT;
   }
 
@@ -1106,7 +1263,7 @@ int vfs_rename(const char *old, const char *new) {
   if (!old_parent->d_inode->i_op || !old_parent->d_inode->i_op->rename) {
     vfs_free_dentry_chain(old_child);
     vfs_free_dentry_chain(new_child);
-    return -EPERM; /* Should be ENOSYS/EPERM */
+    return -ENOSYS;
   }
 
   int ret = old_parent->d_inode->i_op->rename(old_parent->d_inode, old_child,
@@ -1115,6 +1272,173 @@ int vfs_rename(const char *old, const char *new) {
   vfs_free_dentry_chain(old_child);
   vfs_free_dentry_chain(new_child);
   return ret;
+}
+
+int vfs_symlink(const char *target, const char *linkpath) {
+  char name[NAME_MAX + 1];
+  struct dentry *parent = vfs_lookup_parent(linkpath, name);
+  struct dentry *child;
+  int ret;
+
+  if (!target || !linkpath)
+    return -EINVAL;
+  if (!parent)
+    return -ENOENT;
+  if (name[0] == '\0') {
+    if (parent != root_dentry && !dentry_is_mount_root(parent))
+      vfs_free_dentry_chain(parent);
+    return -EINVAL;
+  }
+
+  child = kzalloc(sizeof(struct dentry), GFP_KERNEL);
+  if (!child) {
+    if (parent != root_dentry && !dentry_is_mount_root(parent))
+      vfs_free_dentry_chain(parent);
+    return -ENOMEM;
+  }
+
+  int i;
+  for (i = 0; i < NAME_MAX && name[i]; i++)
+    child->d_name[i] = name[i];
+  child->d_name[i] = '\0';
+  child->d_parent = parent;
+  child->d_sb = parent->d_sb;
+
+  if (parent->d_inode->i_op && parent->d_inode->i_op->lookup)
+    parent->d_inode->i_op->lookup(parent->d_inode, child);
+  if (child->d_inode) {
+    vfs_free_dentry_chain(child);
+    return -EEXIST;
+  }
+
+  if (!parent->d_inode->i_op || !parent->d_inode->i_op->symlink) {
+    vfs_free_dentry_chain(child);
+    return -ENOSYS;
+  }
+
+  ret = parent->d_inode->i_op->symlink(parent->d_inode, child, target);
+  vfs_free_dentry_chain(child);
+  return ret;
+}
+
+ssize_t vfs_readlink(const char *path, char *buf, size_t bufsiz) {
+  struct dentry *dentry;
+  int ret;
+
+  if (!path || !buf)
+    return -EINVAL;
+  if (bufsiz > (size_t)INT32_MAX)
+    return -EINVAL;
+
+  dentry = vfs_lookup_path(path, NULL);
+  if (!dentry || !dentry->d_inode) {
+    if (dentry)
+      vfs_free_dentry_chain(dentry);
+    return -ENOENT;
+  }
+
+  if (!S_ISLNK(dentry->d_inode->i_mode)) {
+    if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+      vfs_free_dentry_chain(dentry);
+    return -EINVAL;
+  }
+  if (!dentry->d_inode->i_op || !dentry->d_inode->i_op->readlink) {
+    if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+      vfs_free_dentry_chain(dentry);
+    return -ENOSYS;
+  }
+
+  ret = dentry->d_inode->i_op->readlink(dentry, buf, (int)bufsiz);
+  if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+    vfs_free_dentry_chain(dentry);
+  return ret;
+}
+
+static int vfs_chmod_dentry(struct dentry *dentry, mode_t mode) {
+  struct vfs_iattr attr;
+
+  if (!dentry || !dentry->d_inode)
+    return -EINVAL;
+  if (!dentry->d_inode->i_op || !dentry->d_inode->i_op->setattr)
+    return -ENOSYS;
+
+  attr.valid = VFS_ATTR_MODE;
+  attr.mode = mode & 07777;
+  return dentry->d_inode->i_op->setattr(dentry, &attr);
+}
+
+static int vfs_chown_dentry(struct dentry *dentry, uid_t uid, gid_t gid) {
+  struct vfs_iattr attr;
+
+  if (!dentry || !dentry->d_inode)
+    return -EINVAL;
+  if (!dentry->d_inode->i_op || !dentry->d_inode->i_op->setattr)
+    return -ENOSYS;
+
+  memset(&attr, 0, sizeof(attr));
+  if (uid != (uid_t)-1) {
+    attr.valid |= VFS_ATTR_UID;
+    attr.uid = uid;
+  }
+  if (gid != (gid_t)-1) {
+    attr.valid |= VFS_ATTR_GID;
+    attr.gid = gid;
+  }
+  if (!attr.valid)
+    return 0;
+  return dentry->d_inode->i_op->setattr(dentry, &attr);
+}
+
+int vfs_chmod_path(const char *path, mode_t mode) {
+  struct dentry *dentry;
+  int ret;
+
+  if (!path)
+    return -EINVAL;
+
+  dentry = vfs_lookup_path(path, NULL);
+  if (!dentry || !dentry->d_inode) {
+    if (dentry)
+      vfs_free_dentry_chain(dentry);
+    return -ENOENT;
+  }
+
+  ret = vfs_chmod_dentry(dentry, mode);
+  if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+    vfs_free_dentry_chain(dentry);
+  return ret;
+}
+
+int vfs_chmod_file(struct file *file, mode_t mode) {
+  if (!file || !file->f_dentry)
+    return -EBADF;
+  return vfs_chmod_dentry(file->f_dentry, mode);
+}
+
+int vfs_chown_path(const char *path, uid_t uid, gid_t gid) {
+  struct dentry *dentry;
+  int ret;
+
+  if (!path)
+    return -EINVAL;
+
+  dentry = vfs_lookup_path(path, NULL);
+  if (!dentry || !dentry->d_inode) {
+    if (dentry)
+      vfs_free_dentry_chain(dentry);
+    return -ENOENT;
+  }
+
+  ret = vfs_chown_dentry(dentry, uid, gid);
+  if (dentry != root_dentry && !dentry_is_mount_root(dentry))
+    vfs_free_dentry_chain(dentry);
+  return ret;
+}
+
+int vfs_chown_file(struct file *file, uid_t uid, gid_t gid) {
+  if (!file || !file->f_dentry)
+    return -EBADF;
+  return vfs_chown_dentry(file->f_dentry, uid, gid);
 }
 
 /* ===================================================================== */
@@ -1154,13 +1478,31 @@ int vfs_mount(const char *source, const char *target, const char *fstype,
   if (mount_count >= MAX_MOUNTS)
     return -ENOMEM;
 
+  struct dentry *mountpoint = NULL;
+  if (path_compare(target, "/") != 0) {
+    mountpoint = vfs_lookup_path(target, NULL);
+    if (!mountpoint || !mountpoint->d_inode) {
+      if (mountpoint)
+        vfs_free_dentry_chain(mountpoint);
+      return -ENOENT;
+    }
+    if (!S_ISDIR(mountpoint->d_inode->i_mode)) {
+      vfs_free_dentry_chain(mountpoint);
+      return -ENOTDIR;
+    }
+  }
+
   /* Call filesystem's mount function */
   if (!fs->mount) {
+    if (mountpoint)
+      vfs_free_dentry_chain(mountpoint);
     return -ENOSYS;
   }
 
   struct super_block *sb = fs->mount(fs, flags, source, (void *)data);
   if (!sb) {
+    if (mountpoint)
+      vfs_free_dentry_chain(mountpoint);
     return -EIO;
   }
 
@@ -1176,15 +1518,19 @@ int vfs_mount(const char *source, const char *target, const char *fstype,
       break;
     }
   }
-  if (slot < 0)
+  if (slot < 0) {
+    if (mountpoint)
+      vfs_free_dentry_chain(mountpoint);
+    vfs_release_superblock(fs, sb);
     return -ENOMEM;
+  }
 
   struct vfsmount *mnt = &mount_pool[slot];
   mount_slot_used[slot] = 1;
 
   mnt->mnt_root = sb->s_root;
   mnt->mnt_sb = sb;
-  mnt->mnt_mountpoint = NULL; /* TODO: Find target dentry */
+  mnt->mnt_mountpoint = mountpoint;
   mnt->mnt_parent = root_mount;
 
   /* Copy device name */
@@ -1217,24 +1563,31 @@ int vfs_umount(const char *target) {
   for (int i = 0; i < MAX_MOUNTS; i++) {
     if (mounts[i] && mounts[i]->mnt_root &&
         path_compare(mounts[i]->mnt_target, target) == 0) {
+      struct vfsmount *mnt = mounts[i];
+      struct super_block *sb = mnt->mnt_sb;
+      struct file_system_type *fs = sb ? sb->s_type : NULL;
+      struct dentry *mountpoint = mnt->mnt_mountpoint;
       int slot = (int)(mounts[i] - mount_pool);
-      /* TODO: Tear down the superblock properly. */
-      mounts[i]->mnt_root = NULL;
-      mounts[i]->mnt_sb = NULL;
-      mounts[i]->mnt_mountpoint = NULL;
-      mounts[i]->mnt_parent = NULL;
-      mounts[i]->mnt_devname[0] = '\0';
-      mounts[i]->mnt_target[0] = '\0';
-      mounts[i]->mnt_fstype[0] = '\0';
-      if (root_mount == mounts[i]) {
+
+      if (root_mount == mnt) {
         root_mount = NULL;
         root_dentry = NULL;
       }
+      mnt->mnt_root = NULL;
+      mnt->mnt_sb = NULL;
+      mnt->mnt_mountpoint = NULL;
+      mnt->mnt_parent = NULL;
+      mnt->mnt_devname[0] = '\0';
+      mnt->mnt_target[0] = '\0';
+      mnt->mnt_fstype[0] = '\0';
       mounts[i] = NULL;
       if (slot >= 0 && slot < MAX_MOUNTS)
         mount_slot_used[slot] = 0;
       if (mount_count > 0)
         mount_count--;
+      if (mountpoint)
+        vfs_free_dentry_chain(mountpoint);
+      vfs_release_superblock(fs, sb);
       printk(KERN_INFO "VFS: Unmounted '%s'\n", target);
       return 0;
     }

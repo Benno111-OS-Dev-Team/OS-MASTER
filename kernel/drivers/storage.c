@@ -3114,6 +3114,38 @@ uint32_t storage_get_disk_capacity_mib(int index) {
   return storage_disks[index].capacity_mib;
 }
 
+uint32_t storage_get_disk_free_mib(int index) {
+  uint32_t usable_mib;
+  uint32_t used_mib;
+
+  if (index < 0 || index >= storage_disk_count)
+    return 0;
+  if (!storage_disk_supports_partition_writes(index))
+    return 0;
+
+  usable_mib = storage_partition_usable_mib(index);
+  used_mib = storage_partition_used_mib(index);
+  if (used_mib >= usable_mib)
+    return 0;
+  return usable_mib - used_mib;
+}
+
+uint32_t storage_get_total_capacity_mib(void) {
+  uint64_t total = 0;
+
+  for (int i = 0; i < storage_disk_count; i++)
+    total += storage_disks[i].capacity_mib;
+  return total > UINT32_MAX ? UINT32_MAX : (uint32_t)total;
+}
+
+uint32_t storage_get_total_free_mib(void) {
+  uint64_t total = 0;
+
+  for (int i = 0; i < storage_disk_count; i++)
+    total += storage_get_disk_free_mib(i);
+  return total > UINT32_MAX ? UINT32_MAX : (uint32_t)total;
+}
+
 int storage_get_disk_location(int index, char *buf, int max) {
   if (!buf || max <= 0 || index < 0 || index >= storage_disk_count)
     return -1;

@@ -205,6 +205,7 @@ void net_init(void);
  * Return: Socket descriptor or negative error
  */
 int socket_create(int family, int type, int protocol);
+int socket_create_at(int sockfd, int family, int type, int protocol);
 
 /**
  * socket_bind - Bind socket to address
@@ -280,6 +281,20 @@ uint16_t htons(uint16_t hostshort);
 uint16_t ntohs(uint16_t netshort);
 uint32_t htonl(uint32_t hostlong);
 uint32_t ntohl(uint32_t netlong);
+
+/* TCP/DNS helpers for kernel API surfaces. */
+int tcp_connect(uint32_t dest_ip, uint16_t dest_port);
+int tcp_send_socket(int sock, const void *data, uint32_t len);
+int tcp_recv_socket(int sock, void *data, uint32_t maxlen);
+void tcp_close_socket(int sock);
+int tcp_is_connected_socket(int sock);
+int udp_send(uint32_t dest_ip, uint16_t src_port, uint16_t dest_port,
+             const void *data, size_t len);
+void socket_udp_deliver(uint32_t src_ip, uint16_t src_port, uint32_t dst_ip,
+                        uint16_t dst_port, const void *data, size_t len);
+int dns_resolve(const char *hostname, uint32_t *ip_out);
+void dns_handle_udp_response(uint32_t src_ip, uint16_t src_port, uint16_t dst_port,
+                             const void *data, size_t len);
 
 /* ===================================================================== */
 /* Network Interface */

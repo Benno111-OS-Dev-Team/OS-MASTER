@@ -6,6 +6,8 @@
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/arch/arch.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/storage.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/pci.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/rtc.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/led.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs_compat.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/../include/types.h \
@@ -18,6 +20,9 @@
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/../include/arch/arch.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/gui/gui.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/gui/font.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/pmm.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/net/net.h \
+  /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/string.h \
   /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/intel_hda.h
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/apps/kapi.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/types.h:
@@ -25,6 +30,8 @@
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/arch/arch.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/storage.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/pci.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/rtc.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/led.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/fs/vfs_compat.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/../include/types.h:
@@ -37,4 +44,7 @@
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/core/../include/arch/arch.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/gui/gui.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/gui/font.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/mm/pmm.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/net/net.h:
+/mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/string.h:
 /mnt/c/Users/Benno111/Documents/GitHub/os8/kernel/include/drivers/intel_hda.h:

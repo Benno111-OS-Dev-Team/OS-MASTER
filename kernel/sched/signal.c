@@ -8,6 +8,10 @@
 #include "sched/signal.h"
 #include "types.h"
 
+#define ECHILD 10
+#define EINVAL 22
+#define WNOHANG 1
+
 /* ===================================================================== */
 /* Signal Definitions (POSIX compatible) */
 /* ===================================================================== */
@@ -119,6 +123,8 @@ void signal_init(struct task_struct *task) {
 
   task->signals->pending = 0;
   task->signals->blocked = 0;
+  task->pending_signals = 0;
+  task->blocked_signals = 0;
 
   /* Set default handlers */
   for (int i = 0; i < NSIG; i++) {
@@ -167,6 +173,7 @@ int kill_task(struct task_struct *task, int sig) {
 
   /* Set signal as pending */
   task->signals->pending |= (1UL << sig);
+  task->pending_signals |= (1UL << sig);
 
   /* Wake up task if it's sleeping */
   if (task->state == TASK_INTERRUPTIBLE) {
@@ -193,6 +200,7 @@ void do_signal(struct task_struct *task) {
 
     /* Clear pending bit */
     task->signals->pending &= ~(1UL << sig);
+    task->pending_signals &= ~(1UL << sig);
 
     struct k_sigaction *action = &task->signals->actions[sig];
 
@@ -271,12 +279,15 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
     switch (how) {
     case 0: /* SIG_BLOCK */
       task->signals->blocked |= *set;
+      task->blocked_signals = task->signals->blocked;
       break;
     case 1: /* SIG_UNBLOCK */
       task->signals->blocked &= ~(*set);
+      task->blocked_signals = task->signals->blocked;
       break;
     case 2: /* SIG_SETMASK */
       task->signals->blocked = *set;
+      task->blocked_signals = task->signals->blocked;
       break;
     default:
       return -1;
@@ -285,6 +296,7 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
 
   /* SIGKILL and SIGSTOP cannot be blocked */
   task->signals->blocked &= ~((1UL << SIGKILL) | (1UL << SIGSTOP));
+  task->blocked_signals = task->signals->blocked;
 
   return 0;
 }
@@ -319,20 +331,49 @@ int sigaction_syscall(int sig, const struct k_sigaction *act,
 pid_t do_waitpid(pid_t pid, int *wstatus, int options) {
   struct task_struct *current = get_current();
 
-  (void)options;
+  if (!current)
+    return -ECHILD;
+  if (pid < -1 || pid == 0)
+    return -EINVAL;
 
-  /* Find child process */
-  /* TODO: Implement proper child tracking */
+  while (1) {
+    int have_matching_child = 0;
 
-  /* For demonstration */
-  if (wstatus) {
-    *wstatus = 0; /* Normal exit */
+    for (struct list_head *node = current->children.next;
+         node && node != &current->children; node = node->next) {
+      struct task_struct *child =
+          (struct task_struct *)((char *)node -
+                                 __builtin_offsetof(struct task_struct,
+                                                    sibling));
+
+      if (pid != -1 && child->pid != pid)
+        continue;
+
+      have_matching_child = 1;
+      if (child->state != TASK_ZOMBIE)
+        continue;
+
+      pid_t reaped_pid = child->pid;
+      if (wstatus) {
+        int code = child->exit_code & 0xff;
+        *wstatus = code << 8;
+      }
+
+      child->sibling.prev->next = child->sibling.next;
+      child->sibling.next->prev = child->sibling.prev;
+      child->sibling.next = &child->sibling;
+      child->sibling.prev = &child->sibling;
+      child->parent = NULL;
+      child->state = TASK_DEAD;
+      return reaped_pid;
+    }
+
+    if (!have_matching_child)
+      return -ECHILD;
+    if (options & WNOHANG)
+      return 0;
+
+    current->state = TASK_INTERRUPTIBLE;
+    schedule();
   }
-
-  /* Block until child exits */
-  /* TODO: Implement proper wait queue */
-  current->state = TASK_INTERRUPTIBLE;
-  schedule();
-
-  return pid;
 }

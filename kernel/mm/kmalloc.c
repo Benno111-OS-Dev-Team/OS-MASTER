@@ -50,6 +50,7 @@ static uint8_t *heap_end;
 static struct block_header *free_list;
 static size_t heap_total;
 static size_t heap_used;
+static size_t heap_alloc_count;
 static bool heap_initialized = false;
 #ifdef ARCH_X86_64
 static uint8_t x86_64_heap_storage[HEAP_SIZE] __attribute__((aligned(4096)));
@@ -127,6 +128,8 @@ static int used_block_guard_valid(struct block_header *block) {
 
 static void kfree_block_locked(struct block_header *block) {
   heap_used -= block->size;
+  if (heap_alloc_count > 0)
+    heap_alloc_count--;
 
   /* Mark as free */
   block->requested_size = 0;
@@ -180,6 +183,7 @@ void kmalloc_init(void) {
   heap_end = heap_start + HEAP_SIZE;
   heap_total = HEAP_SIZE;
   heap_used = 0;
+  heap_alloc_count = 0;
 
   /* Initialize single free block covering entire heap */
   free_list = (struct block_header *)heap_start;
@@ -287,6 +291,7 @@ void *_kmalloc(size_t size, uint32_t flags) {
   block_write_tail_canary(block);
 
   heap_used += block->size;
+  heap_alloc_count++;
 
   unlock_heap(heap_flags);
 
@@ -333,14 +338,47 @@ void kfree(void *ptr) {
 }
 
 int kmalloc_set_owner(void *ptr, int owner) {
-  (void)ptr;
-  (void)owner;
+  if (!ptr)
+    return -1;
+
+  uint64_t flags = lock_heap();
+  struct block_header *block = data_to_block(ptr);
+
+  if (block->magic != BLOCK_MAGIC_USED) {
+    unlock_heap(flags);
+    return -1;
+  }
+
+  block->owner = owner;
+  unlock_heap(flags);
   return 0;
 }
 
 size_t kmalloc_collect_owner(int owner) {
-  (void)owner;
-  return 0;
+  size_t collected = 0;
+
+  if (owner == 0 || !heap_initialized)
+    return 0;
+
+  uint64_t flags = lock_heap();
+  uint8_t *cursor = heap_start;
+  while (cursor < heap_end) {
+    struct block_header *block = (struct block_header *)cursor;
+    size_t block_size = block->size;
+
+    if (block_size == 0 || cursor + block_size > heap_end)
+      break;
+
+    if (block->magic == BLOCK_MAGIC_USED && block->owner == owner) {
+      kfree_block_locked(block);
+      collected++;
+    }
+
+    cursor += block_size;
+  }
+  unlock_heap(flags);
+
+  return collected;
 }
 
 /* ===================================================================== */
@@ -402,12 +440,30 @@ void *krealloc(void *ptr, size_t new_size, uint32_t flags) {
 /* ===================================================================== */
 
 void kmalloc_get_stats(size_t *total, size_t *used, size_t *free_mem) {
+  uint64_t flags = lock_heap();
   if (total)
     *total = heap_total;
   if (used)
     *used = heap_used;
   if (free_mem)
     *free_mem = heap_total - heap_used;
+  unlock_heap(flags);
+}
+
+void kmalloc_get_heap_bounds(uint64_t *start, uint64_t *end) {
+  uint64_t flags = lock_heap();
+  if (start)
+    *start = (uint64_t)(uintptr_t)heap_start;
+  if (end)
+    *end = (uint64_t)(uintptr_t)heap_end;
+  unlock_heap(flags);
+}
+
+size_t kmalloc_get_alloc_count(void) {
+  uint64_t flags = lock_heap();
+  size_t count = heap_alloc_count;
+  unlock_heap(flags);
+  return count;
 }
 
 int kmalloc_check_integrity(const char *reason) {

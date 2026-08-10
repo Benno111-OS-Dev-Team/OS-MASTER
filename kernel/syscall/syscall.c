@@ -5,11 +5,21 @@
 #include "syscall/syscall.h"
 #include "apps/kapi.h"
 #include "arch/arch.h"
+#include "core/process.h"
+#include "drivers/rtc.h"
 #include "drivers/uart.h"
 #include "fs/vfs.h"
+<<<<<<< HEAD
+#include "fs/vfs_compat.h"
+#include "mm/pmm.h"
+#include "ipc/pipe.h"
+#include "mm/kmalloc.h"
+#include "net/net.h"
+=======
 #include "mm/aslr.h"
 #include "mm/kmalloc.h"
 #include "mm/vmm.h"
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 #include "printk.h"
 #include "sched/sched.h"
 #include "sched/signal.h"
@@ -275,8 +285,18 @@
 #define CAP_FULL_WORD0 UINT32_MAX
 #define CAP_FULL_WORD1 ((1U << (CAP_LAST_CAP - 32 + 1)) - 1U)
 
+<<<<<<< HEAD
+/* File descriptor entry */
+struct fd_entry {
+  struct file *file;
+  int flags;
+  int in_use;
+  int is_socket;
+};
+=======
 static uint64_t kernel_time_ns(void);
 static struct timespec current_timespec(void);
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
 static char system_nodename[UTS_NAME_LEN + 1] = "localhost";
 static char system_domainname[UTS_NAME_LEN + 1] = "";
@@ -287,11 +307,19 @@ static int init_task_files(struct task_struct *task) {
   if (task->files_initialized)
     return 0;
 
+<<<<<<< HEAD
+  for (int i = 0; i < MAX_FDS; i++) {
+    fd_table[i].file = NULL;
+    fd_table[i].flags = 0;
+    fd_table[i].in_use = 0;
+    fd_table[i].is_socket = 0;
+=======
   for (int i = 0; i < TASK_MAX_FDS; i++) {
     task->files[i].file = NULL;
     task->files[i].flags = 0;
     task->files[i].path[0] = '\0';
     task->files[i].in_use = 0;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   }
 
   task->files[0].in_use = 1; /* stdin */
@@ -345,6 +373,14 @@ static int alloc_fd_from(struct task_struct *task, int min_fd) {
   return -EMFILE;
 }
 
+<<<<<<< HEAD
+static void free_fd(int fd) {
+  if (fd >= 0 && fd < MAX_FDS) {
+    fd_table[fd].file = NULL;
+    fd_table[fd].flags = 0;
+    fd_table[fd].in_use = 0;
+    fd_table[fd].is_socket = 0;
+=======
 static int alloc_fd(struct task_struct *task) { return alloc_fd_from(task, 3); }
 
 static void free_fd(struct task_struct *task, int fd) {
@@ -353,6 +389,7 @@ static void free_fd(struct task_struct *task, int fd) {
     task->files[fd].flags = 0;
     task->files[fd].path[0] = '\0';
     task->files[fd].in_use = 0;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   }
 }
 
@@ -1173,6 +1210,11 @@ static int resolve_at_path(struct task_struct *task, int dirfd,
   return path_within_root(task, dst) ? 0 : -EACCES;
 }
 
+static int fd_is_socket(int fd) {
+  return fd >= 0 && fd < MAX_FDS && fd_table[fd].in_use &&
+         fd_table[fd].is_socket;
+}
+
 /* ===================================================================== */
 /* User Pointer Validation */
 /* ===================================================================== */
@@ -1225,6 +1267,132 @@ static int copy_user_string(uint64_t user_ptr, char *dst, size_t dst_size) {
 
   dst[dst_size - 1] = '\0';
   return -ENAMETOOLONG;
+}
+
+#define AT_FDCWD (-100)
+
+static long normalize_path_inplace(char *path, size_t size) {
+  char out[256];
+  size_t out_len = 1;
+  size_t i = 0;
+
+  if (!path || size == 0 || path[0] != '/')
+    return -EINVAL;
+  if (size > sizeof(out))
+    return -ENAMETOOLONG;
+
+  out[0] = '/';
+  out[1] = '\0';
+  while (path[i]) {
+    char comp[NAME_MAX + 1];
+    size_t comp_len = 0;
+
+    while (path[i] == '/')
+      i++;
+    if (!path[i])
+      break;
+    while (path[i] && path[i] != '/') {
+      if (comp_len >= NAME_MAX)
+        return -ENAMETOOLONG;
+      comp[comp_len++] = path[i++];
+    }
+    comp[comp_len] = '\0';
+
+    if (comp_len == 1 && comp[0] == '.')
+      continue;
+    if (comp_len == 2 && comp[0] == '.' && comp[1] == '.') {
+      if (out_len > 1) {
+        if (out[out_len - 1] == '/')
+          out_len--;
+        while (out_len > 1 && out[out_len - 1] != '/')
+          out_len--;
+        out[out_len] = '\0';
+      }
+      continue;
+    }
+
+    if (out_len > 1) {
+      if (out_len + 1 >= sizeof(out))
+        return -ENAMETOOLONG;
+      out[out_len++] = '/';
+    }
+    if (comp_len >= sizeof(out) - out_len)
+      return -ENAMETOOLONG;
+    for (size_t j = 0; j < comp_len; j++)
+      out[out_len++] = comp[j];
+    out[out_len] = '\0';
+  }
+
+  if (strlcpy(path, out, size) >= size)
+    return -ENAMETOOLONG;
+  return 0;
+}
+
+static long join_path(char *dst, size_t dst_size, const char *base,
+                      const char *path) {
+  size_t len;
+
+  if (!dst || dst_size == 0 || !base || !path)
+    return -EINVAL;
+  if (path[0] == '/') {
+    if (strlcpy(dst, path, dst_size) >= dst_size)
+      return -ENAMETOOLONG;
+    return normalize_path_inplace(dst, dst_size);
+  }
+
+  len = strlcpy(dst, base, dst_size);
+  if (len >= dst_size)
+    return -ENAMETOOLONG;
+  if (len == 0) {
+    len = strlcpy(dst, "/", dst_size);
+    if (len >= dst_size)
+      return -ENAMETOOLONG;
+  }
+  if (len > 1 && dst[len - 1] != '/') {
+    if (len + 1 >= dst_size)
+      return -ENAMETOOLONG;
+    dst[len++] = '/';
+    dst[len] = '\0';
+  }
+  if (len == 1 && dst[0] == '/')
+    len = 1;
+  if (strlcpy(dst + len, path, dst_size - len) >= dst_size - len)
+    return -ENAMETOOLONG;
+  return normalize_path_inplace(dst, dst_size);
+}
+
+static long copy_user_path_at(uint64_t dirfd, uint64_t pathname, char *dst,
+                              size_t dst_size) {
+  char path[256];
+  char base[256];
+  struct file *dir;
+  long ret;
+
+  ret = copy_user_string(pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  if (path[0] == '/')
+    return join_path(dst, dst_size, "/", path);
+
+  if ((int64_t)dirfd == AT_FDCWD) {
+    if (vfs_get_cwd_path(base, sizeof(base)) < 0)
+      return -ENOENT;
+    return join_path(dst, dst_size, base, path);
+  }
+
+  init_fd_table();
+  if (fd_is_socket((int)dirfd))
+    return -ENOTDIR;
+  dir = get_file((int)dirfd);
+  if (!dir)
+    return -EBADF;
+  if (!dir->f_dentry || !dir->f_dentry->d_inode ||
+      !S_ISDIR(dir->f_dentry->d_inode->i_mode))
+    return -ENOTDIR;
+  ret = vfs_file_path(dir, base, sizeof(base));
+  if (ret < 0)
+    return ret;
+  return join_path(dst, dst_size, base, path);
 }
 
 /* ===================================================================== */
@@ -2025,6 +2193,8 @@ static long do_fd_read(uint64_t fd, uint64_t buf, uint64_t count) {
 
   struct file *f = get_file(task, (int)fd);
   if (!f) {
+    if (fd_is_socket((int)fd))
+      return socket_recv((int)fd, (void *)(uintptr_t)buf, (size_t)count, 0);
     return -EBADF;
   }
 
@@ -2260,6 +2430,13 @@ static long sys_readv(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t a3,
   return do_fd_iov(fd, iov, iovcnt, 0);
 }
 
+<<<<<<< HEAD
+  struct file *f = get_file((int)fd);
+  if (!f) {
+    if (fd_is_socket((int)fd))
+      return socket_send((int)fd, (const void *)(uintptr_t)buf, (size_t)count,
+                         0);
+=======
 static long sys_writev(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -2322,6 +2499,7 @@ static long sys_pwritev2(uint64_t fd, uint64_t iov, uint64_t iovcnt,
 static long write_kernel_to_fd(struct task_struct *task, uint64_t fd,
                                const char *buf, size_t count) {
   if (!task || fd >= TASK_MAX_FDS)
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     return -EBADF;
 
   if (task->files[fd].in_use && !task->files[fd].file &&
@@ -2789,17 +2967,86 @@ static long sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds,
   }
 }
 
-static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
-                       uint64_t mode, uint64_t a4, uint64_t a5) {
+static long sys_pread64(uint64_t fd, uint64_t buf, uint64_t count,
+                        uint64_t pos, uint64_t a4, uint64_t a5) {
+  struct file *f;
+  loff_t saved_pos;
+  loff_t seek_ret;
+  ssize_t ret;
   (void)a4;
   (void)a5;
 
+  init_fd_table();
+
+  if (count > 0 && !is_valid_user_ptr(buf, (size_t)count))
+    return -EFAULT;
+  if (fd_is_socket((int)fd))
+    return -ESPIPE;
+
+  f = get_file((int)fd);
+  if (!f)
+    return -EBADF;
+
+  saved_pos = f->f_pos;
+  seek_ret = vfs_lseek(f, (loff_t)pos, SEEK_SET);
+  if (seek_ret < 0)
+    return seek_ret;
+
+  ret = vfs_read(f, (char *)(uintptr_t)buf, (size_t)count);
+  vfs_lseek(f, saved_pos, SEEK_SET);
+  return ret;
+}
+
+static long sys_pwrite64(uint64_t fd, uint64_t buf, uint64_t count,
+                         uint64_t pos, uint64_t a4, uint64_t a5) {
+  struct file *f;
+  loff_t saved_pos;
+  loff_t seek_ret;
+  ssize_t ret;
+  (void)a4;
+  (void)a5;
+
+  init_fd_table();
+
+  if (count > 0 && !is_valid_user_ptr(buf, (size_t)count))
+    return -EFAULT;
+  if (fd_is_socket((int)fd))
+    return -ESPIPE;
+
+  f = get_file((int)fd);
+  if (!f)
+    return -EBADF;
+
+  saved_pos = f->f_pos;
+  seek_ret = vfs_lseek(f, (loff_t)pos, SEEK_SET);
+  if (seek_ret < 0)
+    return seek_ret;
+
+  ret = vfs_write(f, (const char *)(uintptr_t)buf, (size_t)count);
+  vfs_lseek(f, saved_pos, SEEK_SET);
+  return ret;
+}
+
+static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
+                       uint64_t mode, uint64_t a4, uint64_t a5) {
+  struct task_struct *current;
+  mode_t create_mode;
+  (void)a4;
+  (void)a5;
+
+<<<<<<< HEAD
+  init_fd_table();
+
+  char path[256];
+  long ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+=======
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
   char user_path[PATH_MAX];
   char path[PATH_MAX];
   long ret = copy_user_string(pathname, user_path, sizeof(user_path));
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   if (ret < 0) {
     return ret;
   }
@@ -2814,18 +3061,32 @@ static long sys_openat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   }
 
   /* Open the file */
+<<<<<<< HEAD
+  create_mode = (mode_t)mode;
+  if (flags & O_CREAT) {
+    current = get_current();
+    create_mode &= ~(current ? current->umask : 022);
+  }
+=======
   mode_t create_mode = (mode_t)mode;
   if (flags & O_CREAT)
     create_mode &= ~(task->umask);
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   struct file *f = vfs_open(path, (int)flags, create_mode);
   if (!f) {
     free_fd(task, fd);
     return -ENOENT;
   }
 
+<<<<<<< HEAD
+  fd_table[fd].file = f;
+  fd_table[fd].flags = (int)flags;
+  fd_table[fd].is_socket = 0;
+=======
   task->files[fd].file = f;
   task->files[fd].flags = (int)flags;
   strlcpy(task->files[fd].path, path, sizeof(task->files[fd].path));
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
   return fd;
 }
@@ -3569,10 +3830,24 @@ static long sys_fcntl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t a3,
     struct file *file = task->files[fd_i].file;
     struct memfd_ctx *ctx;
 
+<<<<<<< HEAD
+  if (fd_is_socket((int)fd)) {
+    int ret = socket_close((int)fd);
+    if (ret < 0)
+      return ret;
+    free_fd((int)fd);
+    return 0;
+  }
+
+  struct file *f = get_file((int)fd);
+  if (!f) {
+    return -EBADF;
+=======
     if (!file_is_memfd(file))
       return -EINVAL;
     ctx = (struct memfd_ctx *)file->private_data;
     return ctx ? (long)ctx->seals : -EINVAL;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   }
   default:
     return -EINVAL;
@@ -3627,6 +3902,58 @@ static long sys_ioctl(uint64_t fd, uint64_t request, uint64_t arg, uint64_t a3,
   }
 }
 
+static long sys_pipe2(uint64_t pipefd, uint64_t flags, uint64_t a2,
+                      uint64_t a3, uint64_t a4, uint64_t a5) {
+  struct file *read_file = NULL;
+  struct file *write_file = NULL;
+  int read_fd;
+  int write_fd;
+  int out[2];
+  int ret;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  init_fd_table();
+
+  if (!is_valid_user_ptr(pipefd, sizeof(out)))
+    return -EFAULT;
+  if (flags & ~(uint64_t)O_CLOEXEC)
+    return -EINVAL;
+
+  read_fd = alloc_fd();
+  if (read_fd < 0)
+    return -EMFILE;
+  write_fd = alloc_fd();
+  if (write_fd < 0) {
+    free_fd(read_fd);
+    return -EMFILE;
+  }
+
+  ret = do_pipe(&read_file, &write_file);
+  if (ret < 0) {
+    free_fd(read_fd);
+    free_fd(write_fd);
+    return ret;
+  }
+
+  out[0] = read_fd;
+  out[1] = write_fd;
+  int *user_pipefd = (int *)(uintptr_t)pipefd;
+  user_pipefd[0] = out[0];
+  user_pipefd[1] = out[1];
+
+  fd_table[read_fd].file = read_file;
+  fd_table[read_fd].flags = O_RDONLY | (int)flags;
+  fd_table[read_fd].is_socket = 0;
+  fd_table[write_fd].file = write_file;
+  fd_table[write_fd].flags = O_WRONLY | (int)flags;
+  fd_table[write_fd].is_socket = 0;
+
+  return 0;
+}
+
 static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
                       uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a3;
@@ -3647,12 +3974,118 @@ static long sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence,
   return vfs_lseek(f, (loff_t)offset, (int)whence);
 }
 
+<<<<<<< HEAD
+struct linux_dirent64 {
+  uint64_t d_ino;
+  int64_t d_off;
+  uint16_t d_reclen;
+  uint8_t d_type;
+  char d_name[];
+} __attribute__((packed));
+
+struct getdents64_ctx {
+  char *buf;
+  size_t buflen;
+  size_t used;
+  uint64_t index;
+  uint64_t skip;
+  int emitted;
+  int full;
+  int error;
+};
+
+static size_t align8_size(size_t value) { return (value + 7U) & ~7U; }
+
+static int getdents64_fill(void *ctx, const char *name, int len, loff_t offset,
+                           ino_t ino, unsigned type) {
+  struct getdents64_ctx *state = (struct getdents64_ctx *)ctx;
+  struct linux_dirent64 *dent;
+  size_t name_len;
+  size_t reclen;
+  size_t base_len = sizeof(struct linux_dirent64);
+
+  (void)offset;
+
+  if (!state || !name || len < 0 || state->full)
+    return 0;
+
+  if (state->index++ < state->skip)
+    return 0;
+
+  name_len = (size_t)len;
+  if (name_len > UINT16_MAX)
+    name_len = UINT16_MAX;
+  if (base_len > (size_t)-1 - name_len - 1) {
+    state->error = -EINVAL;
+    state->full = 1;
+    return -EINVAL;
+  }
+  reclen = align8_size(base_len + name_len + 1);
+  if (reclen > UINT16_MAX) {
+    state->error = -EINVAL;
+    state->full = 1;
+    return -EINVAL;
+  }
+
+  if (reclen > state->buflen - state->used) {
+    if (!state->emitted)
+      state->error = -EINVAL;
+    state->full = 1;
+    return 1;
+  }
+
+  dent = (struct linux_dirent64 *)(void *)(state->buf + state->used);
+  dent->d_ino = (uint64_t)ino;
+  dent->d_off = (int64_t)state->index;
+  dent->d_reclen = (uint16_t)reclen;
+  dent->d_type = (uint8_t)type;
+  for (size_t i = 0; i < name_len; i++)
+    dent->d_name[i] = name[i];
+  dent->d_name[name_len] = '\0';
+  for (size_t i = base_len + name_len + 1; i < reclen; i++)
+    state->buf[state->used + i] = 0;
+
+  state->used += reclen;
+  state->emitted = 1;
+  return 0;
+}
+
+static long sys_getdents64(uint64_t fd, uint64_t dirent, uint64_t count,
+                           uint64_t a3, uint64_t a4, uint64_t a5) {
+  struct getdents64_ctx ctx;
+  struct file *f;
+  int ret;
+=======
 static long sys_getdents64(uint64_t fd, uint64_t dirp, uint64_t count,
                            uint64_t a3, uint64_t a4, uint64_t a5) {
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  init_fd_table();
+
+  if (count == 0)
+    return 0;
+  if (count > (uint64_t)((size_t)-1))
+    return -EINVAL;
+  if (!is_valid_user_ptr(dirent, (size_t)count))
+    return -EFAULT;
+
+  f = get_file((int)fd);
+  if (!f || fd_is_socket((int)fd))
+    return -EBADF;
+
+  ctx.buf = (char *)(uintptr_t)dirent;
+  ctx.buflen = (size_t)count;
+  ctx.used = 0;
+  ctx.index = 0;
+  ctx.skip = f->f_pos < 0 ? 0 : (uint64_t)f->f_pos;
+  ctx.emitted = 0;
+  ctx.full = 0;
+  ctx.error = 0;
+=======
   struct task_struct *task = current_task_with_files();
   struct getdents64_ctx ctx;
   int ret;
@@ -3678,25 +4111,177 @@ static long sys_getdents64(uint64_t fd, uint64_t dirp, uint64_t count,
   ctx.buflen = (size_t)count;
   ctx.start_pos = f->f_pos;
   ctx.next_pos = f->f_pos;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
   ret = vfs_readdir(f, &ctx, getdents64_fill);
   if (ret < 0)
     return ret;
+<<<<<<< HEAD
+  if (ctx.error < 0)
+    return ctx.error;
+
+  f->f_pos = (loff_t)ctx.index;
+  return (long)ctx.used;
+}
+
+struct linux_stat {
+  uint64_t st_dev;
+  uint64_t st_ino;
+  uint32_t st_mode;
+  uint32_t st_nlink;
+  uint32_t st_uid;
+  uint32_t st_gid;
+  uint64_t st_rdev;
+  uint64_t __pad1;
+  int64_t st_size;
+  int32_t st_blksize;
+  int32_t __pad2;
+  int64_t st_blocks;
+  int64_t st_atime;
+  uint64_t st_atime_nsec;
+  int64_t st_mtime;
+  uint64_t st_mtime_nsec;
+  int64_t st_ctime;
+  uint64_t st_ctime_nsec;
+  uint32_t __unused4;
+  uint32_t __unused5;
+};
+
+static void fill_linux_stat(struct linux_stat *out,
+                            const struct vfs_stat *in) {
+  memset(out, 0, sizeof(*out));
+  out->st_dev = in->dev;
+  out->st_ino = in->ino;
+  out->st_mode = in->mode;
+  out->st_nlink = in->nlink;
+  out->st_uid = in->uid;
+  out->st_gid = in->gid;
+  out->st_rdev = in->rdev;
+  out->st_size = in->size;
+  out->st_blksize = (int32_t)in->blksize;
+  out->st_blocks = in->blocks;
+  out->st_atime = in->atime.tv_sec;
+  out->st_atime_nsec = (uint64_t)in->atime.tv_nsec;
+  out->st_mtime = in->mtime.tv_sec;
+  out->st_mtime_nsec = (uint64_t)in->mtime.tv_nsec;
+  out->st_ctime = in->ctime.tv_sec;
+  out->st_ctime_nsec = (uint64_t)in->ctime.tv_nsec;
+}
+
+static long copy_stat_to_user(uint64_t statbuf, const struct vfs_stat *st) {
+  struct linux_stat *user_stat;
+
+  if (!is_valid_user_ptr(statbuf, sizeof(struct linux_stat)))
+    return -EFAULT;
+  user_stat = (struct linux_stat *)(uintptr_t)statbuf;
+  fill_linux_stat(user_stat, st);
+  return 0;
+}
+
+static int vfs_stat_file(struct file *file, struct vfs_stat *st) {
+  struct inode *inode;
+
+  if (!file || !file->f_dentry || !file->f_dentry->d_inode || !st)
+    return -EBADF;
+
+  inode = file->f_dentry->d_inode;
+  st->dev = inode->i_sb ? inode->i_sb->s_dev : 0;
+  st->ino = inode->i_ino;
+  st->mode = inode->i_mode;
+  st->nlink = inode->i_nlink ? inode->i_nlink : 1;
+  st->uid = inode->i_uid;
+  st->gid = inode->i_gid;
+  st->rdev = inode->i_rdev;
+  st->size = inode->i_size;
+  st->blksize = inode->i_blksize ? inode->i_blksize : 4096;
+  st->blocks = inode->i_blocks;
+  if (st->blocks == 0 && st->size > 0)
+    st->blocks = (st->size + 511) / 512;
+  st->atime = inode->i_atime;
+  st->mtime = inode->i_mtime;
+  st->ctime = inode->i_ctime;
+  return 0;
+=======
   if (ctx.bytes == 0 && ctx.error < 0)
     return ctx.error;
   if (ctx.bytes > 0)
     f->f_pos = ctx.next_pos;
 
   return (long)ctx.bytes;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t a2, uint64_t a3,
                       uint64_t a4, uint64_t a5) {
+<<<<<<< HEAD
+  struct vfs_stat st;
+  struct file *f;
+  int ret;
+=======
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  init_fd_table();
+
+  if (fd_is_socket((int)fd))
+    return -EBADF;
+  f = get_file((int)fd);
+  ret = vfs_stat_file(f, &st);
+  if (ret < 0)
+    return ret;
+  return copy_stat_to_user(statbuf, &st);
+}
+
+struct linux_fsid {
+  int val[2];
+};
+
+struct linux_statfs {
+  long f_type;
+  long f_bsize;
+  uint64_t f_blocks;
+  uint64_t f_bfree;
+  uint64_t f_bavail;
+  uint64_t f_files;
+  uint64_t f_ffree;
+  struct linux_fsid f_fsid;
+  long f_namelen;
+  long f_frsize;
+  long f_flags;
+  long f_spare[4];
+};
+
+static void fill_linux_statfs(struct linux_statfs *out,
+                              const struct vfs_statfs *in) {
+  memset(out, 0, sizeof(*out));
+  out->f_type = in->type;
+  out->f_bsize = in->bsize;
+  out->f_blocks = in->blocks;
+  out->f_bfree = in->bfree;
+  out->f_bavail = in->bavail;
+  out->f_files = in->files;
+  out->f_ffree = in->ffree;
+  out->f_fsid.val[0] = (int)in->fsid[0];
+  out->f_fsid.val[1] = (int)in->fsid[1];
+  out->f_namelen = in->namelen;
+  out->f_frsize = in->frsize;
+  out->f_flags = in->flags;
+}
+
+static long copy_statfs_to_user(uint64_t statbuf,
+                                const struct vfs_statfs *st) {
+  struct linux_statfs *user_statfs;
+
+  if (!is_valid_user_ptr(statbuf, sizeof(struct linux_statfs)))
+    return -EFAULT;
+  user_statfs = (struct linux_statfs *)(uintptr_t)statbuf;
+  fill_linux_statfs(user_statfs, st);
+  return 0;
+=======
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
@@ -3822,15 +4407,31 @@ static long sys_statx(uint64_t dirfd, uint64_t pathname, uint64_t flags,
   ret = copy_file_statx(f, statxbuf);
   vfs_close(f);
   return ret;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_statfs(uint64_t pathname, uint64_t statbuf, uint64_t a2,
                        uint64_t a3, uint64_t a4, uint64_t a5) {
+<<<<<<< HEAD
+  char path[256];
+  struct vfs_statfs st;
+  long ret;
+=======
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  ret = copy_user_path_at(AT_FDCWD, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  ret = vfs_statfs_path(path, &st);
+  if (ret < 0)
+    return ret;
+  return copy_statfs_to_user(statbuf, &st);
+=======
   char user_path[TASK_CWD_MAX];
   char path[TASK_CWD_MAX];
   struct task_struct *task = get_current();
@@ -3848,15 +4449,139 @@ static long sys_statfs(uint64_t pathname, uint64_t statbuf, uint64_t a2,
   ret = copy_file_statfs(f, statbuf);
   vfs_close(f);
   return ret;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_fstatfs(uint64_t fd, uint64_t statbuf, uint64_t a2,
                         uint64_t a3, uint64_t a4, uint64_t a5) {
+<<<<<<< HEAD
+  struct vfs_statfs st;
+  struct file *f;
+  int ret;
+=======
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  init_fd_table();
+  if (fd_is_socket((int)fd))
+    return -EBADF;
+  f = get_file((int)fd);
+  ret = vfs_statfs_file(f, &st);
+  if (ret < 0)
+    return ret;
+  return copy_statfs_to_user(statbuf, &st);
+}
+
+#define AT_EMPTY_PATH 0x1000
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_EACCESS 0x200
+#define AT_REMOVEDIR 0x200
+#define RENAME_NOREPLACE 1
+#define RENAME_EXCHANGE 2
+#define RENAME_WHITEOUT 4
+#define F_OK 0
+#define X_OK 1
+#define W_OK 2
+#define R_OK 4
+
+static long sys_newfstatat(uint64_t dirfd, uint64_t pathname, uint64_t statbuf,
+                           uint64_t flags, uint64_t a4, uint64_t a5) {
+  char path[256];
+  struct vfs_stat st;
+  long ret;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW))
+    return -EINVAL;
+
+  if ((flags & AT_EMPTY_PATH) && pathname == 0) {
+    if ((int64_t)dirfd == AT_FDCWD)
+      return -EINVAL;
+    return sys_fstat(dirfd, statbuf, 0, 0, 0, 0);
+  }
+
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  ret = vfs_stat_path(path, &st);
+  if (ret < 0)
+    return ret;
+  return copy_stat_to_user(statbuf, &st);
+}
+
+static int mode_allows_access(const struct vfs_stat *st, int mode,
+                              uid_t uid, gid_t gid) {
+  mode_t perm;
+
+  if (!st)
+    return 0;
+  if (mode == F_OK)
+    return 1;
+  if (uid == 0)
+    return (mode & X_OK) ? ((st->mode & 0111) != 0) : 1;
+
+  if (uid == st->uid)
+    perm = (st->mode >> 6) & 07;
+  else if (gid == st->gid)
+    perm = (st->mode >> 3) & 07;
+  else
+    perm = st->mode & 07;
+
+  if ((mode & R_OK) && !(perm & 04))
+    return 0;
+  if ((mode & W_OK) && !(perm & 02))
+    return 0;
+  if ((mode & X_OK) && !(perm & 01))
+    return 0;
+  return 1;
+}
+
+static long sys_faccessat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
+                          uint64_t flags, uint64_t a4, uint64_t a5) {
+  char path[256];
+  struct vfs_stat st;
+  struct task_struct *current;
+  uid_t uid = 0;
+  gid_t gid = 0;
+  long ret;
+  (void)a4;
+  (void)a5;
+
+  if (mode & ~(uint64_t)(R_OK | W_OK | X_OK))
+    return -EINVAL;
+  if (flags & ~(uint64_t)(AT_EACCESS | AT_SYMLINK_NOFOLLOW))
+    return -EINVAL;
+
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  ret = vfs_stat_path(path, &st);
+  if (ret < 0)
+    return ret;
+
+  current = get_current();
+  if (current) {
+    uid = current->uid;
+    gid = current->gid;
+  }
+
+  return mode_allows_access(&st, (int)mode, uid, gid) ? 0 : -EACCES;
+}
+
+static long sys_mkdirat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  char path[256];
+  struct task_struct *current;
+  mode_t create_mode;
+  long ret;
+=======
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
@@ -3870,10 +4595,27 @@ static long sys_fstatfs(uint64_t fd, uint64_t statbuf, uint64_t a2,
 static long sys_ftruncate(uint64_t fd, uint64_t length, uint64_t a2,
                           uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a2;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  create_mode = (mode_t)mode;
+  current = get_current();
+  create_mode &= ~(current ? current->umask : 022);
+  return vfs_mkdir(path, create_mode);
+}
+
+static long sys_unlinkat(uint64_t dirfd, uint64_t pathname, uint64_t flags,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  char path[256];
+  long ret;
+=======
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
@@ -3902,10 +4644,23 @@ static long sys_ftruncate(uint64_t fd, uint64_t length, uint64_t a2,
 static long sys_truncate(uint64_t pathname, uint64_t length, uint64_t a2,
                          uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a2;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  if (flags & ~(uint64_t)AT_REMOVEDIR)
+    return -EINVAL;
+
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  if (flags & AT_REMOVEDIR)
+    return vfs_rmdir(path);
+  return vfs_unlink(path);
+=======
   struct task_struct *task = current_task_with_files();
   char user_path[PATH_MAX];
   char path[PATH_MAX];
@@ -3934,15 +4689,30 @@ static long sys_truncate(uint64_t pathname, uint64_t length, uint64_t a2,
   }
   vfs_close(f);
   return ret;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_fchmod(uint64_t fd, uint64_t mode, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
+<<<<<<< HEAD
+  struct file *file;
+=======
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  init_fd_table();
+  if (fd_is_socket((int)fd))
+    return -EBADF;
+
+  file = get_file((int)fd);
+  if (!file)
+    return -EBADF;
+  return vfs_chmod_file(file, (mode_t)mode);
+=======
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
@@ -3951,10 +4721,30 @@ static long sys_fchmod(uint64_t fd, uint64_t mode, uint64_t a2, uint64_t a3,
   if (!f || !f->f_dentry)
     return -EBADF;
   return chmod_inode(f->f_dentry->d_inode, (mode_t)mode);
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_fchmodat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
                          uint64_t flags, uint64_t a4, uint64_t a5) {
+<<<<<<< HEAD
+  char path[256];
+  long ret;
+  (void)a4;
+  (void)a5;
+
+  if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW)
+    return -EINVAL;
+
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  return vfs_chmod_path(path, (mode_t)mode);
+}
+
+static long sys_fchown(uint64_t fd, uint64_t uid, uint64_t gid, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  struct file *file;
+=======
   (void)a4;
   (void)a5;
 
@@ -3984,10 +4774,115 @@ static long sys_fchmodat(uint64_t dirfd, uint64_t pathname, uint64_t mode,
 
 static long sys_fchown(uint64_t fd, uint64_t owner, uint64_t group, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  init_fd_table();
+  if (fd_is_socket((int)fd))
+    return -EBADF;
+
+  file = get_file((int)fd);
+  if (!file)
+    return -EBADF;
+  return vfs_chown_file(file, (uid_t)uid, (gid_t)gid);
+}
+
+static long sys_fchownat(uint64_t dirfd, uint64_t pathname, uint64_t uid,
+                         uint64_t gid, uint64_t flags, uint64_t a5) {
+  char path[256];
+  long ret;
+  (void)a5;
+
+  if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW)
+    return -EINVAL;
+
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  return vfs_chown_path(path, (uid_t)uid, (gid_t)gid);
+}
+
+static long sys_renameat2(uint64_t olddirfd, uint64_t oldpath,
+                          uint64_t newdirfd, uint64_t newpath,
+                          uint64_t flags, uint64_t a5) {
+  char oldbuf[256];
+  char newbuf[256];
+  long ret;
+  (void)a5;
+
+  if (flags & ~(uint64_t)(RENAME_NOREPLACE | RENAME_EXCHANGE |
+                          RENAME_WHITEOUT))
+    return -EINVAL;
+  if (flags & (RENAME_EXCHANGE | RENAME_WHITEOUT))
+    return -ENOSYS;
+
+  ret = copy_user_path_at(olddirfd, oldpath, oldbuf, sizeof(oldbuf));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_path_at(newdirfd, newpath, newbuf, sizeof(newbuf));
+  if (ret < 0)
+    return ret;
+
+  if (flags & RENAME_NOREPLACE) {
+    struct vfs_stat st;
+
+    ret = vfs_stat_path(newbuf, &st);
+    if (ret == 0)
+      return -EEXIST;
+    if (ret != -ENOENT)
+      return ret;
+  }
+
+  return vfs_rename(oldbuf, newbuf);
+}
+
+static long sys_renameat(uint64_t olddirfd, uint64_t oldpath,
+                         uint64_t newdirfd, uint64_t newpath,
+                         uint64_t a4, uint64_t a5) {
+  (void)a4;
+  return sys_renameat2(olddirfd, oldpath, newdirfd, newpath, 0, a5);
+}
+
+static long sys_symlinkat(uint64_t target, uint64_t newdirfd,
+                          uint64_t linkpath, uint64_t a3, uint64_t a4,
+                          uint64_t a5) {
+  char targetbuf[256];
+  char linkbuf[256];
+  long ret;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  ret = copy_user_string(target, targetbuf, sizeof(targetbuf));
+  if (ret < 0)
+    return ret;
+  ret = copy_user_path_at(newdirfd, linkpath, linkbuf, sizeof(linkbuf));
+  if (ret < 0)
+    return ret;
+  return vfs_symlink(targetbuf, linkbuf);
+}
+
+static long sys_readlinkat(uint64_t dirfd, uint64_t pathname, uint64_t buf,
+                           uint64_t bufsiz, uint64_t a4, uint64_t a5) {
+  char path[256];
+  long ret;
+  (void)a4;
+  (void)a5;
+
+  if (bufsiz > INT32_MAX)
+    return -EINVAL;
+  if (bufsiz > 0 && !is_valid_user_ptr(buf, (size_t)bufsiz))
+    return -EFAULT;
+
+  ret = copy_user_path_at(dirfd, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+
+  return vfs_readlink(path, (char *)(uintptr_t)buf, (size_t)bufsiz);
+=======
   struct task_struct *task = current_task_with_files();
   if (!task)
     return -ESRCH;
@@ -4063,6 +4958,7 @@ static long sys_utimensat(uint64_t dirfd, uint64_t pathname, uint64_t times,
   ret = f->f_dentry ? utimens_inode(f->f_dentry->d_inode, times_ptr) : -ENOENT;
   vfs_close(f);
   return ret;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_exit(uint64_t error_code, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -4153,17 +5049,101 @@ static long sys_getgid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->gid : 0;
 }
 
+<<<<<<< HEAD
+static long sys_getcwd(uint64_t buf, uint64_t size, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  int cwd_len;
+  size_t needed;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (size == 0)
+    return -EINVAL;
+
+  cwd_len = vfs_get_cwd_length();
+  if (cwd_len < 0)
+    return -ENOENT;
+  needed = (size_t)cwd_len + 1;
+  if (size < needed)
+    return -ERANGE;
+  if (!is_valid_user_ptr(buf, needed))
+    return -EFAULT;
+  if (vfs_get_cwd_path((char *)(uintptr_t)buf, (size_t)size) < 0)
+    return -ENOENT;
+  return (long)needed;
+}
+
+static long sys_chdir(uint64_t pathname, uint64_t a1, uint64_t a2,
+                      uint64_t a3, uint64_t a4, uint64_t a5) {
+  char path[256];
+  long ret;
+=======
 static long sys_getegid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
                         uint64_t a4, uint64_t a5) {
   (void)a0;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a1;
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  ret = copy_user_path_at(AT_FDCWD, pathname, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  return vfs_set_cwd(path) == 0 ? 0 : -ENOENT;
+}
+
+static long sys_fchdir(uint64_t fd, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5) {
+  char path[256];
+  struct file *file;
+  long ret;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  init_fd_table();
+  if (fd_is_socket((int)fd))
+    return -ENOTDIR;
+  file = get_file((int)fd);
+  if (!file)
+    return -EBADF;
+  if (!file->f_dentry || !file->f_dentry->d_inode ||
+      !S_ISDIR(file->f_dentry->d_inode->i_mode))
+    return -ENOTDIR;
+
+  ret = vfs_file_path(file, path, sizeof(path));
+  if (ret < 0)
+    return ret;
+  return vfs_set_cwd(path) == 0 ? 0 : -ENOENT;
+}
+
+static long sys_umask(uint64_t mask, uint64_t a1, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5) {
+  struct task_struct *current;
+  mode_t old_mask;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  current = get_current();
+  if (!current)
+    return 022;
+  old_mask = current->umask;
+  current->umask = (mode_t)mask & 0777;
+  return old_mask;
+=======
   struct task_struct *current = get_current();
   return current ? current->egid : 0;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -4179,6 +5159,22 @@ static long sys_gettid(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   return current ? current->pid : -1;
 }
 
+<<<<<<< HEAD
+/* Userspace heap management - dedicated region for userspace processes */
+#define USER_HEAP_START 0x10000000UL /* 256MB mark */
+#define USER_HEAP_SIZE 0x04000000UL  /* 64MB heap */
+static uint64_t user_brk_current = USER_HEAP_START;
+static uint64_t user_mmap_current =
+    USER_HEAP_START + USER_HEAP_SIZE / 2; /* mmap from middle */
+#define USER_MMAP_START (USER_HEAP_START + USER_HEAP_SIZE / 2)
+#define USER_MMAP_END (USER_HEAP_START + USER_HEAP_SIZE)
+#define MAP_FIXED 0x10
+#define MAP_SHARED 0x01
+#define MAP_PRIVATE 0x02
+#define MAP_TYPE 0x0f
+#define MAP_ANONYMOUS 0x20
+#define PROT_WRITE 0x2
+=======
 static long sys_personality(uint64_t persona, uint64_t a1, uint64_t a2,
                             uint64_t a3, uint64_t a4, uint64_t a5) {
   (void)a1;
@@ -5911,10 +6907,65 @@ static long sys_readlinkat(uint64_t dirfd, uint64_t pathname, uint64_t buf,
   vfs_close(file);
   return ret;
 }
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
 static uint32_t mmap_prot_to_vm_flags(uint64_t prot) {
   uint32_t vm_flags = VM_USER;
 
+<<<<<<< HEAD
+  if (prot & 0x1)
+    vm_flags |= VM_READ;
+  if (prot & 0x2)
+    vm_flags |= VM_WRITE;
+  if (prot & 0x4)
+    vm_flags |= VM_EXEC;
+  if ((vm_flags & (VM_READ | VM_WRITE | VM_EXEC)) == 0)
+    vm_flags |= VM_READ;
+
+  return vm_flags;
+}
+
+static long populate_file_mapping(struct mm_struct *mm, uint64_t base,
+                                  uint64_t len, int fd, uint64_t offset) {
+  struct file *file;
+  loff_t saved_pos;
+  loff_t seek_ret;
+  uint64_t copied = 0;
+
+  if (!mm)
+    return -ENOSYS;
+  if ((offset & (PAGE_SIZE - 1)) != 0)
+    return -EINVAL;
+  if (fd_is_socket(fd))
+    return -EBADF;
+
+  file = get_file(fd);
+  if (!file)
+    return -EBADF;
+
+  saved_pos = file->f_pos;
+  seek_ret = vfs_lseek(file, (loff_t)offset, SEEK_SET);
+  if (seek_ret < 0)
+    return seek_ret;
+
+  while (copied < len) {
+    size_t chunk = (len - copied) > PAGE_SIZE ? PAGE_SIZE :
+                                                (size_t)(len - copied);
+    ssize_t n = vfs_read(file, (char *)(uintptr_t)(base + copied), chunk);
+
+    if (n < 0) {
+      vfs_lseek(file, saved_pos, SEEK_SET);
+      return n;
+    }
+    if (n == 0)
+      break;
+    copied += (uint64_t)n;
+    if ((size_t)n < chunk)
+      break;
+  }
+
+  vfs_lseek(file, saved_pos, SEEK_SET);
+=======
   if (prot & PROT_READ)
     vm_flags |= VM_READ;
   if (prot & PROT_WRITE)
@@ -5960,6 +7011,7 @@ static long populate_file_mapping(struct mm_struct *mm, struct file *file,
   if (!(final_vm_flags & VM_WRITE) &&
       vmm_protect_user_range(mm, addr, (size_t)len, final_vm_flags) != 0)
     return -ENOMEM;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   return 0;
 }
 
@@ -6000,6 +7052,47 @@ static long sys_brk(uint64_t brk, uint64_t a1, uint64_t a2, uint64_t a3,
 
 static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
                      uint64_t fd, uint64_t offset) {
+<<<<<<< HEAD
+  struct task_struct *current = get_current();
+  struct mm_struct *mm = current ? current->mm : NULL;
+  uint64_t base;
+  uint32_t vm_flags;
+  int file_backed = !(flags & MAP_ANONYMOUS);
+  uint64_t map_type = flags & MAP_TYPE;
+  long ret;
+
+  if (len == 0 || len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  if (map_type != MAP_PRIVATE && map_type != MAP_SHARED)
+    return -EINVAL;
+  if ((flags & MAP_ANONYMOUS) && (int64_t)fd != -1)
+    return -EINVAL;
+  if (file_backed && map_type == MAP_SHARED && (prot & PROT_WRITE))
+    return -ENOSYS;
+  if (file_backed && (int64_t)fd < 0)
+    return -EBADF;
+
+/* Align len to page size */
+  len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+  if (flags & MAP_FIXED) {
+    if ((addr & (PAGE_SIZE - 1)) != 0)
+      return -EINVAL;
+    base = addr;
+  } else if (mm) {
+    if (!mm->mmap_base) {
+      mm->mmap_base = USER_MMAP_START;
+      mm->mmap_next = USER_MMAP_START;
+    }
+    base = mm->mmap_next;
+    base = (base + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+  } else {
+    base = user_mmap_current;
+  }
+
+  if (base < USER_MMAP_START || len > USER_MMAP_END - base) {
+    printk(KERN_WARNING "sys_mmap: out of memory\n");
+=======
   if (len == 0 || len > UINT64_MAX - (PAGE_SIZE - 1))
     return -EINVAL;
   if (prot & ~(uint64_t)(PROT_READ | PROT_WRITE | PROT_EXEC))
@@ -6013,6 +7106,7 @@ static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
     return -ESRCH;
   struct mm_struct *mm = ensure_task_mm(task);
   if (!mm)
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     return -ENOMEM;
 
   struct file *file = NULL;
@@ -6033,6 +7127,29 @@ static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
     return -EINVAL;
   }
 
+<<<<<<< HEAD
+  vm_flags = mmap_prot_to_vm_flags(prot);
+  if (mm) {
+    if (vmm_map_user_range(mm, (virt_addr_t)base, (size_t)len, vm_flags) != 0)
+      return -ENOMEM;
+    if (file_backed) {
+      ret = populate_file_mapping(mm, base, len, (int)fd, offset);
+      if (ret < 0) {
+        vmm_unmap_user_range(mm, (virt_addr_t)base, (size_t)len);
+        return ret;
+      }
+    }
+    if (!(flags & MAP_FIXED))
+      mm->mmap_next = base + len;
+  } else {
+    if (file_backed)
+      return -ENOSYS;
+    if (!(flags & MAP_FIXED))
+      user_mmap_current = base + len;
+  }
+
+  return base;
+=======
   len = (len + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
   if (len > USER_MMAP_LIMIT - mm->mmap_base)
     return -ENOMEM;
@@ -6066,17 +7183,30 @@ static long sys_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags,
     mm->mmap_next = result + len;
 
   return result;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_munmap(uint64_t addr, uint64_t len, uint64_t a2, uint64_t a3,
                        uint64_t a4, uint64_t a5) {
-  (void)addr;
-  (void)len;
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  struct task_struct *current = get_current();
+  struct mm_struct *mm = current ? current->mm : NULL;
+
+  if (len == 0 || len > UINT64_MAX - (PAGE_SIZE - 1))
+    return -EINVAL;
+  if ((addr & (PAGE_SIZE - 1)) != 0)
+    return -EINVAL;
+  if (!mm)
+    return -ENOSYS;
+
+  if (vmm_unmap_user_range(mm, (virt_addr_t)addr, (size_t)len) != 0)
+    return -EINVAL;
+=======
   struct task_struct *task = get_current();
   struct mm_struct *mm = ensure_task_mm(task);
   if (!mm)
@@ -6124,6 +7254,7 @@ static uint64_t find_free_mremap_range(struct mm_struct *mm, uint64_t len) {
     if (!overlap)
       return addr;
   }
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   return 0;
 }
 
@@ -6704,19 +7835,48 @@ static long sys_wait4(uint64_t pid, uint64_t status, uint64_t options,
                      (int)options);
 }
 
-/* Forward declarations for ELF loader */
-extern int elf_validate(const void *data, size_t size);
-extern uint64_t elf_calc_size(const void *data, size_t size);
-extern int elf_load_at(const void *data, size_t size, uint64_t load_base,
-                       void *info);
+#define EXEC_MAX_ARGS 32
+
+extern long do_execve(const char *filename, char *const argv[],
+                      char *const envp[]);
+
+static long copy_user_pointer_vector(uint64_t user_vec,
+                                     char *kernel_vec[EXEC_MAX_ARGS + 1]) {
+  if (!user_vec) {
+    kernel_vec[0] = NULL;
+    return 0;
+  }
+  if (!is_valid_user_ptr(user_vec, sizeof(uint64_t)))
+    return -EFAULT;
+
+  for (size_t i = 0; i < EXEC_MAX_ARGS; i++) {
+    uint64_t item_addr = user_vec + i * sizeof(uint64_t);
+    uint64_t item;
+
+    if (!is_valid_user_ptr(item_addr, sizeof(uint64_t)))
+      return -EFAULT;
+
+    item = *(const uint64_t *)(uintptr_t)item_addr;
+    kernel_vec[i] = (char *)(uintptr_t)item;
+    if (!item) {
+      return 0;
+    }
+    if (!is_valid_user_ptr(item, 1))
+      return -EFAULT;
+  }
+
+  kernel_vec[EXEC_MAX_ARGS] = NULL;
+  return -E2BIG;
+}
 
 static long sys_execve(uint64_t filename, uint64_t argv, uint64_t envp,
                        uint64_t a3, uint64_t a4, uint64_t a5) {
-  (void)argv;
-  (void)envp;
   (void)a3;
   (void)a4;
   (void)a5;
+  char *argv_vec[EXEC_MAX_ARGS + 1];
+  char *envp_vec[EXEC_MAX_ARGS + 1];
+  long ret;
 
   struct task_struct *task = get_current();
   char user_path[PATH_MAX];
@@ -6728,76 +7888,15 @@ static long sys_execve(uint64_t filename, uint64_t argv, uint64_t envp,
   if (path_ret < 0)
     return path_ret;
 
-  printk(KERN_INFO "sys_execve: loading '%s'\n", path);
+  ret = copy_user_pointer_vector(argv, argv_vec);
+  if (ret < 0)
+    return ret;
+  ret = copy_user_pointer_vector(envp, envp_vec);
+  if (ret < 0)
+    return ret;
 
-  /* Open the file */
-  struct file *f = vfs_open(path, O_RDONLY, 0);
-  if (!f) {
-    printk(KERN_ERR "sys_execve: cannot open '%s'\n", path);
-    return -ENOENT;
-  }
-
-  /* Get file size via dentry->inode */
-  size_t file_size = 0;
-  if (f->f_dentry && f->f_dentry->d_inode) {
-    file_size = f->f_dentry->d_inode->i_size;
-  }
-  if (file_size == 0 || file_size > 64 * 1024 * 1024) {
-    vfs_close(f);
-    return -ENOEXEC;
-  }
-
-  /* Allocate buffer and read file */
-  uint8_t *buf = kmalloc(file_size);
-  if (!buf) {
-    vfs_close(f);
-    return -ENOMEM;
-  }
-
-  ssize_t bytes_read = vfs_read(f, (char *)buf, file_size);
-  vfs_close(f);
-
-  if (bytes_read != (ssize_t)file_size) {
-    kfree(buf);
-    return -EIO;
-  }
-
-  /* Validate ELF */
-  int ret = elf_validate(buf, file_size);
-  if (ret != 0) {
-    printk(KERN_ERR "sys_execve: invalid ELF (error %d)\n", ret);
-    kfree(buf);
-    return -ENOEXEC;
-  }
-
-  /* Calculate memory needed */
-  uint64_t mem_size = elf_calc_size(buf, file_size);
-  if (mem_size == 0) {
-    kfree(buf);
-    return -ENOEXEC;
-  }
-
-  /* Load at user code base */
-  typedef struct {
-    uint64_t entry;
-    uint64_t load_base;
-    uint64_t load_size;
-  } elf_load_info_t;
-
-  elf_load_info_t info;
-  ret = elf_load_at(buf, file_size, USER_CODE_BASE, &info);
-  kfree(buf);
-
-  if (ret != 0) {
-    printk(KERN_ERR "sys_execve: ELF load failed\n");
-    return -ENOEXEC;
-  }
-
-  printk(KERN_INFO "sys_execve: loaded at 0x%llx, entry 0x%llx\n",
-         (unsigned long long)info.load_base, (unsigned long long)info.entry);
-
-  printk(KERN_ERR "sys_execve: userspace transfer is unsupported\n");
-  return -ENOSYS;
+  ret = do_execve(path, argv_vec, envp_vec);
+  return ret < 0 ? -ENOEXEC : ret;
 }
 
 static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -6827,8 +7926,32 @@ static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
   /* Copy strings (simple implementation) */
   const char *sysname = "OS8";
   const char *release = "0.1.0";
+<<<<<<< HEAD
+  const char *version =
+#if defined(ARCH_X86_64)
+      "0.1.0-x86_64";
+#elif defined(ARCH_X86)
+      "0.1.0-x86";
+#elif defined(ARCH_ARM64)
+      "0.1.0-arm64";
+#else
+      "0.1.0-unknown";
+#endif
+  const char *machine =
+#if defined(ARCH_X86_64)
+      "x86_64";
+#elif defined(ARCH_X86)
+      "i686";
+#elif defined(ARCH_ARM64)
+      "aarch64";
+#else
+      "unknown";
+#endif
+  const char *domain = "";
+=======
   const char *version = "0.1.0-arm64";
   const char *machine = "aarch64";
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
   strlcpy(uts->sysname, sysname, sizeof(uts->sysname));
   strlcpy(uts->nodename, system_nodename, sizeof(uts->nodename));
@@ -6840,6 +7963,145 @@ static long sys_uname(uint64_t buf, uint64_t a1, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+<<<<<<< HEAD
+#define CLOCK_REALTIME 0
+#define CLOCK_MONOTONIC 1
+#define CLOCK_REALTIME_COARSE 5
+#define CLOCK_MONOTONIC_COARSE 6
+#define CLOCK_BOOTTIME 7
+
+struct linux_timezone {
+  int tz_minuteswest;
+  int tz_dsttime;
+};
+
+static void fill_realtime_timespec(struct timespec *ts) {
+  uint64_t ms = arch_timer_get_ms();
+  uint32_t rtc_seconds = rtc_get_timestamp();
+
+  if (rtc_seconds != 0)
+    ts->tv_sec = (time_t)rtc_seconds;
+  else
+    ts->tv_sec = (time_t)(ms / 1000);
+  ts->tv_nsec = (long)((ms % 1000) * 1000000ULL);
+}
+
+static void fill_monotonic_timespec(struct timespec *ts) {
+  uint64_t ms = arch_timer_get_ms();
+
+  ts->tv_sec = (time_t)(ms / 1000);
+  ts->tv_nsec = (long)((ms % 1000) * 1000000ULL);
+}
+
+static long sys_clock_gettime(uint64_t clockid, uint64_t tp, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  struct timespec *user_ts;
+  struct timespec ts;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(tp, sizeof(struct timespec)))
+    return -EFAULT;
+
+  switch ((int)clockid) {
+  case CLOCK_REALTIME:
+  case CLOCK_REALTIME_COARSE:
+    fill_realtime_timespec(&ts);
+    break;
+  case CLOCK_MONOTONIC:
+  case CLOCK_MONOTONIC_COARSE:
+  case CLOCK_BOOTTIME:
+    fill_monotonic_timespec(&ts);
+    break;
+  default:
+    return -EINVAL;
+  }
+
+  user_ts = (struct timespec *)(uintptr_t)tp;
+  *user_ts = ts;
+  return 0;
+}
+
+static long sys_gettimeofday(uint64_t tv, uint64_t tz, uint64_t a2,
+                             uint64_t a3, uint64_t a4, uint64_t a5) {
+  struct timeval *user_tv;
+  struct linux_timezone *user_tz;
+  struct timespec ts;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (tv) {
+    if (!is_valid_user_ptr(tv, sizeof(struct timeval)))
+      return -EFAULT;
+    fill_realtime_timespec(&ts);
+    user_tv = (struct timeval *)(uintptr_t)tv;
+    user_tv->tv_sec = ts.tv_sec;
+    user_tv->tv_usec = (suseconds_t)(ts.tv_nsec / 1000);
+  }
+
+  if (tz) {
+    if (!is_valid_user_ptr(tz, sizeof(struct linux_timezone)))
+      return -EFAULT;
+    user_tz = (struct linux_timezone *)(uintptr_t)tz;
+    user_tz->tz_minuteswest = 0;
+    user_tz->tz_dsttime = 0;
+  }
+
+  return 0;
+}
+
+struct linux_sysinfo {
+  long uptime;
+  unsigned long loads[3];
+  unsigned long totalram;
+  unsigned long freeram;
+  unsigned long sharedram;
+  unsigned long bufferram;
+  unsigned long totalswap;
+  unsigned long freeswap;
+  unsigned short procs;
+  unsigned short pad;
+  unsigned long totalhigh;
+  unsigned long freehigh;
+  unsigned int mem_unit;
+  char _f[0];
+};
+
+static long sys_sysinfo(uint64_t info, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5) {
+  struct linux_sysinfo *user_info;
+  struct linux_sysinfo si;
+  int procs;
+  (void)a1;
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (!is_valid_user_ptr(info, sizeof(struct linux_sysinfo)))
+    return -EFAULT;
+
+  memset(&si, 0, sizeof(si));
+  si.uptime = (long)(arch_timer_get_ms() / 1000);
+  si.totalram = (unsigned long)pmm_get_total_memory();
+  si.freeram = (unsigned long)pmm_get_free_memory();
+  si.mem_unit = 1;
+
+  procs = process_count_active();
+  if (procs < 0)
+    procs = 0;
+  si.procs = (unsigned short)procs;
+
+  user_info = (struct linux_sysinfo *)(uintptr_t)info;
+  *user_info = si;
+  return 0;
+}
+
+=======
 static long set_uts_name(uint64_t name, uint64_t len, char *target) {
   struct task_struct *current = get_current();
   const char *src = (const char *)(uintptr_t)name;
@@ -6879,6 +8141,7 @@ static long sys_setdomainname(uint64_t name, uint64_t len, uint64_t a2,
   return set_uts_name(name, len, system_domainname);
 }
 
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 static long sys_sched_yield(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
                             uint64_t a4, uint64_t a5) {
   (void)a0;
@@ -6889,6 +8152,143 @@ static long sys_sched_yield(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
   (void)a5;
 
   schedule();
+  return 0;
+}
+
+typedef void (*sys_sighandler_t)(int);
+
+struct sys_user_sigaction {
+  sys_sighandler_t handler;
+  uint64_t flags;
+  void (*restorer)(void);
+  uint64_t mask;
+};
+
+struct sys_kernel_sigaction {
+  sys_sighandler_t handler;
+  uint64_t mask;
+  int flags;
+  void (*restorer)(void);
+};
+
+extern int sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
+extern int kill_task(struct task_struct *task, int sig);
+extern int sigaction_syscall(int sig, const struct sys_kernel_sigaction *act,
+                             struct sys_kernel_sigaction *oldact);
+
+static long sys_kill(uint64_t pid, uint64_t sig, uint64_t a2, uint64_t a3,
+                     uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (pid == 0 || (int64_t)pid < 0)
+    return -EINVAL;
+  if (sig >= 32)
+    return -EINVAL;
+
+  struct task_struct *task = get_task_by_pid((pid_t)pid);
+  if (!task)
+    return -ESRCH;
+  if (sig == 0)
+    return 0;
+
+  return kill_task(task, (int)sig);
+}
+
+static long sys_rt_sigprocmask(uint64_t how, uint64_t set, uint64_t oldset,
+                               uint64_t sigsetsize, uint64_t a4,
+                               uint64_t a5) {
+  (void)a4;
+  (void)a5;
+  uint64_t kernel_set = 0;
+  uint64_t kernel_oldset = 0;
+  const uint64_t *set_arg = NULL;
+  uint64_t *oldset_arg = oldset ? &kernel_oldset : NULL;
+  int ret;
+
+  if (sigsetsize < sizeof(uint64_t))
+    return -EINVAL;
+  if (set && !is_valid_user_ptr(set, sizeof(uint64_t)))
+    return -EFAULT;
+  if (oldset && !is_valid_user_ptr(oldset, sizeof(uint64_t)))
+    return -EFAULT;
+
+  if (set) {
+    kernel_set = *(const uint64_t *)(uintptr_t)set;
+    set_arg = &kernel_set;
+  }
+
+  ret = sigprocmask((int)how, set_arg, oldset_arg);
+  if (ret < 0)
+    return ret;
+
+  if (oldset)
+    *(uint64_t *)(uintptr_t)oldset = kernel_oldset;
+
+  return 0;
+}
+
+static long sys_rt_sigpending(uint64_t set, uint64_t sigsetsize, uint64_t a2,
+                              uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+  struct task_struct *task = get_current();
+
+  if (sigsetsize < sizeof(uint64_t))
+    return -EINVAL;
+  if (!is_valid_user_ptr(set, sizeof(uint64_t)))
+    return -EFAULT;
+
+  *(uint64_t *)(uintptr_t)set = task ? task->pending_signals : 0;
+  return 0;
+}
+
+static long sys_rt_sigaction(uint64_t sig, uint64_t act, uint64_t oldact,
+                             uint64_t sigsetsize, uint64_t a4, uint64_t a5) {
+  (void)a4;
+  (void)a5;
+  struct sys_kernel_sigaction kernel_act;
+  struct sys_kernel_sigaction kernel_oldact;
+  struct sys_kernel_sigaction *act_arg = NULL;
+  struct sys_kernel_sigaction *oldact_arg = oldact ? &kernel_oldact : NULL;
+  int ret;
+
+  if (sigsetsize < sizeof(uint64_t))
+    return -EINVAL;
+  if (act && !is_valid_user_ptr(act, sizeof(struct sys_user_sigaction)))
+    return -EFAULT;
+  if (oldact && !is_valid_user_ptr(oldact, sizeof(struct sys_user_sigaction)))
+    return -EFAULT;
+
+  if (act) {
+    const struct sys_user_sigaction *user_act =
+        (const struct sys_user_sigaction *)(uintptr_t)act;
+
+    kernel_act.handler = user_act->handler;
+    kernel_act.mask = user_act->mask;
+    kernel_act.flags = (int)user_act->flags;
+    kernel_act.restorer = user_act->restorer;
+    act_arg = &kernel_act;
+  }
+
+  ret = sigaction_syscall((int)sig, act_arg, oldact_arg);
+  if (ret < 0)
+    return ret;
+
+  if (oldact) {
+    struct sys_user_sigaction *user_oldact =
+        (struct sys_user_sigaction *)(uintptr_t)oldact;
+
+    user_oldact->handler = kernel_oldact.handler;
+    user_oldact->flags = (uint64_t)kernel_oldact.flags;
+    user_oldact->restorer = kernel_oldact.restorer;
+    user_oldact->mask = kernel_oldact.mask;
+  }
+
   return 0;
 }
 
@@ -6924,6 +8324,88 @@ static long sys_nanosleep(uint64_t req, uint64_t rem, uint64_t a2, uint64_t a3,
   return 0;
 }
 
+<<<<<<< HEAD
+static long sys_wait4(uint64_t pid, uint64_t wstatus, uint64_t options,
+                      uint64_t rusage, uint64_t a4, uint64_t a5) {
+  (void)rusage;
+  (void)a4;
+  (void)a5;
+
+  if (wstatus && !is_valid_user_ptr(wstatus, sizeof(int))) {
+    return -EFAULT;
+  }
+
+  return do_waitpid((pid_t)pid, (int *)(uintptr_t)wstatus, (int)options);
+}
+
+static int copy_user_sockaddr(uint64_t user_addr, uint64_t user_len,
+                              struct sockaddr_storage *storage,
+                              unsigned int *len_out) {
+  size_t len;
+  uint8_t *dst = (uint8_t *)storage;
+  const uint8_t *src = (const uint8_t *)(uintptr_t)user_addr;
+
+  if (!storage || !len_out)
+    return -EINVAL;
+  if (!user_addr || user_len < sizeof(struct sockaddr))
+    return -EINVAL;
+  if (user_len > sizeof(struct sockaddr_storage))
+    len = sizeof(struct sockaddr_storage);
+  else
+    len = (size_t)user_len;
+  if (!is_valid_user_ptr(user_addr, len))
+    return -EFAULT;
+
+  for (size_t i = 0; i < sizeof(*storage); i++)
+    dst[i] = 0;
+  for (size_t i = 0; i < len; i++)
+    dst[i] = src[i];
+
+  *len_out = (unsigned int)len;
+  return 0;
+}
+
+static long sys_socket(uint64_t family, uint64_t type, uint64_t protocol,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  init_fd_table();
+  int fd = alloc_fd();
+  if (fd < 0)
+    return -EMFILE;
+
+  int ret = socket_create_at(fd, (int)family, (int)type, (int)protocol);
+  if (ret < 0) {
+    free_fd(fd);
+    return ret;
+  }
+
+  fd_table[fd].file = NULL;
+  fd_table[fd].flags = 0;
+  fd_table[fd].is_socket = 1;
+  return fd;
+}
+
+static long sys_bind(uint64_t sockfd, uint64_t addr, uint64_t addrlen,
+                     uint64_t a3, uint64_t a4, uint64_t a5) {
+  struct sockaddr_storage storage;
+  unsigned int len;
+  int ret;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  ret = copy_user_sockaddr(addr, addrlen, &storage, &len);
+  if (ret < 0)
+    return ret;
+  return socket_bind((int)sockfd, (const struct sockaddr *)&storage, len);
+}
+
+static long sys_listen(uint64_t sockfd, uint64_t backlog, uint64_t a2,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+=======
 static long sys_clock_nanosleep(uint64_t clockid, uint64_t flags, uint64_t req,
                                 uint64_t rem, uint64_t a4, uint64_t a5) {
   (void)a4;
@@ -6964,10 +8446,20 @@ static long sys_clock_nanosleep(uint64_t clockid, uint64_t flags, uint64_t req,
 
 static long sys_getitimer(uint64_t which, uint64_t curr_value, uint64_t a2,
                           uint64_t a3, uint64_t a4, uint64_t a5) {
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a2;
   (void)a3;
   (void)a4;
   (void)a5;
+<<<<<<< HEAD
+  return socket_listen((int)sockfd, (int)backlog);
+}
+
+static long sys_accept(uint64_t sockfd, uint64_t addr, uint64_t addrlen,
+                       uint64_t a3, uint64_t a4, uint64_t a5) {
+  unsigned int len = 0;
+  int ret;
+=======
 
   if (which >= ITIMER_COUNT)
     return -EINVAL;
@@ -6986,10 +8478,37 @@ static long sys_getitimer(uint64_t which, uint64_t curr_value, uint64_t a2,
 
 static long sys_setitimer(uint64_t which, uint64_t new_value, uint64_t old_value,
                           uint64_t a3, uint64_t a4, uint64_t a5) {
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  if (addrlen) {
+    if (!is_valid_user_ptr(addrlen, sizeof(unsigned int)))
+      return -EFAULT;
+    len = *(unsigned int *)(uintptr_t)addrlen;
+  }
+  if (addr && len && !is_valid_user_ptr(addr, len))
+    return -EFAULT;
+
+  ret = socket_accept((int)sockfd, (struct sockaddr *)(uintptr_t)addr,
+                      addrlen ? (unsigned int *)(uintptr_t)addrlen : NULL);
+  if (ret >= 0 && ret < MAX_FDS) {
+    fd_table[ret].in_use = 1;
+    fd_table[ret].is_socket = 1;
+    fd_table[ret].file = NULL;
+    fd_table[ret].flags = 0;
+  }
+  return ret;
+}
+
+static long sys_connect(uint64_t sockfd, uint64_t addr, uint64_t addrlen,
+                        uint64_t a3, uint64_t a4, uint64_t a5) {
+  struct sockaddr_storage storage;
+  unsigned int len;
+  int ret;
+=======
   if (which >= ITIMER_COUNT)
     return -EINVAL;
   if (!is_valid_user_ptr(new_value, sizeof(struct linux_itimerval)))
@@ -7314,10 +8833,75 @@ static long sys_getrandom(uint64_t buf, uint64_t buflen, uint64_t flags,
 
 static long sys_seccomp(uint64_t operation, uint64_t flags, uint64_t args,
                         uint64_t a3, uint64_t a4, uint64_t a5) {
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   (void)a3;
   (void)a4;
   (void)a5;
 
+<<<<<<< HEAD
+  ret = copy_user_sockaddr(addr, addrlen, &storage, &len);
+  if (ret < 0)
+    return ret;
+  return socket_connect((int)sockfd, (const struct sockaddr *)&storage, len);
+}
+
+static long sys_sendto(uint64_t sockfd, uint64_t buf, uint64_t len,
+                       uint64_t flags, uint64_t dest_addr,
+                       uint64_t addrlen) {
+  if (len > 0 && !is_valid_user_ptr(buf, (size_t)len))
+    return -EFAULT;
+  if (dest_addr) {
+    struct sockaddr_storage storage;
+    unsigned int copied_len;
+    int ret = copy_user_sockaddr(dest_addr, addrlen, &storage, &copied_len);
+    if (ret < 0)
+      return ret;
+    ret = socket_connect((int)sockfd, (const struct sockaddr *)&storage,
+                         copied_len);
+    if (ret < 0)
+      return ret;
+  }
+  return socket_send((int)sockfd, (const void *)(uintptr_t)buf, (size_t)len,
+                     (int)flags);
+}
+
+static long sys_recvfrom(uint64_t sockfd, uint64_t buf, uint64_t len,
+                         uint64_t flags, uint64_t src_addr,
+                         uint64_t addrlen) {
+  long ret;
+
+  if (len > 0 && !is_valid_user_ptr(buf, (size_t)len))
+    return -EFAULT;
+  if (src_addr && addrlen) {
+    if (!is_valid_user_ptr(addrlen, sizeof(unsigned int)))
+      return -EFAULT;
+    *(unsigned int *)(uintptr_t)addrlen = 0;
+  }
+
+  ret = socket_recv((int)sockfd, (void *)(uintptr_t)buf, (size_t)len,
+                    (int)flags);
+  return ret;
+}
+
+static long sys_shutdown(uint64_t sockfd, uint64_t how, uint64_t a2,
+                         uint64_t a3, uint64_t a4, uint64_t a5) {
+  (void)a2;
+  (void)a3;
+  (void)a4;
+  (void)a5;
+
+  if (how > SHUT_RDWR)
+    return -EINVAL;
+  if (!fd_is_socket((int)sockfd))
+    return -EBADF;
+  if (how == SHUT_RDWR) {
+    int ret = socket_close((int)sockfd);
+    if (ret < 0)
+      return ret;
+    free_fd((int)sockfd);
+  }
+  return 0;
+=======
   struct task_struct *task = get_current();
   if (!task)
     return -ESRCH;
@@ -7330,6 +8914,7 @@ static long sys_seccomp(uint64_t operation, uint64_t flags, uint64_t args,
   default:
     return -EINVAL;
   }
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }
 
 static long sys_not_implemented(uint64_t a0, uint64_t a1, uint64_t a2,
@@ -7445,6 +9030,28 @@ void syscall_init(void) {
   syscall_table[SYS_fadvise64] = sys_fadvise64;
   syscall_table[SYS_openat] = sys_openat;
   syscall_table[SYS_close] = sys_close;
+<<<<<<< HEAD
+  syscall_table[SYS_pipe2] = sys_pipe2;
+  syscall_table[SYS_faccessat] = sys_faccessat;
+  syscall_table[SYS_mkdirat] = sys_mkdirat;
+  syscall_table[SYS_unlinkat] = sys_unlinkat;
+  syscall_table[SYS_fchmod] = sys_fchmod;
+  syscall_table[SYS_fchmodat] = sys_fchmodat;
+  syscall_table[SYS_fchownat] = sys_fchownat;
+  syscall_table[SYS_fchown] = sys_fchown;
+  syscall_table[SYS_symlinkat] = sys_symlinkat;
+  syscall_table[SYS_renameat] = sys_renameat;
+  syscall_table[SYS_renameat2] = sys_renameat2;
+  syscall_table[SYS_lseek] = sys_lseek;
+  syscall_table[SYS_getdents64] = sys_getdents64;
+  syscall_table[SYS_pread64] = sys_pread64;
+  syscall_table[SYS_pwrite64] = sys_pwrite64;
+  syscall_table[SYS_readlinkat] = sys_readlinkat;
+  syscall_table[SYS_newfstatat] = sys_newfstatat;
+  syscall_table[SYS_fstat] = sys_fstat;
+  syscall_table[SYS_statfs] = sys_statfs;
+  syscall_table[SYS_fstatfs] = sys_fstatfs;
+=======
   syscall_table[SYS_getdents64] = sys_getdents64;
   syscall_table[SYS_lseek] = sys_lseek;
   syscall_table[SYS_pselect6] = sys_pselect6;
@@ -7458,6 +9065,7 @@ void syscall_init(void) {
   syscall_table[SYS_sync] = sys_sync;
   syscall_table[SYS_fsync] = sys_fsync;
   syscall_table[SYS_fdatasync] = sys_fdatasync;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   syscall_table[SYS_exit] = sys_exit;
   syscall_table[SYS_exit_group] = sys_exit_group;
   syscall_table[SYS_set_tid_address] = sys_set_tid_address;
@@ -7470,7 +9078,15 @@ void syscall_init(void) {
   syscall_table[SYS_getuid] = sys_getuid;
   syscall_table[SYS_geteuid] = sys_geteuid;
   syscall_table[SYS_getgid] = sys_getgid;
+<<<<<<< HEAD
+  syscall_table[SYS_getegid] = sys_getgid;
+  syscall_table[SYS_getcwd] = sys_getcwd;
+  syscall_table[SYS_chdir] = sys_chdir;
+  syscall_table[SYS_fchdir] = sys_fchdir;
+  syscall_table[SYS_umask] = sys_umask;
+=======
   syscall_table[SYS_getegid] = sys_getegid;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   syscall_table[SYS_gettid] = sys_gettid;
   syscall_table[SYS_setregid] = sys_setregid;
   syscall_table[SYS_setgid] = sys_setgid;
@@ -7507,6 +9123,26 @@ void syscall_init(void) {
   syscall_table[SYS_unshare] = sys_unshare;
   syscall_table[SYS_execve] = sys_execve;
   syscall_table[SYS_uname] = sys_uname;
+<<<<<<< HEAD
+  syscall_table[SYS_clock_gettime] = sys_clock_gettime;
+  syscall_table[SYS_gettimeofday] = sys_gettimeofday;
+  syscall_table[SYS_sysinfo] = sys_sysinfo;
+  syscall_table[SYS_sched_yield] = sys_sched_yield;
+  syscall_table[SYS_kill] = sys_kill;
+  syscall_table[SYS_rt_sigaction] = sys_rt_sigaction;
+  syscall_table[SYS_rt_sigprocmask] = sys_rt_sigprocmask;
+  syscall_table[SYS_rt_sigpending] = sys_rt_sigpending;
+  syscall_table[SYS_nanosleep] = sys_nanosleep;
+  syscall_table[SYS_wait4] = sys_wait4;
+  syscall_table[SYS_socket] = sys_socket;
+  syscall_table[SYS_bind] = sys_bind;
+  syscall_table[SYS_listen] = sys_listen;
+  syscall_table[SYS_accept] = sys_accept;
+  syscall_table[SYS_connect] = sys_connect;
+  syscall_table[SYS_sendto] = sys_sendto;
+  syscall_table[SYS_recvfrom] = sys_recvfrom;
+  syscall_table[SYS_shutdown] = sys_shutdown;
+=======
   syscall_table[SYS_sethostname] = sys_sethostname;
   syscall_table[SYS_setdomainname] = sys_setdomainname;
   syscall_table[SYS_sched_yield] = sys_sched_yield;
@@ -7554,6 +9190,7 @@ void syscall_init(void) {
   syscall_table[SYS_sched_rr_get_interval] = sys_sched_rr_get_interval;
   syscall_table[SYS_syncfs] = sys_syncfs;
   syscall_table[SYS_seccomp] = sys_seccomp;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
   printk(KERN_INFO "SYSCALL: System call table initialized\n");
 }

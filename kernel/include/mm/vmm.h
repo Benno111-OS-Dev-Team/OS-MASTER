@@ -123,10 +123,16 @@ struct mm_struct {
     uint64_t start_brk;         /* Start of heap */
     uint64_t brk;               /* Current program break */
 
+<<<<<<< HEAD
+    /* mmap allocation cursor */
+    uint64_t mmap_base;         /* Start of mmap area */
+    uint64_t mmap_next;         /* Next anonymous mmap address */
+=======
     /* Anonymous mmap allocator */
     uint64_t mmap_base;         /* Start of mmap region */
     uint64_t mmap_next;         /* Next free mmap address */
     uint32_t default_vm_flags;  /* Flags inherited by future user mappings */
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     
     /* Stack */
     uint64_t start_stack;       /* Start of user stack */
@@ -181,6 +187,18 @@ int vmm_unmap_page(virt_addr_t vaddr);
 int vmm_map_range(virt_addr_t vaddr, phys_addr_t paddr, size_t size, uint32_t flags);
 
 /**
+ * vmm_map_user_page - Map a physical page into a process address space
+ * @mm: Target user address space
+ * @vaddr: User virtual address
+ * @paddr: Physical page address
+ * @flags: Protection flags (VM_*)
+ *
+ * Return: 0 on success, negative on error
+ */
+int vmm_map_user_page(struct mm_struct *mm, virt_addr_t vaddr,
+                      phys_addr_t paddr, uint32_t flags);
+
+/**
  * vmm_unmap_range - Unmap a range of pages
  * @vaddr: Starting virtual address
  * @size: Size in bytes
@@ -205,11 +223,31 @@ phys_addr_t vmm_virt_to_phys(virt_addr_t vaddr);
 struct mm_struct *vmm_create_address_space(void);
 
 /**
+<<<<<<< HEAD
+ * vmm_add_vma - Track a virtual memory area in an address space
+ * @mm: Address space to update
+ * @start: Inclusive start address
+ * @end: Exclusive end address
+ * @flags: Protection flags (VM_*)
+ *
+ * Return: 0 on success, negative on error
+ */
+int vmm_add_vma(struct mm_struct *mm, virt_addr_t start, virt_addr_t end,
+                uint32_t flags);
+
+/**
+ * vmm_map_user_range - Allocate and map anonymous user pages
+ * @mm: Target user address space
+ * @vaddr: Starting user virtual address
+ * @size: Mapping size in bytes
+ * @flags: Protection flags (VM_*)
+=======
  * vmm_map_user_range - Allocate and map a user range
  * @mm: Address space to modify
  * @vaddr: Requested virtual address
  * @size: Size in bytes
  * @flags: Protection flags
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
  *
  * Return: 0 on success, negative on error
  */
@@ -217,16 +255,25 @@ int vmm_map_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size,
                        uint32_t flags);
 
 /**
+<<<<<<< HEAD
+ * vmm_unmap_user_range - Unmap and free pages from a user address space
+ * @mm: Target user address space
+ * @vaddr: Starting user virtual address
+ * @size: Unmapping size in bytes
+=======
  * vmm_unmap_user_range - Unmap and forget a user range
  * @mm: Address space to modify
  * @vaddr: Starting virtual address
  * @size: Size in bytes
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
  *
  * Return: 0 on success, negative on error
  */
 int vmm_unmap_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size);
 
 /**
+<<<<<<< HEAD
+=======
  * vmm_protect_user_range - Change VMA protection metadata
  * @mm: Address space to modify
  * @vaddr: Starting virtual address
@@ -293,6 +340,7 @@ int vmm_discard_user_range(struct mm_struct *mm, virt_addr_t vaddr,
                            size_t size);
 
 /**
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
  * vmm_destroy_address_space - Free an address space
  * @mm: Address space to destroy
  */

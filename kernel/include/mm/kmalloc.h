@@ -86,6 +86,8 @@ void *krealloc(void *ptr, size_t new_size, uint32_t flags);
  * @free: Output for free size
  */
 void kmalloc_get_stats(size_t *total, size_t *used, size_t *free);
+void kmalloc_get_heap_bounds(uint64_t *start, uint64_t *end);
+size_t kmalloc_get_alloc_count(void);
 
 /**
  * kmalloc_check_integrity - Validate heap metadata and allocation guards

@@ -583,7 +583,7 @@ static uint64_t ext4_get_file_block(struct ext4_fs *fs, struct ext4_inode *inode
     }
     
     file_block -= EXT4_NDIR_BLOCKS;
-    uint32_t ptrs_per_block = fs->block_size / 4;
+    uint64_t ptrs_per_block = fs->block_size / 4;
     
     /* Single indirect block */
     if (file_block < ptrs_per_block) {
@@ -597,7 +597,7 @@ static uint64_t ext4_get_file_block(struct ext4_fs *fs, struct ext4_inode *inode
             return 0;
         }
         
-        uint64_t block = indirect[file_block];
+        uint64_t block = indirect[(uint32_t)file_block];
         kfree(indirect);
         return block;
     }
@@ -605,7 +605,8 @@ static uint64_t ext4_get_file_block(struct ext4_fs *fs, struct ext4_inode *inode
     file_block -= ptrs_per_block;
     
     /* Double indirect block */
-    if (file_block < ptrs_per_block * ptrs_per_block) {
+    uint64_t dind_capacity = ptrs_per_block * ptrs_per_block;
+    if (file_block < dind_capacity) {
         if (inode->i_block[EXT4_DIND_BLOCK] == 0) return 0;
         
         uint32_t *dind = kmalloc(fs->block_size);
@@ -616,8 +617,8 @@ static uint64_t ext4_get_file_block(struct ext4_fs *fs, struct ext4_inode *inode
             return 0;
         }
         
-        uint32_t ind_idx = file_block / ptrs_per_block;
-        uint32_t ind_off = file_block % ptrs_per_block;
+        uint32_t ind_idx = (uint32_t)(file_block / ptrs_per_block);
+        uint32_t ind_off = (uint32_t)(file_block % ptrs_per_block);
         
         if (dind[ind_idx] == 0) {
             kfree(dind);
@@ -641,9 +642,69 @@ static uint64_t ext4_get_file_block(struct ext4_fs *fs, struct ext4_inode *inode
         kfree(ind);
         return block;
     }
-    
-    /* Triple indirect not implemented */
-    return 0;
+
+    file_block -= dind_capacity;
+
+    if (inode->i_block[EXT4_TIND_BLOCK] == 0) return 0;
+
+    uint64_t tind_capacity = dind_capacity * ptrs_per_block;
+    if (file_block >= tind_capacity) return 0;
+
+    uint32_t *tind = kmalloc(fs->block_size);
+    if (!tind) return 0;
+
+    if (ext4_read_block(fs, inode->i_block[EXT4_TIND_BLOCK], tind) < 0) {
+        kfree(tind);
+        return 0;
+    }
+
+    uint32_t dind_idx = (uint32_t)(file_block / dind_capacity);
+    uint64_t dind_block_offset = file_block % dind_capacity;
+    uint32_t ind_idx = (uint32_t)(dind_block_offset / ptrs_per_block);
+    uint32_t ind_off = (uint32_t)(dind_block_offset % ptrs_per_block);
+
+    if (tind[dind_idx] == 0) {
+        kfree(tind);
+        return 0;
+    }
+
+    uint32_t *dind = kmalloc(fs->block_size);
+    if (!dind) {
+        kfree(tind);
+        return 0;
+    }
+
+    if (ext4_read_block(fs, tind[dind_idx], dind) < 0) {
+        kfree(tind);
+        kfree(dind);
+        return 0;
+    }
+
+    if (dind[ind_idx] == 0) {
+        kfree(tind);
+        kfree(dind);
+        return 0;
+    }
+
+    uint32_t *ind = kmalloc(fs->block_size);
+    if (!ind) {
+        kfree(tind);
+        kfree(dind);
+        return 0;
+    }
+
+    if (ext4_read_block(fs, dind[ind_idx], ind) < 0) {
+        kfree(tind);
+        kfree(dind);
+        kfree(ind);
+        return 0;
+    }
+
+    uint64_t block = ind[ind_off];
+    kfree(tind);
+    kfree(dind);
+    kfree(ind);
+    return block;
 }
 
 static int ext4_set_file_block(struct ext4_fs *fs, struct ext4_inode *inode,
@@ -694,6 +755,170 @@ static int ext4_set_file_block(struct ext4_fs *fs, struct ext4_inode *inode,
     }
     
     /* Double/triple indirect not fully implemented for writes */
+    return -1;
+}
+
+static int ext4_clear_file_block(struct ext4_fs *fs, struct ext4_inode *inode,
+                                 uint64_t file_block)
+{
+    if (file_block < EXT4_NDIR_BLOCKS) {
+        inode->i_block[file_block] = 0;
+        return 0;
+    }
+
+    file_block -= EXT4_NDIR_BLOCKS;
+    uint32_t ptrs_per_block = fs->block_size / 4;
+    if (file_block < ptrs_per_block) {
+        if (inode->i_block[EXT4_IND_BLOCK] == 0) return 0;
+
+        uint32_t *indirect = kmalloc(fs->block_size);
+        if (!indirect) return -1;
+
+        if (ext4_read_block(fs, inode->i_block[EXT4_IND_BLOCK], indirect) < 0) {
+            kfree(indirect);
+            return -1;
+        }
+
+        indirect[file_block] = 0;
+        int ret = ext4_write_block_raw(fs, inode->i_block[EXT4_IND_BLOCK],
+                                       indirect);
+        kfree(indirect);
+        return ret;
+    }
+
+    return -1;
+}
+
+static int ext4_free_inode_blocks(struct ext4_fs *fs, struct ext4_inode *inode)
+{
+    uint64_t size = inode->i_size_lo | ((uint64_t)inode->i_size_hi << 32);
+    uint64_t blocks = (size + fs->block_size - 1) / fs->block_size;
+
+    for (uint64_t b = 0; b < blocks; b++) {
+        uint64_t disk_block = ext4_get_file_block(fs, inode, b);
+        if (disk_block) {
+            ext4_free_block(fs, disk_block);
+            ext4_clear_file_block(fs, inode, b);
+        }
+    }
+
+    if (inode->i_block[EXT4_IND_BLOCK]) {
+        ext4_free_block(fs, inode->i_block[EXT4_IND_BLOCK]);
+        inode->i_block[EXT4_IND_BLOCK] = 0;
+    }
+
+    inode->i_blocks_lo = 0;
+    inode->i_size_lo = 0;
+    inode->i_size_hi = 0;
+    return 0;
+}
+
+static int ext4_name_matches(const struct ext4_dir_entry *de,
+                             const char *name, uint8_t name_len)
+{
+    if (!de || !name || de->name_len != name_len)
+        return 0;
+    for (uint8_t i = 0; i < name_len; i++) {
+        if (de->name[i] != name[i])
+            return 0;
+    }
+    return 1;
+}
+
+static int ext4_remove_dir_entry(struct ext4_fs *fs, uint32_t dir_ino,
+                                 const char *name, uint32_t *removed_ino)
+{
+    struct ext4_inode dir_inode;
+    uint8_t name_len = 0;
+
+    if (!fs || !name || !name[0] || !removed_ino) return -1;
+    while (name[name_len] && name_len < 255) name_len++;
+    if (name[name_len]) return -1;
+    if (ext4_read_inode(fs, dir_ino, &dir_inode) < 0) return -1;
+
+    uint8_t *block_buf = kmalloc(fs->block_size);
+    if (!block_buf) return -1;
+
+    uint64_t dir_size = dir_inode.i_size_lo;
+    uint64_t num_blocks = (dir_size + fs->block_size - 1) / fs->block_size;
+
+    for (uint64_t b = 0; b < num_blocks; b++) {
+        uint64_t disk_block = ext4_get_file_block(fs, &dir_inode, b);
+        if (disk_block == 0) continue;
+        if (ext4_read_block(fs, disk_block, block_buf) < 0) continue;
+
+        uint32_t offset = 0;
+        struct ext4_dir_entry *prev = NULL;
+        while (offset < fs->block_size) {
+            struct ext4_dir_entry *de =
+                (struct ext4_dir_entry *)(block_buf + offset);
+            if (!ext4_valid_dir_entry(fs, de, offset)) {
+                break;
+            }
+
+            if (de->inode != 0 && ext4_name_matches(de, name, name_len)) {
+                *removed_ino = de->inode;
+                if (prev) {
+                    prev->rec_len += de->rec_len;
+                } else {
+                    de->inode = 0;
+                }
+
+                int ret = ext4_write_block_raw(fs, disk_block, block_buf);
+                kfree(block_buf);
+                return ret;
+            }
+
+            prev = de;
+            offset += de->rec_len;
+        }
+    }
+
+    kfree(block_buf);
+    return -1;
+}
+
+static int ext4_find_dir_entry_inode(struct ext4_fs *fs, uint32_t dir_ino,
+                                     const char *name, uint32_t *found_ino)
+{
+    struct ext4_inode dir_inode;
+    uint8_t name_len = 0;
+
+    if (!fs || !name || !name[0] || !found_ino) return -1;
+    while (name[name_len] && name_len < 255) name_len++;
+    if (name[name_len]) return -1;
+    if (ext4_read_inode(fs, dir_ino, &dir_inode) < 0) return -1;
+
+    uint8_t *block_buf = kmalloc(fs->block_size);
+    if (!block_buf) return -1;
+
+    uint64_t dir_size = dir_inode.i_size_lo;
+    uint64_t num_blocks = (dir_size + fs->block_size - 1) / fs->block_size;
+
+    for (uint64_t b = 0; b < num_blocks; b++) {
+        uint64_t disk_block = ext4_get_file_block(fs, &dir_inode, b);
+        if (disk_block == 0) continue;
+        if (ext4_read_block(fs, disk_block, block_buf) < 0) continue;
+
+        uint32_t offset = 0;
+        while (offset < fs->block_size) {
+            struct ext4_dir_entry *de =
+                (struct ext4_dir_entry *)(block_buf + offset);
+            if (!ext4_valid_dir_entry(fs, de, offset)) {
+                break;
+            }
+
+            if (de->inode != 0 && ext4_name_matches(de, name, name_len)) {
+                *found_ino = de->inode;
+                kfree(block_buf);
+                return 0;
+            }
+
+            offset += de->rec_len;
+        }
+    }
+
+    kfree(block_buf);
     return -1;
 }
 
@@ -1274,25 +1499,47 @@ int ext4_vfs_mkdir(uint32_t parent_ino, const char *name, uint16_t mode)
 }
 
 /**
- * ext4_vfs_unlink - Remove a file (not implemented fully)
+ * ext4_vfs_unlink - Remove a file
  * @parent_ino: Parent directory inode
  * @name: Filename to remove
  * Returns: 0 on success, negative error
  */
 int ext4_vfs_unlink(uint32_t parent_ino, const char *name)
 {
-    (void)parent_ino;
-    (void)name;
     if (!root_ext4) return -1;
-    
-    /* Full unlink requires:
-     * 1. Find directory entry
-     * 2. Decrement link count
-     * 3. If link count == 0, free blocks and inode
-     * 4. Remove directory entry
-     */
-    printk(KERN_WARNING "EXT4: unlink not fully implemented\n");
-    return -1;
+    if (!name || !name[0] || !parent_ino) return -1;
+    if ((name[0] == '.' && name[1] == '\0') ||
+        (name[0] == '.' && name[1] == '.' && name[2] == '\0')) {
+        return -1;
+    }
+
+    uint32_t ino = 0;
+    if (ext4_find_dir_entry_inode(root_ext4, parent_ino, name, &ino) < 0)
+        return -1;
+
+    struct ext4_inode inode;
+    if (ext4_read_inode(root_ext4, ino, &inode) < 0)
+        return -1;
+
+    if ((inode.i_mode & 0xF000) == EXT4_S_IFDIR)
+        return -1;
+
+    uint32_t removed_ino = 0;
+    if (ext4_remove_dir_entry(root_ext4, parent_ino, name, &removed_ino) < 0 ||
+        removed_ino != ino)
+        return -1;
+
+    if (inode.i_links_count > 0)
+        inode.i_links_count--;
+
+    if (inode.i_links_count == 0) {
+        ext4_free_inode_blocks(root_ext4, &inode);
+        inode.i_dtime = 1;
+        ext4_write_inode(root_ext4, ino, &inode);
+        return ext4_free_inode(root_ext4, ino);
+    }
+
+    return ext4_write_inode(root_ext4, ino, &inode);
 }
 
 /**

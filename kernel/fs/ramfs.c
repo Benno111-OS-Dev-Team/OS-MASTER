@@ -123,6 +123,47 @@ static int ramfs_add_child(struct ramfs_inode *dir, struct ramfs_inode *child) {
   return 0;
 }
 
+<<<<<<< HEAD
+static int ramfs_detach_child(struct ramfs_inode *dir, struct ramfs_inode *child) {
+  struct ramfs_inode **prev;
+
+  if (!dir || !child || !S_ISDIR(dir->mode))
+    return -EINVAL;
+
+  prev = &dir->children;
+  while (*prev) {
+    if (*prev == child) {
+      *prev = child->sibling;
+      child->sibling = NULL;
+      child->parent = NULL;
+      return 0;
+    }
+    prev = &((*prev)->sibling);
+  }
+
+  return -ENOENT;
+}
+
+static void ramfs_free_tree(struct ramfs_inode *inode) {
+  while (inode && inode->children) {
+    struct ramfs_inode *child = inode->children;
+    inode->children = child->sibling;
+    child->sibling = NULL;
+    child->parent = NULL;
+    ramfs_free_tree(child);
+  }
+
+  ramfs_free_inode(inode);
+}
+
+static int ramfs_is_ancestor(struct ramfs_inode *ancestor,
+                             struct ramfs_inode *node) {
+  while (node) {
+    if (node == ancestor)
+      return 1;
+    node = node->parent;
+  }
+=======
 static int ramfs_resize_inode(struct ramfs_inode *inode, size_t size) {
   if (!inode || S_ISDIR(inode->mode))
     return -EINVAL;
@@ -158,6 +199,7 @@ static int ramfs_resize_inode(struct ramfs_inode *inode, size_t size) {
   }
 
   inode->size = size;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   return 0;
 }
 
@@ -442,49 +484,149 @@ static int ramfs_mkdir(struct inode *dir, struct dentry *dentry, mode_t mode) {
   return 0;
 }
 
+static int ramfs_symlink(struct inode *dir, struct dentry *dentry,
+                         const char *target) {
+  struct ramfs_inode *ram_dir = (struct ramfs_inode *)dir->i_private;
+  struct ramfs_inode *link;
+  size_t len = 0;
+
+  if (!ram_dir || !dentry || !dentry->d_name[0] || !target)
+    return -EINVAL;
+  if (ramfs_lookup_child(ram_dir, dentry->d_name))
+    return -EEXIST;
+
+  while (target[len])
+    len++;
+  if (len == 0)
+    return -EINVAL;
+
+  link = ramfs_alloc_inode(S_IFLNK | 0777, dentry->d_name);
+  if (!link)
+    return -ENOMEM;
+
+  link->data = kmalloc(len, GFP_KERNEL);
+  if (!link->data) {
+    ramfs_free_inode(link);
+    return -ENOMEM;
+  }
+  for (size_t i = 0; i < len; i++)
+    link->data[i] = (uint8_t)target[i];
+  link->size = len;
+  link->data_capacity = len;
+
+  if (ramfs_add_child(ram_dir, link) != 0) {
+    ramfs_free_inode(link);
+    return -ENOTDIR;
+  }
+
+  struct inode *inode = kzalloc(sizeof(struct inode), GFP_KERNEL);
+  if (!inode) {
+    ramfs_detach_child(ram_dir, link);
+    ramfs_free_inode(link);
+    return -ENOMEM;
+  }
+
+  inode->i_ino = link->ino;
+  inode->i_mode = link->mode;
+  inode->i_size = (loff_t)link->size;
+  inode->i_sb = dir->i_sb;
+  inode->i_op = &ramfs_inode_ops;
+  inode->i_fop = &ramfs_file_ops;
+  inode->i_private = link;
+
+  dentry->d_inode = inode;
+  return 0;
+}
+
+static int ramfs_readlink(struct dentry *dentry, char *buf, int bufsiz) {
+  struct ramfs_inode *link;
+  size_t to_copy;
+
+  if (!dentry || !dentry->d_inode || !buf || bufsiz < 0)
+    return -EINVAL;
+  if (!S_ISLNK(dentry->d_inode->i_mode))
+    return -EINVAL;
+
+  link = (struct ramfs_inode *)dentry->d_inode->i_private;
+  if (!link || !link->data)
+    return -EINVAL;
+
+  to_copy = link->size < (size_t)bufsiz ? link->size : (size_t)bufsiz;
+  for (size_t i = 0; i < to_copy; i++)
+    buf[i] = (char)link->data[i];
+  return (int)to_copy;
+}
+
+static int ramfs_setattr(struct dentry *dentry, void *attr) {
+  struct vfs_iattr *ia = (struct vfs_iattr *)attr;
+  struct ramfs_inode *inode;
+  mode_t type_bits;
+
+  if (!dentry || !dentry->d_inode || !ia)
+    return -EINVAL;
+
+  inode = (struct ramfs_inode *)dentry->d_inode->i_private;
+  if (!inode)
+    return -EINVAL;
+
+  if (ia->valid & VFS_ATTR_MODE) {
+    type_bits = inode->mode & S_IFMT;
+    inode->mode = type_bits | (ia->mode & 07777);
+    dentry->d_inode->i_mode = inode->mode;
+  }
+  if (ia->valid & VFS_ATTR_UID) {
+    inode->uid = ia->uid;
+    dentry->d_inode->i_uid = ia->uid;
+  }
+  if (ia->valid & VFS_ATTR_GID) {
+    inode->gid = ia->gid;
+    dentry->d_inode->i_gid = ia->gid;
+  }
+
+  return 0;
+}
+
 static int ramfs_rename(struct inode *old_dir, struct dentry *old_dentry,
                         struct inode *new_dir, struct dentry *new_dentry) {
   struct ramfs_inode *old_ram_dir = (struct ramfs_inode *)old_dir->i_private;
   struct ramfs_inode *new_ram_dir = (struct ramfs_inode *)new_dir->i_private;
-  struct ramfs_inode *target =
-      (struct ramfs_inode *)old_dentry->d_inode->i_private;
+  struct ramfs_inode *target;
+  struct ramfs_inode *existing;
 
+  if (!old_ram_dir || !new_ram_dir || !old_dentry || !old_dentry->d_inode ||
+      !new_dentry || !new_dentry->d_name[0])
+    return -EINVAL;
+
+  target = (struct ramfs_inode *)old_dentry->d_inode->i_private;
   if (!target)
     return -ENOENT;
 
-  /* TODO: Check if new name exists (overwrite) */
-  /* For now, just fail if exists for simplicity, or we should support
-   * overwrite? */
-  /* Let's keep it simple: if new exists, fail */
-  if (ramfs_lookup_child(new_ram_dir, new_dentry->d_name)) {
-    return -EEXIST;
+  if (old_ram_dir == new_ram_dir &&
+      ramfs_lookup_child(old_ram_dir, new_dentry->d_name) == target) {
+    return 0;
   }
 
-  /* 1. Unlink from old_dir */
-  if (old_ram_dir->children == target) {
-    old_ram_dir->children = target->sibling;
-  } else {
-    struct ramfs_inode *curr = old_ram_dir->children;
-    while (curr && curr->sibling != target) {
-      curr = curr->sibling;
-    }
-    if (curr)
-      curr->sibling = target->sibling;
+  if (S_ISDIR(target->mode) && ramfs_is_ancestor(target, new_ram_dir))
+    return -EINVAL;
+
+  existing = ramfs_lookup_child(new_ram_dir, new_dentry->d_name);
+  if (existing && existing != target) {
+    if (S_ISDIR(target->mode) != S_ISDIR(existing->mode))
+      return S_ISDIR(target->mode) ? -ENOTDIR : -EISDIR;
+    if (S_ISDIR(existing->mode) && existing->children)
+      return -ENOTEMPTY;
+    if (ramfs_detach_child(new_ram_dir, existing) != 0)
+      return -ENOENT;
+    ramfs_free_tree(existing);
   }
 
-  /* 2. Link to new_dir */
-  /* Only if different directory, but even if same dir we need to rename */
-  if (old_ram_dir != new_ram_dir) {
-    target->sibling = new_ram_dir->children;
-    new_ram_dir->children = target;
-    target->parent = new_ram_dir;
-  } else {
-    /* Re-link in same dir (it was removed above) */
-    target->sibling = old_ram_dir->children;
-    old_ram_dir->children = target;
-  }
+  if (ramfs_detach_child(old_ram_dir, target) != 0)
+    return -ENOENT;
 
-  /* 3. Rename */
+  target->sibling = new_ram_dir->children;
+  new_ram_dir->children = target;
+  target->parent = new_ram_dir;
+
   int i;
   for (i = 0; i < RAMFS_MAX_NAME && new_dentry->d_name[i]; i++) {
     target->name[i] = new_dentry->d_name[i];
@@ -505,17 +647,9 @@ static int ramfs_unlink(struct inode *dir, struct dentry *dentry) {
   if (S_ISDIR(target->mode))
     return -EISDIR;
 
-  /* Remove from parent's child list */
-  struct ramfs_inode **prev = &ram_dir->children;
-  while (*prev) {
-    if (*prev == target) {
-      *prev = target->sibling;
-      break;
-    }
-    prev = &((*prev)->sibling);
-  }
+  if (ramfs_detach_child(ram_dir, target) != 0)
+    return -ENOENT;
 
-  /* Free the inode and its data */
   ramfs_free_inode(target);
 
   return 0;
@@ -536,17 +670,9 @@ static int ramfs_rmdir(struct inode *dir, struct dentry *dentry) {
   if (target->children)
     return -ENOTEMPTY;
 
-  /* Remove from parent's child list */
-  struct ramfs_inode **prev = &ram_dir->children;
-  while (*prev) {
-    if (*prev == target) {
-      *prev = target->sibling;
-      break;
-    }
-    prev = &((*prev)->sibling);
-  }
+  if (ramfs_detach_child(ram_dir, target) != 0)
+    return -ENOENT;
 
-  /* Free the inode */
   ramfs_free_inode(target);
 
   return 0;
@@ -629,6 +755,10 @@ static struct inode_operations ramfs_inode_ops = {
     .symlink = ramfs_symlink,
     .rename = ramfs_rename,
     .readlink = ramfs_readlink,
+<<<<<<< HEAD
+    .setattr = ramfs_setattr,
+=======
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 };
 
 /* ===================================================================== */
@@ -690,9 +820,12 @@ static struct super_block *ramfs_mount(struct file_system_type *fs_type,
 }
 
 static void ramfs_kill_sb(struct super_block *sb) {
-  (void)sb;
   printk(KERN_INFO "RAMFS: Unmounting\n");
-  /* TODO: Free all inodes */
+  if (sb && sb->s_fs_info == &ramfs_sb && ramfs_sb.root) {
+    ramfs_free_tree(ramfs_sb.root);
+    ramfs_sb.root = NULL;
+    ramfs_sb.next_ino = 1;
+  }
 }
 
 /* ===================================================================== */

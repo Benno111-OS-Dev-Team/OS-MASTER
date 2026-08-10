@@ -3,8 +3,10 @@
  */
 
 #include "mm/vmm.h"
+#include "mm/kmalloc.h"
 #include "mm/pmm.h"
 #include "printk.h"
+#include "string.h"
 
 /* ===================================================================== */
 /* Static data */
@@ -144,6 +146,47 @@ static uint64_t *alloc_page_table(void)
     }
     
     return table;
+}
+
+static bool is_early_page_table(uint64_t *table)
+{
+    for (size_t i = 0; i < EARLY_TABLES_COUNT; i++) {
+        if (table == early_tables[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void free_page_table_page(uint64_t *table)
+{
+    if (!table || table == kernel_pgd || is_early_page_table(table)) {
+        return;
+    }
+    pmm_free_page((phys_addr_t)table);
+}
+
+static void free_user_page_table(uint64_t *table, int level)
+{
+    if (!table || level >= VMM_LEVELS) {
+        return;
+    }
+
+    for (int i = 0; i < VMM_ENTRIES; i++) {
+        uint64_t pte = table[i];
+        if (!pte_is_valid(pte)) {
+            continue;
+        }
+
+        if (level < VMM_LEVELS - 1 && pte_is_table(pte)) {
+            uint64_t *child = (uint64_t *)pte_to_phys(pte);
+            free_user_page_table(child, level + 1);
+            free_page_table_page(child);
+        } else {
+            pmm_free_page(pte_to_phys(pte));
+        }
+        table[i] = 0;
+    }
 }
 
 /* ===================================================================== */
@@ -431,20 +474,15 @@ phys_addr_t vmm_virt_to_phys(virt_addr_t vaddr)
 
 struct mm_struct *vmm_create_address_space(void)
 {
-    /* Allocate mm_struct */
-    /* TODO: Use kmalloc when available */
-    static struct mm_struct mm_pool[64];
-    static int mm_index = 0;
-    
-    if (mm_index >= 64) {
+    struct mm_struct *mm = kzalloc(sizeof(struct mm_struct), GFP_KERNEL);
+    if (!mm) {
         return NULL;
     }
-    
-    struct mm_struct *mm = &mm_pool[mm_index++];
     
     /* Allocate page table */
     mm->pgd = alloc_page_table();
     if (!mm->pgd) {
+        kfree(mm);
         return NULL;
     }
     
@@ -474,20 +512,32 @@ void vmm_destroy_address_space(struct mm_struct *mm)
     struct vm_area *vma = mm->vma_list;
     while (vma) {
         struct vm_area *next = vma->next;
-        /* Note: Should use kfree but avoiding for now */
+        kfree(vma);
         vma = next;
     }
     
-    /* TODO: Free all user page tables recursively */
-    /* For now, just clear the lower half */
     if (mm->pgd) {
         for (int i = 0; i < VMM_ENTRIES / 2; i++) {
+            uint64_t pte = mm->pgd[i];
+            if (!pte_is_valid(pte)) {
+                continue;
+            }
+
+            if (pte_is_table(pte)) {
+                uint64_t *child = (uint64_t *)pte_to_phys(pte);
+                free_user_page_table(child, 1);
+                free_page_table_page(child);
+            } else {
+                pmm_free_page(pte_to_phys(pte));
+            }
             mm->pgd[i] = 0;
         }
+        free_page_table_page(mm->pgd);
     }
     
     mm->pgd = NULL;
     mm->vma_list = NULL;
+    kfree(mm);
 }
 
 /* ===================================================================== */
@@ -565,13 +615,9 @@ int vmm_add_vma(struct mm_struct *mm, virt_addr_t start, virt_addr_t end, uint32
         return -1;
     }
     
-    /* Allocate VMA from static pool (should use kmalloc) */
-    static struct vm_area vma_pool[256];
-    static int vma_index = 0;
-    
-    if (vma_index >= 256) return -1;
-    
-    struct vm_area *vma = &vma_pool[vma_index++];
+    struct vm_area *vma = kzalloc(sizeof(struct vm_area), GFP_KERNEL);
+    if (!vma) return -1;
+
     vma->start = start;
     vma->end = end;
     vma->flags = flags;
@@ -598,6 +644,116 @@ struct vm_area *vmm_find_vma(struct mm_struct *mm, virt_addr_t addr)
     return NULL;
 }
 
+<<<<<<< HEAD
+static uint64_t *walk_user_pte(struct mm_struct *mm, virt_addr_t vaddr)
+{
+    if (!mm || !mm->pgd || vaddr >= USER_VMA_END) return NULL;
+
+    int l0_idx = (vaddr >> VMM_LEVEL0_SHIFT) & (VMM_ENTRIES - 1);
+    int l1_idx = (vaddr >> VMM_LEVEL1_SHIFT) & (VMM_ENTRIES - 1);
+    int l2_idx = (vaddr >> VMM_LEVEL2_SHIFT) & (VMM_ENTRIES - 1);
+
+    uint64_t *l0 = mm->pgd;
+    if (!pte_is_table(l0[l0_idx])) return NULL;
+
+    uint64_t *l1 = (uint64_t *)pte_to_phys(l0[l0_idx]);
+    if (!pte_is_table(l1[l1_idx])) return NULL;
+
+    uint64_t *l2 = (uint64_t *)pte_to_phys(l1[l1_idx]);
+    if (!pte_is_table(l2[l2_idx])) return NULL;
+
+    return (uint64_t *)pte_to_phys(l2[l2_idx]);
+}
+
+static int vmm_unmap_user_page(struct mm_struct *mm, virt_addr_t vaddr)
+{
+    uint64_t *l3 = walk_user_pte(mm, vaddr);
+    if (!l3) return -1;
+
+    int l3_idx = (vaddr >> VMM_LEVEL3_SHIFT) & (VMM_ENTRIES - 1);
+    uint64_t pte = l3[l3_idx];
+    if (!pte_is_valid(pte)) return -1;
+
+    pmm_free_page(pte_to_phys(pte));
+    l3[l3_idx] = 0;
+    vmm_flush_tlb_page(vaddr);
+    return 0;
+}
+
+static int vmm_remove_vma_range(struct mm_struct *mm, virt_addr_t start,
+                                virt_addr_t end)
+{
+    struct vm_area **link;
+
+    if (!mm || start >= end) return -1;
+
+    link = &mm->vma_list;
+    while (*link) {
+        struct vm_area *vma = *link;
+
+        if (end <= vma->start || start >= vma->end) {
+            link = &vma->next;
+            continue;
+        }
+
+        virt_addr_t overlap_start = start > vma->start ? start : vma->start;
+        virt_addr_t overlap_end = end < vma->end ? end : vma->end;
+        size_t removed = (size_t)(overlap_end - overlap_start);
+
+        if (start <= vma->start && end >= vma->end) {
+            *link = vma->next;
+            kfree(vma);
+            if (mm->total_vm >= removed) mm->total_vm -= removed;
+            continue;
+        }
+
+        if (start <= vma->start) {
+            vma->start = overlap_end;
+            if (mm->total_vm >= removed) mm->total_vm -= removed;
+            link = &vma->next;
+            continue;
+        }
+
+        if (end >= vma->end) {
+            vma->end = overlap_start;
+            if (mm->total_vm >= removed) mm->total_vm -= removed;
+            link = &vma->next;
+            continue;
+        }
+
+        struct vm_area *right = kzalloc(sizeof(struct vm_area), GFP_KERNEL);
+        if (!right) return -1;
+        right->start = overlap_end;
+        right->end = vma->end;
+        right->flags = vma->flags;
+        right->next = vma->next;
+        vma->end = overlap_start;
+        vma->next = right;
+        if (mm->total_vm >= removed) mm->total_vm -= removed;
+        link = &right->next;
+    }
+
+    return 0;
+}
+
+int vmm_unmap_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size)
+{
+    virt_addr_t start;
+    size_t aligned_size;
+    virt_addr_t end;
+
+    if (align_range(vaddr, size, &start, &aligned_size)) return -1;
+    if (start >= USER_VMA_END || aligned_size > USER_VMA_END - start) return -1;
+    end = start + aligned_size;
+
+    for (virt_addr_t addr = start; addr < end; addr += PAGE_SIZE) {
+        vmm_unmap_user_page(mm, addr);
+    }
+
+    return vmm_remove_vma_range(mm, start, end);
+}
+
+=======
 static int vma_covers_range(struct vm_area *vma, virt_addr_t start,
                             virt_addr_t end)
 {
@@ -616,6 +772,7 @@ static int user_range_bounds(virt_addr_t vaddr, size_t size, virt_addr_t *start,
     return 0;
 }
 
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 /* Map user address range with physical pages */
 int vmm_map_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size, uint32_t flags)
 {
@@ -642,11 +799,15 @@ int vmm_map_user_range(struct mm_struct *mm, virt_addr_t vaddr, size_t size, uin
             vmm_unmap_user_range(mm, vaddr, (size_t)(end - vaddr));
             return -1;
         }
+<<<<<<< HEAD
+        memset((void *)(uintptr_t)paddr, 0, PAGE_SIZE);
+=======
 
         uint8_t *page = (uint8_t *)paddr;
         for (size_t i = 0; i < PAGE_SIZE; i++) {
             page[i] = 0;
         }
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
         
         int ret = vmm_map_user_page(mm, addr, paddr, flags);
         if (ret != 0) {

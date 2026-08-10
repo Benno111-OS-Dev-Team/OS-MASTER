@@ -22,6 +22,7 @@
 #include "printk.h"
 #include "password_hash.h"
 #include "toolbar_icons.h" /* Toolbar icons for image viewer */
+#include "string.h"
 #include "types.h"
 #include "window_skin.h"
 
@@ -1418,15 +1419,11 @@ static int settings_user_editor_is_visible(void) {
 }
 
 static void notepad_append_to_buf(char *dst, int max, const char *src) {
-  int idx = 0;
-
   if (!dst || max <= 0)
     return;
-  while (dst[idx] && idx < max - 1)
-    idx++;
-  for (int i = 0; src && src[i] && idx < max - 1; i++)
-    dst[idx++] = src[i];
-  dst[idx] = '\0';
+  if (!src)
+    return;
+  (void)strlcat(dst, src, (size_t)max);
 }
 
 static const char *notepad_basename(const char *path) {
@@ -5345,6 +5342,50 @@ void gui_focus_window(struct window *win) {
   }
 }
 
+int gui_window_id(const struct window *win) { return win ? win->id : 0; }
+
+struct window *gui_find_window_by_id(int id) {
+  if (id <= 0)
+    return NULL;
+
+  for (int i = 0; i < MAX_WINDOWS; i++) {
+    if (windows[i].id == id)
+      return &windows[i];
+  }
+
+  return NULL;
+}
+
+uint32_t *gui_window_get_buffer(struct window *win, int *w, int *h) {
+  if (!win || win->id == 0)
+    return NULL;
+  if (window_ensure_surface_storage(win) != 0)
+    return NULL;
+
+  if (w)
+    *w = win->surface_width;
+  if (h)
+    *h = win->surface_height;
+  return win->content_buffer;
+}
+
+void gui_window_invalidate(struct window *win) {
+  if (!win || win->id == 0)
+    return;
+
+  window_mark_surface_dirty_full(win);
+  gui_invalidate_window(win);
+}
+
+void gui_window_set_title(struct window *win, const char *title) {
+  if (!win || win->id == 0 || !title)
+    return;
+
+  (void)strlcpy(win->title, title, sizeof(win->title));
+  window_mark_surface_dirty_full(win);
+  gui_invalidate_window(win);
+}
+
 static void copy_window_title(char *dst, const char *src) {
   int i = 0;
   if (!dst)
@@ -5603,18 +5644,9 @@ static int str_ends_with_ci(const char *name, const char *ext) {
 }
 
 static void str_copy_safe(char *dst, const char *src, int max) {
-  int i = 0;
   if (!dst || max <= 0)
     return;
-  if (!src) {
-    dst[0] = '\0';
-    return;
-  }
-  while (src[i] && i < max - 1) {
-    dst[i] = src[i];
-    i++;
-  }
-  dst[i] = '\0';
+  (void)strlcpy(dst, src ? src : "", (size_t)max);
 }
 
 typedef enum gui_app_kind {
@@ -9546,15 +9578,9 @@ static char installer_log_target_root[256];
 static int installer_log_depth = 0;
 
 static void installer_append_to_buf(char *buf, int max, const char *text) {
-  int idx = 0;
-
   if (!buf || max <= 0 || !text)
     return;
-  while (buf[idx] && idx < max - 1)
-    idx++;
-  for (int i = 0; text[i] && idx < max - 1; i++)
-    buf[idx++] = text[i];
-  buf[idx] = '\0';
+  (void)strlcat(buf, text, (size_t)max);
 }
 
 static int installer_selected_disk_index(void) {
@@ -12618,15 +12644,9 @@ static void disk_imager_sanitize_component(const char *src, char *dst, int max) 
 }
 
 static void disk_imager_append_path(char *path, int max, const char *piece) {
-  int idx = 0;
-
   if (!path || max <= 0 || !piece)
     return;
-  while (path[idx] && idx < max - 1)
-    idx++;
-  for (int i = 0; piece[i] && idx < max - 1; i++)
-    path[idx++] = piece[i];
-  path[idx] = '\0';
+  (void)strlcat(path, piece, (size_t)max);
 }
 
 static void disk_imager_build_backup_path(int disk_index, int partition_index,

@@ -401,6 +401,11 @@ uint32_t arch_cpu_count(void)
     return 1;
 }
 
+uint32_t arch_cpu_frequency_mhz(void)
+{
+    return 0;
+}
+
 void arch_cpu_info(char *buf, size_t size)
 {
     uint64_t midr;

@@ -119,6 +119,62 @@ void arch_dsb(void)
 }
 
 /* ===================================================================== */
+/* CPU Information */
+/* ===================================================================== */
+
+uint32_t arch_cpu_id(void)
+{
+    return 0;
+}
+
+uint32_t arch_cpu_count(void)
+{
+    return 1;
+}
+
+uint32_t arch_cpu_frequency_mhz(void)
+{
+    uint32_t max_leaf;
+    uint32_t eax;
+    uint32_t ebx;
+    uint32_t ecx;
+    uint32_t edx;
+
+    asm volatile("cpuid"
+                 : "=a"(max_leaf), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                 : "a"(0));
+    if (max_leaf < 0x16)
+        return 0;
+
+    asm volatile("cpuid"
+                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                 : "a"(0x16));
+    return eax;
+}
+
+void arch_cpu_info(char *buf, size_t size)
+{
+    uint32_t eax, ebx, ecx, edx;
+    char vendor[13] = {0};
+    size_t i;
+
+    if (!buf || size == 0)
+        return;
+
+    asm volatile("cpuid"
+                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                 : "a"(0));
+
+    *(uint32_t *)(vendor + 0) = ebx;
+    *(uint32_t *)(vendor + 4) = edx;
+    *(uint32_t *)(vendor + 8) = ecx;
+
+    for (i = 0; i + 1 < size && vendor[i]; i++)
+        buf[i] = vendor[i];
+    buf[i] = '\0';
+}
+
+/* ===================================================================== */
 /* MMU/Paging */
 /* ===================================================================== */
 

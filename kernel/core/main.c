@@ -68,6 +68,7 @@ static void seed_write_text(const char *prefix, const char *path, mode_t mode,
                             const char *content);
 static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
                              const uint8_t *data, size_t size);
+static void setup_virtual_mountpoints(void);
 static int verify_init_script(void);
 static void keyboard_handler(int key);
 static void keyboard_gui_handler(int key);
@@ -621,6 +622,35 @@ static void seed_write_bytes(const char *prefix, const char *path, mode_t mode,
   if (build_seed_path(full_path, sizeof(full_path), prefix, path) != 0)
     return;
   ramfs_create_file_bytes(full_path, mode, data, size);
+}
+
+static void setup_virtual_mountpoints(void) {
+  int ret;
+
+  printk(KERN_INFO "  Preparing virtual filesystem mountpoints...\n");
+
+  ret = vfs_mkdir("/proc", 0555);
+  if (ret != 0 && ret != -EEXIST)
+    printk(KERN_WARNING "  Failed to create /proc (%d)\n", ret);
+
+  ret = vfs_mkdir("/sys", 0555);
+  if (ret != 0 && ret != -EEXIST)
+    printk(KERN_WARNING "  Failed to create /sys (%d)\n", ret);
+
+  ret = vfs_mkdir("/dev", 0755);
+  if (ret != 0 && ret != -EEXIST)
+    printk(KERN_WARNING "  Failed to create /dev (%d)\n", ret);
+
+  seed_make_dir("", "/sys/kernel");
+  seed_write_text("", "/proc/version", 0444,
+                  "OS8 8.0.0\n");
+  seed_write_text("", "/sys/kernel/ostype", 0444,
+                  "OS8\n");
+  seed_write_text("", "/sys/kernel/osrelease", 0444,
+                  "8.0.0\n");
+  seed_write_text("", "/dev/null", 0666, "");
+  seed_write_text("", "/dev/zero", 0666, "");
+  seed_write_text("", "/dev/tty", 0666, "");
 }
 
 static uint32_t boot_sha256_rotr(uint32_t x, uint32_t n) {
@@ -1664,6 +1694,12 @@ static void init_subsystems(void *dtb) {
   if (vfs_mount("ramfs", "/", "ramfs", 0, NULL) != 0) {
     panic("Failed to mount root filesystem!");
   }
+<<<<<<< HEAD
+
+  populate_seed_filesystem();
+
+  setup_virtual_mountpoints();
+=======
 
   populate_seed_filesystem();
   kintegrity_mark_phase(KINTEGRITY_PHASE_FS, "filesystems ready");
@@ -1673,6 +1709,7 @@ static void init_subsystems(void *dtb) {
 
   printk(KERN_INFO "  Mounting sysfs...\n");
   printk(KERN_INFO "  Mounting devfs...\n");
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 
   /* ================================================================= */
   /* Phase 5: Device Drivers & GUI */

@@ -17,6 +17,7 @@ static char printk_buffer[PRINTK_BUFFER_SIZE];
 static char printk_log_buffer[PRINTK_LOG_BUFFER_SIZE];
 static size_t printk_log_start = 0;
 static size_t printk_log_count = 0;
+static int printk_console_loglevel = 7;
 
 /* ===================================================================== */
 /* Helper functions for number formatting */
@@ -237,6 +238,17 @@ static void printk_log_append(const char *buf, size_t len)
     }
 }
 
+static int printk_clamp_loglevel(int level)
+{
+    if (level < 0) {
+        return 0;
+    }
+    if (level > 7) {
+        return 7;
+    }
+    return level;
+}
+
 /* ===================================================================== */
 /* Public functions */
 /* ===================================================================== */
@@ -252,7 +264,6 @@ int vprintk(const char *fmt, va_list args)
         level = p[1] - '0';
         p += 3;
     }
-    (void)level;  /* TODO: Use level for filtering */
     
     /* Format the message */
     len = kvsnprintf(printk_buffer, PRINTK_BUFFER_SIZE, p, args);
@@ -260,8 +271,9 @@ int vprintk(const char *fmt, va_list args)
     /* Keep a separate in-kernel log buffer in addition to UART output. */
     printk_log_append(printk_buffer, (size_t)len);
 
-    /* Output to console (UART for now) */
-    uart_puts(printk_buffer);
+    if (level <= printk_console_loglevel) {
+        uart_puts(printk_buffer);
+    }
     
     return len;
 }
@@ -321,8 +333,19 @@ size_t printk_log_read(char *buf, size_t offset, size_t size)
     return size;
 }
 
+<<<<<<< HEAD
+void printk_set_console_loglevel(int level)
+{
+    printk_console_loglevel = printk_clamp_loglevel(level);
+}
+
+int printk_get_console_loglevel(void)
+{
+    return printk_console_loglevel;
+=======
 void printk_log_clear(void)
 {
     printk_log_start = 0;
     printk_log_count = 0;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
 }

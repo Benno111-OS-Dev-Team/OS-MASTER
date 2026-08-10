@@ -60,6 +60,9 @@ int storage_get_disk_count(void);
 int storage_get_disk_kind(int index);
 int storage_disk_is_removable(int index);
 uint32_t storage_get_disk_capacity_mib(int index);
+uint32_t storage_get_disk_free_mib(int index);
+uint32_t storage_get_total_capacity_mib(void);
+uint32_t storage_get_total_free_mib(void);
 int storage_get_disk_location(int index, char *buf, int max);
 int storage_get_disk_index_by_location(const char *location);
 int storage_read_block(int disk_index, uint32_t lba, void *buffer,

@@ -98,12 +98,15 @@ struct task_struct {
   uid_t euid;
   uid_t suid;
   gid_t gid;
+<<<<<<< HEAD
+=======
   gid_t egid;
   gid_t sgid;
   gid_t groups[TASK_MAX_GROUPS];
   int group_count;
   pid_t pgrp;
   pid_t sid;
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
   mode_t umask;
 
   /* Process name */
@@ -273,6 +276,16 @@ typedef int (*task_iter_cb_t)(struct task_struct *task, void *ctx);
  * Return: 0 after all tasks are visited, or the first non-zero callback value.
  */
 int for_each_task(task_iter_cb_t cb, void *ctx);
+
+/**
+ * do_waitpid - Wait for a child task to change state
+ * @pid: Child PID to wait for, -1 for any child
+ * @wstatus: Optional exit status output
+ * @options: Wait options such as WNOHANG
+ *
+ * Return: Child PID, 0 for WNOHANG with no exited child, or negative errno.
+ */
+pid_t do_waitpid(pid_t pid, int *wstatus, int options);
 
 /**
  * sched_kill_task - Send termination signal to a task (scheduler API)

@@ -78,6 +78,7 @@ void process_schedule(void);           // Pick next process to run
 void process_schedule_from_irq(void);  // Called from timer IRQ for preemption
 void process_preempt_from_irq(void);   // x86 IRQ-path preemptive switch
 int process_count_ready(void);         // Count runnable processes
+int process_count_active(void);        // Count non-free process slots
 int process_run_kernel_slice(void);    // Let kernel grant one background slice
 
 // Context switch (implemented in assembly)

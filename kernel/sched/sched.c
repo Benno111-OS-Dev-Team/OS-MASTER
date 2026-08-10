@@ -10,6 +10,12 @@
 #include "printk.h"
 #include "string.h"
 
+#define SIGCHLD 17
+#define SIGKILL 9
+
+extern void signal_init(struct task_struct *task);
+extern int kill_task(struct task_struct *task, int sig);
+
 /* ===================================================================== */
 /* Static data */
 /* ===================================================================== */
@@ -36,8 +42,11 @@ static struct task_struct init_task = {
     .nice = 0,
     .pid = 0,
     .tgid = 0,
+<<<<<<< HEAD
+=======
     .pgrp = 0,
     .sid = 0,
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     .umask = 022,
     .comm = "swapper",
     .flags = PF_KTHREAD | PF_IDLE,
@@ -46,6 +55,79 @@ static struct task_struct init_task = {
 /* ===================================================================== */
 /* Helper functions */
 /* ===================================================================== */
+
+static void list_init(struct list_head *list)
+{
+    list->next = list;
+    list->prev = list;
+}
+
+static int list_empty(const struct list_head *list)
+{
+    return list->next == list;
+}
+
+static void list_add_tail(struct list_head *node, struct list_head *head)
+{
+    node->prev = head->prev;
+    node->next = head;
+    head->prev->next = node;
+    head->prev = node;
+}
+
+static void list_del_init(struct list_head *node)
+{
+    node->prev->next = node->next;
+    node->next->prev = node->prev;
+    list_init(node);
+}
+
+#define task_from_sibling(ptr) \
+    ((struct task_struct *)((char *)(ptr) - __builtin_offsetof(struct task_struct, sibling)))
+
+static void init_task_hierarchy(struct task_struct *task)
+{
+    list_init(&task->children);
+    list_init(&task->sibling);
+}
+
+static void attach_child(struct task_struct *parent, struct task_struct *child)
+{
+    if (!parent || !child) {
+        return;
+    }
+
+    child->parent = parent;
+    if (child->sibling.next && child->sibling.prev &&
+        child->sibling.next != &child->sibling) {
+        list_del_init(&child->sibling);
+    }
+    list_add_tail(&child->sibling, &parent->children);
+}
+
+static void detach_child(struct task_struct *child)
+{
+    if (!child || !child->parent) {
+        return;
+    }
+
+    if (child->sibling.next && child->sibling.prev &&
+        child->sibling.next != &child->sibling) {
+        list_del_init(&child->sibling);
+    }
+    child->parent = NULL;
+}
+
+static void reparent_children(struct task_struct *old_parent)
+{
+    while (old_parent && !list_empty(&old_parent->children)) {
+        struct list_head *node = old_parent->children.next;
+        struct task_struct *child = task_from_sibling(node);
+
+        detach_child(child);
+        attach_child(&init_task, child);
+    }
+}
 
 static struct task_struct *alloc_task(void)
 {
@@ -60,6 +142,7 @@ static struct task_struct *alloc_task(void)
     for (size_t i = 0; i < sizeof(*task); i++) {
         p[i] = 0;
     }
+    init_task_hierarchy(task);
     
     return task;
 }
@@ -262,6 +345,8 @@ void sched_init(void)
     runqueue.tail = NULL;
     runqueue.nr_running = 0;
     runqueue.clock = 0;
+    init_task_hierarchy(&init_task);
+    signal_init(&init_task);
     
     printk(KERN_INFO "SCHED: Scheduler initialized\n");
 }
@@ -345,6 +430,14 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
     task->nice = 0;
     task->pid = next_pid++;
     task->tgid = task->pid;
+<<<<<<< HEAD
+    task->umask = runqueue.current ? runqueue.current->umask : 022;
+    task->flags = flags;
+    task->stack = stack;
+    task->stack_size = KERNEL_STACK_SIZE;
+    attach_child(runqueue.current, task);
+    signal_init(task);
+=======
     task->parent = runqueue.current;
     if (task->parent) {
         task->uid = task->parent->uid;
@@ -396,6 +489,7 @@ struct task_struct *create_task(void (*entry)(void *), void *arg, uint32_t flags
     }
     task->cwd_initialized = 1;
     signal_copy_state(task, task->parent);
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     
     /* Set up initial CPU context */
     task->cpu_context.sp = (uint64_t)stack + KERNEL_STACK_SIZE;
@@ -431,6 +525,13 @@ void exit_task(int code)
     /* Remove from run queue */
     dequeue_task(current);
     
+<<<<<<< HEAD
+    /* Notify parent and hand live children back to init. */
+    if (current->parent) {
+        kill_task(current->parent, SIGCHLD);
+    }
+=======
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     reparent_children(current);
     
     /* Schedule another task */
@@ -453,7 +554,15 @@ void exit_task(int code)
 pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clone_flags)
 {
     struct task_struct *parent = runqueue.current;
-    struct task_struct *task = alloc_task();
+    struct task_struct *task;
+
+    if (!(clone_flags & CLONE_VM)) {
+        printk(KERN_WARNING
+               "SCHED: create_thread requires CLONE_VM; process clone is unsupported\n");
+        return -1;
+    }
+
+    task = alloc_task();
     
     if (!task) {
         printk(KERN_ERR "SCHED: Failed to allocate thread\n");
@@ -468,11 +577,14 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     task->pid = next_pid++;
     task->tgid = (clone_flags & CLONE_THREAD) ? parent->tgid : task->pid;
     task->flags = PF_THREAD;
-    task->parent = parent;
+    attach_child(parent, task);
     task->uid = parent->uid;
     task->euid = parent->euid;
     task->suid = parent->suid;
     task->gid = parent->gid;
+<<<<<<< HEAD
+    task->umask = parent->umask;
+=======
     task->egid = parent->egid;
     task->sgid = parent->sgid;
     task->group_count = parent->group_count;
@@ -507,6 +619,7 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     }
     task->cwd_initialized = 1;
     signal_copy_state(task, parent);
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     
     /* Copy name with " [thread]" suffix */
     int i;
@@ -515,17 +628,16 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
     }
     task->comm[i] = '\0';
     
-    /* Share memory if CLONE_VM is set */
-    if (clone_flags & CLONE_VM) {
-        task->mm = parent->mm;
-        task->active_mm = parent->active_mm;
-        if (task->mm) {
-            task->mm->users.counter++;
-        }
+    task->mm = parent->mm;
+    task->active_mm = parent->active_mm;
+    if (task->mm) {
+        task->mm->users.counter++;
+    }
+
+    if ((clone_flags & CLONE_SIGHAND) && parent->signals) {
+        task->signals = parent->signals;
     } else {
-        /* Would need to copy address space - not implemented */
-        task->mm = parent->mm;
-        task->active_mm = parent->active_mm;
+        signal_init(task);
     }
     
     /* Use provided stack or allocate new one */
@@ -538,6 +650,8 @@ pid_t create_thread(void (*entry)(void *), void *arg, void *stack, uint32_t clon
         task->stack = alloc_stack(KERNEL_STACK_SIZE);
         if (!task->stack) {
             printk(KERN_ERR "SCHED: Failed to allocate thread stack\n");
+            detach_child(task);
+            task->state = TASK_DEAD;
             return -1;
         }
         task->stack_size = KERNEL_STACK_SIZE;
@@ -677,11 +791,15 @@ int sched_kill_task(pid_t pid)
     printk(KERN_INFO "SCHED: Killing task %d '%s'\n", pid, task->comm);
     
     task->flags |= PF_EXITING;
+<<<<<<< HEAD
+    kill_task(task, SIGKILL);
+=======
     if (task->signals) {
         kill_task(task, 9);
     } else {
         task->pending_signals |= (1ULL << 9);  /* SIGKILL */
     }
+>>>>>>> 8c9572f4cc7ca61e4a09950ae47b17008999ca1e
     
     /* If sleeping, wake it up */
     if (task->state == TASK_INTERRUPTIBLE || task->state == TASK_UNINTERRUPTIBLE) {

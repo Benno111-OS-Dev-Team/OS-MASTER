@@ -62,5 +62,6 @@ int vfs_readdir_compat(vfs_node_t *dir, int index, char *name, size_t name_size,
 /* Set/get current working directory */
 int vfs_set_cwd(const char *path);
 int vfs_get_cwd_path(char *buf, size_t size);
+int vfs_get_cwd_length(void);
 
 #endif /* VFS_COMPAT_H */

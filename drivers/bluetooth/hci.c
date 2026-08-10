@@ -8,6 +8,10 @@
 #include "printk.h"
 #include "mm/kmalloc.h"
 
+#ifndef ENOSYS
+#define ENOSYS 38
+#endif
+
 /* ===================================================================== */
 /* HCI Constants */
 /* ===================================================================== */
@@ -106,29 +110,15 @@ static struct bt_adapter adapter = {0};
 
 static int hci_send_cmd(uint16_t opcode, void *params, uint8_t plen)
 {
-    uint8_t buf[256];
-
-    if (plen > sizeof(buf) - 4)
+    if (plen > 252)
         return -1;
     if (plen > 0 && !params)
         return -1;
-    
-    buf[0] = HCI_COMMAND_PKT;
-    
-    struct hci_command_hdr *hdr = (struct hci_command_hdr *)&buf[1];
-    hdr->opcode = opcode;
-    hdr->plen = plen;
-    
-    if (plen > 0 && params) {
-        for (int i = 0; i < plen; i++) {
-            buf[4 + i] = ((uint8_t *)params)[i];
-        }
-    }
-    
-    /* TODO: Send via USB bulk endpoint */
-    printk(KERN_DEBUG "BT: Send cmd opcode=0x%04x len=%d\n", opcode, plen);
-    
-    return 0;
+
+    printk(KERN_WARNING
+           "BT: HCI command transport unavailable opcode=0x%04x len=%d\n",
+           opcode, plen);
+    return -ENOSYS;
 }
 
 /* ===================================================================== */
