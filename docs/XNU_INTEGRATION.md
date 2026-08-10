@@ -51,6 +51,10 @@ Each provider media archive also includes `docs/XNU_BOOT_CONTRACT.md`, which
 defines the repository-owned loader handoff requirements for making the XNU
 provider bootable.
 
+`scripts/check-xnu-provider-media.sh` is the CI gate for provider archives. It
+validates the provider manifest, media manifest, boot contract, source policy,
+architecture, payload mode, and compiled kernel payload when present.
+
 Local usage:
 
 ```sh

@@ -81,12 +81,7 @@ jobs:
           grep -Eq '^source_commit=[0-9a-f]{40}$' "$manifest"
           grep -q '^source_state=clean$' "$manifest"
           test -s "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
-          test -s "$archive"
-          tar -tzf "$archive" | grep -q './kernel/xnu-${{ inputs.arch }}.kernel'
-          tar -tzf "$archive" | grep -q './metadata/xnu-provider.manifest'
-          tar -tzf "$archive" | grep -q './metadata/media.manifest'
-          tar -tzf "$archive" | grep -q './docs/XNU_BOOT_CONTRACT.md'
-          tar -xOzf "$archive" ./metadata/media.manifest | grep -q '^boot_contract=docs/XNU_BOOT_CONTRACT.md$'
+          bash scripts/check-xnu-provider-media.sh "${{ inputs.arch }}" "$archive" compiled
           test ! -d External/xnu/BUILD
 
       - name: Upload XNU provider media
