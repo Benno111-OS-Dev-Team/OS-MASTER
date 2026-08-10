@@ -19,8 +19,10 @@ case "$arch" in
     ;;
 esac
 
-kernel_dir="$build_dir/kernel"
-xnu_build_root="$build_dir/xnu"
+mkdir -p "$build_dir"
+build_abs="$(cd "$build_dir" && pwd -P)"
+kernel_dir="$build_abs/kernel"
+xnu_build_root="$build_abs/xnu"
 provider_artifact="$kernel_dir/xnu-$arch.kernel"
 manifest="$kernel_dir/xnu-provider.manifest"
 mkdir -p "$kernel_dir" "$xnu_build_root/obj" "$xnu_build_root/sym" "$xnu_build_root/dst"
