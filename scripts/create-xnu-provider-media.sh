@@ -84,6 +84,14 @@ if [ ! -f "$kernel_artifact_check_script" ]; then
   exit 1
 fi
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  fi
+}
+
 rm -rf "$media_root"
 mkdir -p "$media_root/kernel" "$media_root/metadata" "$media_root/docs" "$media_root/boot/xnu" "$media_root/boot/custom" "$image_dir"
 
@@ -145,11 +153,17 @@ cp "$boot_plan_manifest" "$media_root/metadata/xnu-boot-plan.manifest"
   printf 'x86_64_startup_loader=boot/custom/startup.c\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'boot_plan=metadata/xnu-boot-plan.manifest\n'
+  if [ "$payload_mode" = "compiled" ]; then
+    printf 'kernel_sha256=%s\n' "$(sha256_file "$media_root/kernel/$(basename "$kernel_artifact")")"
+  fi
   if [ "$payload_mode" = "compiled" ] && [ "$arch" = "x86_64" ]; then
     printf 'x86_64_uefi_boot=boot/custom-uefi\n'
     printf 'x86_64_uefi_config=boot/custom-uefi/os8boot.cfg\n'
     printf 'x86_64_uefi_startup=boot/custom-uefi/STARTUPX64.EFI\n'
     printf 'x86_64_uefi_image=image/xnu-x86_64-uefi.img\n'
+    printf 'x86_64_uefi_bootloader_sha256=%s\n' "$(sha256_file "$media_root/boot/custom-uefi/BOOTX64.EFI")"
+    printf 'x86_64_uefi_startup_sha256=%s\n' "$(sha256_file "$media_root/boot/custom-uefi/STARTUPX64.EFI")"
+    printf 'x86_64_uefi_image_sha256=%s\n' "$(sha256_file "$media_root/image/xnu-x86_64-uefi.img")"
   fi
 } > "$media_root/metadata/media.manifest"
 

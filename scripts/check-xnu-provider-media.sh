@@ -79,6 +79,14 @@ manifest_matches_abi() {
   fi
 }
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  fi
+}
+
 provider="$(manifest_value provider "$provider_manifest")"
 provider_arch="$(manifest_value arch "$provider_manifest")"
 source_origin="$(manifest_value source_origin "$provider_manifest")"
@@ -183,6 +191,11 @@ if [ "$payload_mode" = "compiled" ]; then
     echo "error: compiled provider media is missing kernel payload: kernel/$kernel_name" >&2
     exit 1
   fi
+  kernel_sha256="$(manifest_value kernel_sha256 "$media_manifest")"
+  if [ "$kernel_sha256" != "$(sha256_file "$tmp_dir/kernel/$kernel_name")" ]; then
+    echo "error: compiled provider media kernel_sha256 does not match packaged payload" >&2
+    exit 1
+  fi
   bash "$kernel_artifact_check_script" "$arch" "$tmp_dir/kernel/$kernel_name" >/dev/null
   if [ "$provider_mode" != "compiled" ]; then
     echo "error: compiled provider media has provider mode $provider_mode" >&2
@@ -193,6 +206,9 @@ if [ "$payload_mode" = "compiled" ]; then
     x86_64_uefi_config="$(manifest_value x86_64_uefi_config "$media_manifest")"
     x86_64_uefi_startup="$(manifest_value x86_64_uefi_startup "$media_manifest")"
     x86_64_uefi_image="$(manifest_value x86_64_uefi_image "$media_manifest")"
+    x86_64_uefi_bootloader_sha256="$(manifest_value x86_64_uefi_bootloader_sha256 "$media_manifest")"
+    x86_64_uefi_startup_sha256="$(manifest_value x86_64_uefi_startup_sha256 "$media_manifest")"
+    x86_64_uefi_image_sha256="$(manifest_value x86_64_uefi_image_sha256 "$media_manifest")"
     if [ "$x86_64_uefi_boot" != "boot/custom-uefi" ] ||
        [ "$x86_64_uefi_config" != "boot/custom-uefi/os8boot.cfg" ] ||
        [ "$x86_64_uefi_startup" != "boot/custom-uefi/STARTUPX64.EFI" ] ||
@@ -209,6 +225,18 @@ if [ "$payload_mode" = "compiled" ]; then
     grep -q '^kernel_format=xnu$' "$tmp_dir/boot/custom-uefi/os8boot.cfg"
     grep -q '^kernel_path=\\boot\\main.sys$' "$tmp_dir/boot/custom-uefi/os8boot.cfg"
     grep -Eq '^kernel_sha256=[0-9a-f]{64}$' "$tmp_dir/boot/custom-uefi/os8boot.cfg"
+    if [ "$x86_64_uefi_bootloader_sha256" != "$(sha256_file "$tmp_dir/boot/custom-uefi/BOOTX64.EFI")" ]; then
+      echo "error: compiled x86_64 provider media bootloader hash does not match packaged BOOTX64.EFI" >&2
+      exit 1
+    fi
+    if [ "$x86_64_uefi_startup_sha256" != "$(sha256_file "$tmp_dir/boot/custom-uefi/STARTUPX64.EFI")" ]; then
+      echo "error: compiled x86_64 provider media startup hash does not match packaged STARTUPX64.EFI" >&2
+      exit 1
+    fi
+    if [ "$x86_64_uefi_image_sha256" != "$(sha256_file "$tmp_dir/image/xnu-x86_64-uefi.img")" ]; then
+      echo "error: compiled x86_64 provider media image hash does not match packaged UEFI image" >&2
+      exit 1
+    fi
     if command -v mdir >/dev/null 2>&1 && command -v mtype >/dev/null 2>&1; then
       mdir -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/EFI/BOOT/BOOTX64.EFI >/dev/null
       mdir -i "$tmp_dir/image/xnu-x86_64-uefi.img" ::/EFI/OS8/STARTUPX64.EFI >/dev/null

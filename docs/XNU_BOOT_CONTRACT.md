@@ -117,3 +117,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - A compiled x86_64 provider media archive must include a FAT UEFI boot image
   at `image/xnu-x86_64-uefi.img` containing `/EFI/BOOT/BOOTX64.EFI`,
   `/EFI/OS8/STARTUPX64.EFI`, `/EFI/OS8/os8boot.cfg`, and `/boot/main.sys`.
+- A compiled provider media archive must publish SHA-256 hashes for the
+  packaged XNU kernel payload, and compiled x86_64 provider media must also
+  publish hashes for `BOOTX64.EFI`, `STARTUPX64.EFI`, and
+  `image/xnu-x86_64-uefi.img`; the provider media verifier must recompute and
+  compare each hash.
