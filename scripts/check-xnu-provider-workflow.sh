@@ -35,9 +35,12 @@ require_text 'make -f Makefile\.multiarch KERNEL_PROVIDER=xnu ARCH="\$\{\{[[:spa
 require_text 'grep -q '\''\^mode=compiled\$'\''' "compiled provider manifest assertion"
 require_text 'scripts/check-xnu-kernel-artifact\.sh "\$\{\{[[:space:]]*inputs\.arch[[:space:]]*\}\}"' "compiled Mach-O artifact verifier"
 require_text 'scripts/check-xnu-provider-media\.sh "\$\{\{[[:space:]]*inputs\.arch[[:space:]]*\}\}" "\$archive" compiled' "compiled provider media verifier"
+require_text 'XNU_COMPILED_UEFI_SMOKE_LOG=build/x86_64/xnu-smoke/qemu-serial\.log' "compiled smoke log capture"
 require_text 'check-xnu-compiled-uefi-boot-smoke' "compiled x86_64 UEFI handoff smoke"
+require_text 'Entered ExitBootServices; jumping to XNU kernel' "post-ExitBootServices handoff assertion"
 require_text 'git -C External/xnu status --porcelain=v1 --untracked-files=normal' "clean external checkout assertion"
 require_text 'actions/upload-artifact@v4' "provider artifact upload"
+require_text 'build/\$\{\{[[:space:]]*inputs\.arch[[:space:]]*\}\}/xnu-smoke/qemu-serial\.log' "compiled smoke log upload"
 
 if grep -Eq 'XNU_SOURCE_VALIDATION_ONLY=1' "$workflow"; then
   echo "error: real XNU provider workflow must not use source-validation mode" >&2

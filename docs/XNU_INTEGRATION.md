@@ -130,7 +130,8 @@ boot chain, while still stopping before any real XNU payload is required.
 `image/xnu-x86_64-uefi.img` through QEMU/OVMF and requires the startup executable
 to validate the compiled XNU payload, build boot inputs, exit boot services, and
 print the post-`ExitBootServices` serial handoff marker. The macOS provider
-workflow runs this for compiled x86_64 XNU media.
+workflow runs this for compiled x86_64 XNU media and uploads
+`build/x86_64/xnu-smoke/qemu-serial.log` as the preserved handoff evidence.
 
 The custom x86_64 startup executable now keeps the OS8 ELF path as the default
 and selects the XNU Mach-O64 path when `os8boot.cfg` contains

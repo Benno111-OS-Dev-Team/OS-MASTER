@@ -102,9 +102,24 @@ jobs:
             grep -q '^kernel_format=xnu$' build/x86_64/boot/custom-uefi/os8boot.cfg
             tar -tzf "$archive" | grep -q '^./boot/custom-uefi/STARTUPX64.EFI$'
             tar -tzf "$archive" | grep -q '^./image/xnu-x86_64-uefi.img$'
-            make -f Makefile.multiarch ARCH=x86_64 check-xnu-compiled-uefi-boot-smoke
+            mkdir -p build/x86_64/xnu-smoke
+            XNU_COMPILED_UEFI_SMOKE_LOG=build/x86_64/xnu-smoke/qemu-serial.log \
+              make -f Makefile.multiarch ARCH=x86_64 check-xnu-compiled-uefi-boot-smoke
+            grep -q 'Entered ExitBootServices; jumping to XNU kernel' build/x86_64/xnu-smoke/qemu-serial.log
           fi
           test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
+          {
+            echo "## XNU provider"
+            echo
+            echo "- arch: ${{ inputs.arch }}"
+            echo "- source commit: $(awk -F= '$1 == "source_commit" { print $2 }' "$manifest")"
+            echo "- provider archive: $(shasum -a 256 "$archive" | awk '{ print $1 }')"
+            echo "- kernel artifact: $(shasum -a 256 "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel" | awk '{ print $1 }')"
+            if [ "${{ inputs.arch }}" = "x86_64" ]; then
+              echo "- compiled UEFI image: $(shasum -a 256 image/xnu-x86_64-uefi.img | awk '{ print $1 }')"
+              echo "- compiled smoke log: build/x86_64/xnu-smoke/qemu-serial.log"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload XNU provider media
         uses: actions/upload-artifact@v4
@@ -115,4 +130,5 @@ jobs:
             build/${{ inputs.arch }}/kernel/xnu-provider.manifest
             build/${{ inputs.arch }}/boot/custom-uefi/STARTUPX64.EFI
             build/${{ inputs.arch }}/boot/custom-uefi/os8boot.cfg
+            build/${{ inputs.arch }}/xnu-smoke/qemu-serial.log
             image/xnu-x86_64-uefi.img

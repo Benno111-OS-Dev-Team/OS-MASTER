@@ -11,6 +11,10 @@ work_dir="${TMPDIR:-/tmp}/os8-xnu-compiled-uefi-smoke.$$"
 serial_log="$work_dir/qemu-serial.log"
 
 cleanup() {
+  if [ -n "${XNU_COMPILED_UEFI_SMOKE_LOG:-}" ] && [ -f "$serial_log" ]; then
+    mkdir -p "$(dirname "$XNU_COMPILED_UEFI_SMOKE_LOG")"
+    cp "$serial_log" "$XNU_COMPILED_UEFI_SMOKE_LOG"
+  fi
   rm -rf "$work_dir"
 }
 trap cleanup EXIT
