@@ -14,7 +14,7 @@ UNAME_S := $(shell uname -s)
 
 .PHONY: all kernel image sdk qemu qemu-bios qemu-uefi qemu-debug clean distclean \
         check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff check-xnu-entry-handoff \
-        storage-format-stress storage-driver-compile-check custom-uefi-chain \
+        storage-format-stress storage-driver-compile-check custom-uefi-chain xnu-uefi-chain \
         os8-all os8-kernel os8-image xnu-kernel xnu-image \
         x86_64 x86_64-kernel x86_64-image x86_64-qemu x86_64-qemu-bios \
         x86_64-qemu-uefi x86_64-qemu-debug \
@@ -22,7 +22,7 @@ UNAME_S := $(shell uname -s)
 
 all kernel image sdk qemu qemu-bios qemu-uefi qemu-debug clean check-source-complete \
 check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff check-xnu-entry-handoff storage-format-stress storage-driver-compile-check \
-custom-uefi-chain xnu-kernel xnu-image:
+custom-uefi-chain xnu-uefi-chain xnu-kernel xnu-image:
 	@$(MAKE) $(MULTIARCH_ARGS) $@
 
 os8-all:

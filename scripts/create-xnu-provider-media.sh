@@ -26,6 +26,7 @@ handoff_script="scripts/create-xnu-boot-handoff.sh"
 boot_plan_script="scripts/create-xnu-boot-plan.sh"
 handoff_manifest="$build_dir/xnu-boot/xnu-boot-handoff.manifest"
 boot_plan_manifest="$build_dir/xnu-boot/xnu-boot-plan.manifest"
+xnu_uefi_dir="$build_dir/boot/custom-uefi"
 
 if [ ! -f "$manifest" ]; then
   echo "error: XNU provider manifest is missing: $manifest" >&2
@@ -91,6 +92,20 @@ else
   payload_mode="source-validation"
 fi
 
+if [ "$payload_mode" = "compiled" ] && [ "$arch" = "x86_64" ]; then
+  for required in "$xnu_uefi_dir/BOOTX64.EFI" "$xnu_uefi_dir/STARTUPX64.EFI" "$xnu_uefi_dir/os8boot.cfg"; do
+    if [ ! -s "$required" ]; then
+      echo "error: compiled x86_64 XNU provider media is missing custom UEFI artifact: $required" >&2
+      echo "hint: run make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 xnu-uefi-chain" >&2
+      exit 1
+    fi
+  done
+  mkdir -p "$media_root/boot/custom-uefi"
+  cp "$xnu_uefi_dir/BOOTX64.EFI" "$media_root/boot/custom-uefi/BOOTX64.EFI"
+  cp "$xnu_uefi_dir/STARTUPX64.EFI" "$media_root/boot/custom-uefi/STARTUPX64.EFI"
+  cp "$xnu_uefi_dir/os8boot.cfg" "$media_root/boot/custom-uefi/os8boot.cfg"
+fi
+
 bash "$handoff_script" "$arch" "$build_dir" "$kernel_artifact" "$payload_mode"
 bash "$boot_plan_script" "$arch" "$build_dir" "$kernel_artifact" "$payload_mode"
 cp "$handoff_manifest" "$media_root/metadata/xnu-boot-handoff.manifest"
@@ -112,6 +127,11 @@ cp "$boot_plan_manifest" "$media_root/metadata/xnu-boot-plan.manifest"
   printf 'x86_64_startup_loader=boot/custom/startup.c\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'boot_plan=metadata/xnu-boot-plan.manifest\n'
+  if [ "$payload_mode" = "compiled" ] && [ "$arch" = "x86_64" ]; then
+    printf 'x86_64_uefi_boot=boot/custom-uefi\n'
+    printf 'x86_64_uefi_config=boot/custom-uefi/os8boot.cfg\n'
+    printf 'x86_64_uefi_startup=boot/custom-uefi/STARTUPX64.EFI\n'
+  fi
 } > "$media_root/metadata/media.manifest"
 
 cat > "$media_root/README.txt" <<EOF

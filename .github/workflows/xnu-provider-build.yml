@@ -67,7 +67,11 @@ jobs:
           fi
           SDKROOT="${{ inputs.sdkroot }}" \
           KERNEL_CONFIGS="${{ inputs.kernel_configs }}" \
-          make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH="${{ inputs.arch }}" image
+          make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH="${{ inputs.arch }}" kernel
+          if [ "${{ inputs.arch }}" = "x86_64" ]; then
+            make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 xnu-uefi-chain
+          fi
+          make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH="${{ inputs.arch }}" xnu-image
 
       - name: Verify XNU provider output
         run: |
@@ -82,6 +86,11 @@ jobs:
           grep -q '^source_state=clean$' "$manifest"
           test -s "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
           bash scripts/check-xnu-provider-media.sh "${{ inputs.arch }}" "$archive" compiled
+          if [ "${{ inputs.arch }}" = "x86_64" ]; then
+            test -s build/x86_64/boot/custom-uefi/STARTUPX64.EFI
+            grep -q '^kernel_format=xnu$' build/x86_64/boot/custom-uefi/os8boot.cfg
+            tar -tzf "$archive" | grep -q '^./boot/custom-uefi/STARTUPX64.EFI$'
+          fi
           test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
 
       - name: Upload XNU provider media
@@ -91,3 +100,5 @@ jobs:
           path: |
             image/xnu-${{ inputs.arch }}-provider.tar.gz
             build/${{ inputs.arch }}/kernel/xnu-provider.manifest
+            build/${{ inputs.arch }}/boot/custom-uefi/STARTUPX64.EFI
+            build/${{ inputs.arch }}/boot/custom-uefi/os8boot.cfg

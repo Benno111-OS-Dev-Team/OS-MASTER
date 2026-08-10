@@ -98,6 +98,13 @@ and selects the XNU Mach-O64 path when `os8boot.cfg` contains
 loads its segments, prepares the XNU EFI `boot_args`, captures the final EFI
 memory map, and enters through `startup_enter_xnu_kernel`.
 
+For compiled x86_64 XNU providers, `make -f Makefile.multiarch
+KERNEL_PROVIDER=xnu ARCH=x86_64 xnu-uefi-chain` builds the custom UEFI startup
+artifacts with `kernel_format=xnu` and a SHA-256 hash for the compiled XNU
+payload. The macOS XNU provider workflow runs this before packaging media, and
+compiled x86_64 provider archives must include `boot/custom-uefi/STARTUPX64.EFI`
+and `boot/custom-uefi/os8boot.cfg`.
+
 Local usage:
 
 ```sh
