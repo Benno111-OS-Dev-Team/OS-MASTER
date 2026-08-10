@@ -67,8 +67,12 @@ media intentionally does not produce a bootable XNU image because it contains no
 compiled kernel payload, and CI rejects source-validation archives that carry a
 stale kernel payload or bootable XNU UEFI artifacts.
 
-Numbered CI releases publish XNU provider media for both `x86_64` and `arm64`
-next to the OS8 compatibility boot media.
+Numbered Ubuntu CI releases publish XNU source-validation provider media for
+both `x86_64` and `arm64` next to the OS8 compatibility boot media. The release
+notes list those archives under provider media rather than bootable media,
+because they prove the external read-only XNU boundary but are not compiled
+kernel replacements. Compiled XNU provider media and proof manifests come from
+the manual macOS `XNU Provider Build` workflow.
 
 Each `metadata/xnu-provider.manifest` records the external source origin,
 commit, and cleanliness state. CI asserts that release provider media is sourced

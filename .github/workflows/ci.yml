@@ -61,6 +61,7 @@ jobs:
           make check-xnu-entry-handoff
           make check-xnu-provider-workflow
           make check-xnu-provider-proof-fixture
+          make check-xnu-ci-release-contract
           make ARCH=x86_64 check-xnu-uefi-boot-image
           make ARCH=x86_64 check-xnu-uefi-boot-smoke
           make ARCH=x86_64 check-xnu-boot-surface
@@ -159,8 +160,7 @@ jobs:
           - x86_64 installer: success
           - ARM64 ISO: success
           - ARM64 installer: success
-          - XNU x86_64 provider media: success
-          - XNU ARM64 provider media: success
+          - XNU source-validation provider media: success
 
           ## Bootable Media
 
@@ -173,8 +173,14 @@ jobs:
           - \`os8-build-${{ github.run_number }}-arm64.iso.xz\`
           - \`os8-build-${{ github.run_number }}-arm64-installer.iso\`
           - \`os8-build-${{ github.run_number }}-arm64-installer.iso.xz\`
+
+          ## Provider Media
+
           - \`os8-build-${{ github.run_number }}-xnu-x86_64-provider.tar.gz\`
           - \`os8-build-${{ github.run_number }}-xnu-arm64-provider.tar.gz\`
+
+          Source-validation XNU provider archives are not bootable kernel replacements.
+          Run the manual macOS \`XNU Provider Build\` workflow for compiled XNU provider media and proof manifests.
 
           ## Branch
           - \`${{ github.ref_name }}\`

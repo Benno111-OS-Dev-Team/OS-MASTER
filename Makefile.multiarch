@@ -37,6 +37,7 @@ XNU_COMPILED_UEFI_SMOKE_CHECK_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-compiled-u
 XNU_PROVIDER_WORKFLOW_CHECK_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-provider-workflow.sh
 XNU_PROVIDER_PROOF_CHECK_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-provider-proof.sh
 XNU_PROVIDER_PROOF_FIXTURE_CHECK_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-provider-proof-fixture.sh
+XNU_CI_RELEASE_CHECK_SCRIPT := $(ROOT_DIR)/scripts/check-xnu-ci-release-contract.sh
 DRIVERS_DIR := $(ROOT_DIR)/drivers
 LIBC_DIR := $(ROOT_DIR)/libc
 USERSPACE_DIR := $(ROOT_DIR)/userspace
@@ -249,7 +250,7 @@ ALL_DEPFILES := $(ALL_OBJECTS:.o=.d)
 # Main Targets
 # ============================================================================
 
-.PHONY: all clean check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff check-xnu-entry-handoff check-xnu-uefi-boot-image check-xnu-uefi-boot-smoke check-xnu-compiled-uefi-boot-smoke check-xnu-provider-workflow check-xnu-provider-proof check-xnu-provider-proof-fixture require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain xnu-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
+.PHONY: all clean check-source-complete check-xnu-integration check-xnu-build-env check-xnu-boot-abi check-xnu-boot-surface check-xnu-uefi-handoff check-xnu-entry-handoff check-xnu-uefi-boot-image check-xnu-uefi-boot-smoke check-xnu-compiled-uefi-boot-smoke check-xnu-provider-workflow check-xnu-provider-proof check-xnu-provider-proof-fixture check-xnu-ci-release-contract require-os8-kernel-provider storage-format-stress storage-driver-compile-check custom-uefi-chain xnu-uefi-chain kernel os8-kernel xnu-kernel sdk image os8-image xnu-image system-image install-boot-files installer-image dos-installer dos-env-image qemu qemu-bios qemu-uefi qemu-debug help assets
 .NOTPARALLEL: image system-image install-boot-files installer-image dos-env-image dos-installer qemu qemu-bios qemu-uefi qemu-debug
 
 all: check-source-complete kernel image
@@ -341,6 +342,9 @@ endif
 
 check-xnu-provider-proof-fixture:
 	@bash "$(XNU_PROVIDER_PROOF_FIXTURE_CHECK_SCRIPT)"
+
+check-xnu-ci-release-contract:
+	@bash "$(XNU_CI_RELEASE_CHECK_SCRIPT)"
 
 require-os8-kernel-provider:
 ifneq ($(KERNEL_PROVIDER),os8)
