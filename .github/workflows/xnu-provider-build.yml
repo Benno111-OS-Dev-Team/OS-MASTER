@@ -1,0 +1,85 @@
+name: XNU Provider Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: XNU architecture to build
+        required: true
+        default: x86_64
+        type: choice
+        options:
+          - x86_64
+          - arm64
+      sdkroot:
+        description: SDKROOT passed to the XNU build
+        required: true
+        default: macosx
+      kernel_configs:
+        description: KERNEL_CONFIGS passed to the XNU build
+        required: true
+        default: RELEASE
+      kdkroot:
+        description: Optional KDKROOT passed to the XNU build
+        required: false
+        default: ''
+
+jobs:
+  xnu-provider:
+    name: Build external XNU provider
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout OS8 integration
+        uses: actions/checkout@v4
+
+      - name: Fetch external XNU source
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/apple-oss-distributions/xnu.git External/xnu
+          chmod -R a-w External/xnu
+
+      - name: Inspect macOS build host
+        run: |
+          set -euxo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk "${{ inputs.sdkroot }}" --show-sdk-path
+
+      - name: Build selected XNU provider
+        run: |
+          set -euxo pipefail
+          if [ -n "${{ inputs.kdkroot }}" ]; then
+            export KDKROOT="${{ inputs.kdkroot }}"
+          fi
+          SDKROOT="${{ inputs.sdkroot }}" \
+          KERNEL_CONFIGS="${{ inputs.kernel_configs }}" \
+          make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH="${{ inputs.arch }}" image
+
+      - name: Verify XNU provider output
+        run: |
+          set -euxo pipefail
+          manifest="build/${{ inputs.arch }}/kernel/xnu-provider.manifest"
+          archive="image/xnu-${{ inputs.arch }}-provider.tar.gz"
+          test -s "$manifest"
+          grep -q '^provider=xnu$' "$manifest"
+          grep -q '^mode=compiled$' "$manifest"
+          grep -q '^source_origin=https://github.com/apple-oss-distributions/xnu.git$' "$manifest"
+          grep -Eq '^source_commit=[0-9a-f]{40}$' "$manifest"
+          grep -q '^source_state=clean$' "$manifest"
+          test -s "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
+          test -s "$archive"
+          tar -tzf "$archive" | grep -q './kernel/xnu-${{ inputs.arch }}.kernel'
+          tar -tzf "$archive" | grep -q './metadata/xnu-provider.manifest'
+          tar -tzf "$archive" | grep -q './metadata/media.manifest'
+          test ! -d External/xnu/BUILD
+
+      - name: Upload XNU provider media
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-${{ inputs.arch }}-provider
+          path: |
+            image/xnu-${{ inputs.arch }}-provider.tar.gz
+            build/${{ inputs.arch }}/kernel/xnu-provider.manifest

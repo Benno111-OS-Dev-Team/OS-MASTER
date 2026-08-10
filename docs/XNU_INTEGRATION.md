@@ -15,6 +15,11 @@ on Ubuntu. Real XNU compilation is driven by `scripts/build-xnu-kernel.sh` on
 macOS with Xcode and matching Apple kernel dependencies, with all generated
 objects rooted under `build/<arch>/xnu`.
 
+The `XNU Provider Build` workflow is a manual macOS CI path for real XNU
+provider compilation. It fetches XNU as read-only external input, runs the same
+`KERNEL_PROVIDER=xnu` Makefile path, verifies the compiled provider artifact and
+media archive, and uploads the provider media as a workflow artifact.
+
 The selected kernel payload path is provider-owned:
 
 - XNU: `build/<arch>/kernel/xnu-<arch>.kernel`
