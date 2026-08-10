@@ -19,6 +19,7 @@ must live under project-owned paths.
 - x86_64 entry handoff shim: `boot/custom/startup-handoff.S`
 - x86_64 startup loader: `boot/custom/startup.c`
 - Source boot surface verifier: `scripts/check-xnu-boot-surface.sh`
+- x86_64 UEFI boot smoke verifier: `scripts/check-xnu-uefi-boot-smoke.sh`
 - Provider media: `image/xnu-<arch>-provider.tar.gz`
 
 The provider manifest must identify the external source origin, commit, source
@@ -80,6 +81,9 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   the upstream x86_64 `boot_args.kaddr` field can address the kernel payload.
 - The x86_64 UEFI boot image creator must be covered by CI with a synthetic
   XNU-format payload and mtools inspection of the generated FAT image layout.
+- The x86_64 UEFI boot chain must be covered by CI with an OVMF smoke test that
+  reaches the custom startup executable and exercises the XNU Mach-O validation
+  path.
 - The packaged Mach-O payload inspector must compile against the packaged ABI
   and expose validated segment file offsets, virtual ranges, protections, and
   entry metadata for the selected architecture before a loader enters XNU.

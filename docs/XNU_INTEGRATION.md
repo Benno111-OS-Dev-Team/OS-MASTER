@@ -105,6 +105,11 @@ custom UEFI startup config, creates the FAT `xnu-x86_64-uefi.img`, and inspects
 the image with mtools to prove the startup files, config, and `/boot/main.sys`
 payload are staged where the XNU startup path expects them.
 
+`make ARCH=x86_64 check-xnu-uefi-boot-smoke` boots the synthetic XNU UEFI image
+through QEMU/OVMF and requires the custom startup executable to reach the XNU
+Mach-O validation error path. This proves the firmware can load the XNU-configured
+boot chain, while still stopping before any real XNU payload is required.
+
 The custom x86_64 startup executable now keeps the OS8 ELF path as the default
 and selects the XNU Mach-O64 path when `os8boot.cfg` contains
 `kernel_format=xnu`. That path validates the trusted payload as XNU Mach-O64,
