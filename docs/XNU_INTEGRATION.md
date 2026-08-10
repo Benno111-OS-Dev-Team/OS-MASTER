@@ -47,6 +47,10 @@ Each `metadata/xnu-provider.manifest` records the external source origin,
 commit, and cleanliness state. CI asserts that release provider media is sourced
 from the standalone Apple OSS XNU checkout and that the checkout is clean.
 
+Each provider media archive also includes `docs/XNU_BOOT_CONTRACT.md`, which
+defines the repository-owned loader handoff requirements for making the XNU
+provider bootable.
+
 Local usage:
 
 ```sh

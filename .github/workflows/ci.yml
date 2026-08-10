@@ -67,10 +67,14 @@ jobs:
           test -s image/xnu-x86_64-provider.tar.gz
           tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './metadata/xnu-provider.manifest'
           tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './metadata/media.manifest'
+          tar -tzf image/xnu-x86_64-provider.tar.gz | grep -q './docs/XNU_BOOT_CONTRACT.md'
+          tar -xOzf image/xnu-x86_64-provider.tar.gz ./metadata/media.manifest | grep -q '^boot_contract=docs/XNU_BOOT_CONTRACT.md$'
           XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=arm64 image
           test -s image/xnu-arm64-provider.tar.gz
           tar -tzf image/xnu-arm64-provider.tar.gz | grep -q './metadata/xnu-provider.manifest'
           tar -tzf image/xnu-arm64-provider.tar.gz | grep -q './metadata/media.manifest'
+          tar -tzf image/xnu-arm64-provider.tar.gz | grep -q './docs/XNU_BOOT_CONTRACT.md'
+          tar -xOzf image/xnu-arm64-provider.tar.gz ./metadata/media.manifest | grep -q '^boot_contract=docs/XNU_BOOT_CONTRACT.md$'
           make -f Makefile.multiarch storage-format-stress
           make -f Makefile.multiarch storage-driver-compile-check
 

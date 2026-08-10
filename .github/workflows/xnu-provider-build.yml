@@ -85,6 +85,8 @@ jobs:
           tar -tzf "$archive" | grep -q './kernel/xnu-${{ inputs.arch }}.kernel'
           tar -tzf "$archive" | grep -q './metadata/xnu-provider.manifest'
           tar -tzf "$archive" | grep -q './metadata/media.manifest'
+          tar -tzf "$archive" | grep -q './docs/XNU_BOOT_CONTRACT.md'
+          tar -xOzf "$archive" ./metadata/media.manifest | grep -q '^boot_contract=docs/XNU_BOOT_CONTRACT.md$'
           test ! -d External/xnu/BUILD
 
       - name: Upload XNU provider media
