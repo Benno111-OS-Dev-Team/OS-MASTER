@@ -33,9 +33,10 @@ tar -xzf "$archive" -C "$tmp_dir"
 
 provider_manifest="$tmp_dir/metadata/xnu-provider.manifest"
 media_manifest="$tmp_dir/metadata/media.manifest"
+handoff_manifest="$tmp_dir/metadata/xnu-boot-handoff.manifest"
 boot_contract="$tmp_dir/docs/XNU_BOOT_CONTRACT.md"
 
-for required in "$provider_manifest" "$media_manifest" "$boot_contract"; do
+for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_contract"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider archive is missing required file: ${required#$tmp_dir/}" >&2
     exit 1
@@ -59,6 +60,7 @@ kernel_artifact="$(manifest_value kernel_artifact "$media_manifest")"
 payload_mode="$(manifest_value payload_mode "$media_manifest")"
 source_policy="$(manifest_value external_source_policy "$media_manifest")"
 contract_path="$(manifest_value boot_contract "$media_manifest")"
+handoff_path="$(manifest_value boot_handoff "$media_manifest")"
 
 if [ "$provider" != "xnu" ] || [ "$media_provider" != "xnu" ]; then
   echo "error: provider media does not identify the XNU provider" >&2
@@ -77,6 +79,11 @@ fi
 
 if [ "$contract_path" != "docs/XNU_BOOT_CONTRACT.md" ]; then
   echo "error: provider media points at unexpected boot contract: $contract_path" >&2
+  exit 1
+fi
+
+if [ "$handoff_path" != "metadata/xnu-boot-handoff.manifest" ]; then
+  echo "error: provider media points at unexpected boot handoff: $handoff_path" >&2
   exit 1
 fi
 
@@ -109,6 +116,34 @@ fi
 
 if [ -z "$source_origin" ] || [ -z "$source_commit" ] || [ -z "$source_state" ]; then
   echo "error: provider manifest is missing source identity fields" >&2
+  exit 1
+fi
+
+handoff_provider="$(manifest_value provider "$handoff_manifest")"
+handoff_arch="$(manifest_value arch "$handoff_manifest")"
+handoff_kernel="$(manifest_value kernel_artifact "$handoff_manifest")"
+handoff_payload="$(manifest_value payload_mode "$handoff_manifest")"
+handoff_policy="$(manifest_value external_source_policy "$handoff_manifest")"
+
+for required_key in contract_version boot_args memory_map firmware_state cpu_topology timer platform_data framebuffer early_userspace; do
+  if ! manifest_value "$required_key" "$handoff_manifest" >/dev/null; then
+    echo "error: boot handoff manifest is missing required key: $required_key" >&2
+    exit 1
+  fi
+done
+
+if [ "$handoff_provider" != "xnu" ] || [ "$handoff_arch" != "$arch" ]; then
+  echo "error: boot handoff manifest does not match XNU provider architecture" >&2
+  exit 1
+fi
+
+if [ "$handoff_kernel" != "$kernel_artifact" ] || [ "$handoff_payload" != "$payload_mode" ]; then
+  echo "error: boot handoff manifest does not match media payload metadata" >&2
+  exit 1
+fi
+
+if [ "$handoff_policy" != "read-only" ]; then
+  echo "error: boot handoff manifest does not preserve read-only source policy" >&2
   exit 1
 fi
 

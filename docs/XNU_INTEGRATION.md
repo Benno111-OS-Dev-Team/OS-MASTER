@@ -53,7 +53,8 @@ provider bootable.
 
 `scripts/check-xnu-provider-media.sh` is the CI gate for provider archives. It
 validates the provider manifest, media manifest, boot contract, source policy,
-architecture, payload mode, and compiled kernel payload when present.
+architecture, payload mode, generated boot handoff manifest, and compiled
+kernel payload when present.
 
 Local usage:
 

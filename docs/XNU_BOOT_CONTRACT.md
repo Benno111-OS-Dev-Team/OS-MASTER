@@ -9,6 +9,7 @@ must live under project-owned paths.
 
 - Kernel payload: `build/<arch>/kernel/xnu-<arch>.kernel`
 - Provider manifest: `build/<arch>/kernel/xnu-provider.manifest`
+- Boot handoff manifest: `build/<arch>/xnu-boot/xnu-boot-handoff.manifest`
 - Provider media: `image/xnu-<arch>-provider.tar.gz`
 
 The provider manifest must identify the external source origin, commit, source
@@ -34,6 +35,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
 - Generated loader metadata must be staged under `build/<arch>/`.
 - Release or workflow artifacts must include this contract with the provider
   media.
+- Release or workflow artifacts must include the generated boot handoff
+  manifest with the provider media.
 - A provider media archive that does not contain a compiled kernel payload must
   mark `payload_mode=source-validation`.
 - A provider media archive that contains a compiled kernel payload must mark
