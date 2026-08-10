@@ -60,6 +60,7 @@ jobs:
           make check-xnu-uefi-handoff
           make check-xnu-entry-handoff
           make check-xnu-provider-workflow
+          make check-xnu-provider-proof-fixture
           make ARCH=x86_64 check-xnu-uefi-boot-image
           make ARCH=x86_64 check-xnu-uefi-boot-smoke
           make ARCH=x86_64 check-xnu-boot-surface
