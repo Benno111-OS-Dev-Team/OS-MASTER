@@ -24,6 +24,10 @@ The `XNU Provider Build` workflow is a manual macOS CI path for real XNU
 provider compilation. It fetches XNU as read-only external input, runs the same
 `KERNEL_PROVIDER=xnu` Makefile path, verifies the compiled provider artifact and
 media archive, and uploads the provider media as a workflow artifact.
+Normal Ubuntu CI runs `make check-xnu-provider-workflow` so edits cannot silently
+remove the real-build environment check, read-only external checkout policy,
+compiled artifact/media verification, or x86_64 compiled UEFI smoke gate from
+that macOS workflow.
 
 Before the macOS build starts, `make -f Makefile.multiarch
 KERNEL_PROVIDER=xnu ARCH=<arch> check-xnu-build-env` verifies the Xcode tools,
