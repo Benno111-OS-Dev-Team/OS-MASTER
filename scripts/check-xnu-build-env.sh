@@ -56,7 +56,9 @@ if [ "$origin" != "https://github.com/apple-oss-distributions/xnu.git" ]; then
   exit 1
 fi
 
-if ! git -C "$xnu_dir" diff --quiet || ! git -C "$xnu_dir" diff --cached --quiet; then
+source_status="$(git -C "$xnu_dir" status --porcelain=v1 --untracked-files=normal)"
+if [ -n "$source_status" ]; then
+  printf '%s\n' "$source_status" >&2
   echo "error: XNU source checkout must be clean before compilation" >&2
   exit 1
 fi

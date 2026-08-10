@@ -82,7 +82,7 @@ jobs:
           grep -q '^source_state=clean$' "$manifest"
           test -s "build/${{ inputs.arch }}/kernel/xnu-${{ inputs.arch }}.kernel"
           bash scripts/check-xnu-provider-media.sh "${{ inputs.arch }}" "$archive" compiled
-          test ! -d External/xnu/BUILD
+          test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
 
       - name: Upload XNU provider media
         uses: actions/upload-artifact@v4

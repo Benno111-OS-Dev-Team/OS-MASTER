@@ -29,13 +29,15 @@ xnu_abs="$(cd "$xnu_dir" && pwd -P)"
 source_origin="unversioned"
 source_commit="unavailable"
 source_state="unversioned"
+source_status=""
 git_top="$(git -C "$xnu_dir" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$git_top" ]; then
   git_top_abs="$(cd "$git_top" && pwd -P)"
   if [ "$git_top_abs" = "$xnu_abs" ]; then
     source_origin="$(git -C "$xnu_dir" remote get-url origin 2>/dev/null || printf 'none')"
     source_commit="$(git -C "$xnu_dir" rev-parse HEAD)"
-    if git -C "$xnu_dir" diff --quiet && git -C "$xnu_dir" diff --cached --quiet; then
+    source_status="$(git -C "$xnu_dir" status --porcelain=v1 --untracked-files=normal)"
+    if [ -z "$source_status" ]; then
       source_state="clean"
     else
       source_state="modified"
@@ -45,6 +47,14 @@ if [ -n "$git_top" ]; then
     source_commit="unavailable"
     source_state="not-standalone-git-tree"
   fi
+fi
+
+if [ "$source_state" != "clean" ]; then
+  if [ -n "$source_status" ]; then
+    printf '%s\n' "$source_status" >&2
+  fi
+  echo "error: XNU source checkout must be a clean standalone external input" >&2
+  exit 1
 fi
 
 host="$(uname -s)"
@@ -81,6 +91,13 @@ make -C "$xnu_dir" \
   OBJROOT="$xnu_build_root/obj" \
   SYMROOT="$xnu_build_root/sym" \
   DSTROOT="$xnu_build_root/dst"
+
+post_build_status="$(git -C "$xnu_dir" status --porcelain=v1 --untracked-files=normal)"
+if [ -n "$post_build_status" ]; then
+  printf '%s\n' "$post_build_status" >&2
+  echo "error: XNU build changed the external source checkout" >&2
+  exit 1
+fi
 
 xnu_kernel="$(find "$xnu_build_root/obj" "$xnu_build_root/sym" "$xnu_build_root/dst" \
   -type f \( -name 'kernel' -o -name 'kernel.*' \) | head -n1)"

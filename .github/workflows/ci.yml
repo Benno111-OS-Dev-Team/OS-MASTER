@@ -62,11 +62,12 @@ jobs:
           grep -Eq '^source_commit=[0-9a-f]{40}$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^source_state=clean$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^artifact=.*/build/x86_64/kernel/xnu-x86_64.kernel$' build/x86_64/kernel/xnu-provider.manifest
-          test ! -d External/xnu/BUILD
+          test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
           XNU_SOURCE_VALIDATION_ONLY=1 make ARCH=x86_64 image
           bash scripts/check-xnu-provider-media.sh x86_64 image/xnu-x86_64-provider.tar.gz source-validation
           XNU_SOURCE_VALIDATION_ONLY=1 make ARCH=arm64 image
           bash scripts/check-xnu-provider-media.sh arm64 image/xnu-arm64-provider.tar.gz source-validation
+          test -z "$(git -C External/xnu status --porcelain=v1 --untracked-files=normal)"
           make storage-format-stress
           make storage-driver-compile-check
 
