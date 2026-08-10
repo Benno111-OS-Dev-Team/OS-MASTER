@@ -25,6 +25,7 @@ kernel_dir="$build_abs/kernel"
 xnu_build_root="$build_abs/xnu"
 provider_artifact="$kernel_dir/xnu-$arch.kernel"
 manifest="$kernel_dir/xnu-provider.manifest"
+kernel_artifact_check_script="$(dirname "$0")/check-xnu-kernel-artifact.sh"
 mkdir -p "$kernel_dir" "$xnu_build_root/obj" "$xnu_build_root/sym" "$xnu_build_root/dst"
 
 xnu_abs="$(cd "$xnu_dir" && pwd -P)"
@@ -112,6 +113,7 @@ if [ -z "$xnu_kernel" ]; then
   exit 1
 fi
 
+bash "$kernel_artifact_check_script" "$arch" "$xnu_kernel" >/dev/null
 cp "$xnu_kernel" "$provider_artifact"
 {
   printf 'provider=xnu\n'

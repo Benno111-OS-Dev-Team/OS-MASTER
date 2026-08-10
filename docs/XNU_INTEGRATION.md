@@ -16,7 +16,9 @@ source-validation mode on Ubuntu. The provider path requires the standalone XNU
 checkout to remain clean, including untracked generated files. Real XNU
 compilation is driven by `scripts/build-xnu-kernel.sh` on macOS with Xcode and
 matching Apple kernel dependencies, with all generated objects rooted under
-`build/<arch>/xnu`.
+`build/<arch>/xnu`. The build wrapper validates the discovered compiled kernel
+with the repository-owned Mach-O artifact verifier before staging it as
+`build/<arch>/kernel/xnu-<arch>.kernel`.
 
 The `XNU Provider Build` workflow is a manual macOS CI path for real XNU
 provider compilation. It fetches XNU as read-only external input, runs the same
