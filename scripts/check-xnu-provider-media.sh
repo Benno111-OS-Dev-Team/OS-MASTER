@@ -38,10 +38,11 @@ boot_plan_manifest="$tmp_dir/metadata/xnu-boot-plan.manifest"
 boot_contract="$tmp_dir/docs/XNU_BOOT_CONTRACT.md"
 handoff_abi="$tmp_dir/boot/xnu/xnu_boot_handoff.h"
 handoff_builder="$tmp_dir/boot/xnu/xnu_boot_handoff_builder.h"
+macho_loader="$tmp_dir/boot/xnu/xnu_macho_loader.h"
 abi_check_script="scripts/check-xnu-boot-abi.sh"
 abi_manifest="$tmp_dir/metadata/xnu-boot-abi.generated"
 
-for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_plan_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder"; do
+for required in "$provider_manifest" "$media_manifest" "$handoff_manifest" "$boot_plan_manifest" "$boot_contract" "$handoff_abi" "$handoff_builder" "$macho_loader"; do
   if [ ! -s "$required" ]; then
     echo "error: XNU provider archive is missing required file: ${required#$tmp_dir/}" >&2
     exit 1
@@ -84,6 +85,7 @@ source_policy="$(manifest_value external_source_policy "$media_manifest")"
 contract_path="$(manifest_value boot_contract "$media_manifest")"
 handoff_abi_path="$(manifest_value handoff_abi "$media_manifest")"
 handoff_builder_path="$(manifest_value handoff_builder "$media_manifest")"
+macho_loader_path="$(manifest_value macho_loader "$media_manifest")"
 handoff_path="$(manifest_value boot_handoff "$media_manifest")"
 boot_plan_path="$(manifest_value boot_plan "$media_manifest")"
 
@@ -114,6 +116,11 @@ fi
 
 if [ "$handoff_builder_path" != "boot/xnu/xnu_boot_handoff_builder.h" ]; then
   echo "error: provider media points at unexpected boot handoff builder: $handoff_builder_path" >&2
+  exit 1
+fi
+
+if [ "$macho_loader_path" != "boot/xnu/xnu_macho_loader.h" ]; then
+  echo "error: provider media points at unexpected Mach-O loader contract: $macho_loader_path" >&2
   exit 1
 fi
 
@@ -285,6 +292,7 @@ boot_plan_payload="$(manifest_value payload_mode "$boot_plan_manifest")"
 boot_plan_policy="$(manifest_value external_source_policy "$boot_plan_manifest")"
 boot_plan_abi="$(manifest_value handoff_abi "$boot_plan_manifest")"
 boot_plan_builder="$(manifest_value handoff_builder "$boot_plan_manifest")"
+boot_plan_macho_loader="$(manifest_value macho_loader "$boot_plan_manifest")"
 boot_plan_handoff="$(manifest_value boot_handoff "$boot_plan_manifest")"
 boot_plan_platform_kind="$(manifest_value platform_kind "$boot_plan_manifest")"
 boot_plan_arch_id="$(manifest_value handoff_arch_id "$boot_plan_manifest")"
@@ -305,6 +313,7 @@ if [ "$boot_plan_provider" != "xnu" ] ||
    [ "$boot_plan_policy" != "read-only" ] ||
    [ "$boot_plan_abi" != "boot/xnu/xnu_boot_handoff.h" ] ||
    [ "$boot_plan_builder" != "boot/xnu/xnu_boot_handoff_builder.h" ] ||
+   [ "$boot_plan_macho_loader" != "boot/xnu/xnu_macho_loader.h" ] ||
    [ "$boot_plan_handoff" != "metadata/xnu-boot-handoff.manifest" ]; then
   echo "error: boot plan manifest does not match provider media metadata" >&2
   exit 1
@@ -329,5 +338,7 @@ grep -q 'OS8_XNU_ARCH_ARM64 2U' "$handoff_abi"
 grep -q 'OS8_XNU_PLATFORM_ACPI 1U' "$handoff_abi"
 grep -q 'OS8_XNU_PLATFORM_DEVICE_TREE 2U' "$handoff_abi"
 grep -q 'os8_xnu_boot_handoff_t' "$handoff_abi"
+grep -q 'OS8_XNU_MH_MAGIC_64 0xFEEDFACFULL' "$macho_loader"
+grep -q 'os8_xnu_macho64_inspect' "$macho_loader"
 
 echo "[XNU] Provider media verified: $archive"

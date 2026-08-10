@@ -54,7 +54,9 @@ Each provider media archive also includes `docs/XNU_BOOT_CONTRACT.md`, which
 defines the repository-owned loader handoff requirements for making the XNU
 provider bootable. The media also carries `boot/xnu/xnu_boot_handoff.h` and
 `boot/xnu/xnu_boot_handoff_builder.h`, the repository-owned ABI and builder
-headers that loader code must use before entering XNU.
+headers that loader code must use before entering XNU. It also carries
+`boot/xnu/xnu_macho_loader.h`, the repository-owned Mach-O64 payload inspection
+contract for validating and locating selected XNU kernel payload ranges.
 
 `scripts/check-xnu-boot-surface.sh` verifies the selected external XNU checkout
 still exposes the architecture boot entry, boot argument fields, platform
@@ -64,8 +66,8 @@ The provider build path and CI both run this before accepting XNU media.
 `scripts/check-xnu-provider-media.sh` is the CI gate for provider archives. It
 validates the provider manifest, media manifest, boot contract, source policy,
 architecture, payload mode, generated boot handoff manifest, generated boot
-plan manifest, packaged boot handoff ABI, and compiled kernel payload when
-present.
+plan manifest, packaged boot handoff ABI, packaged Mach-O payload inspector,
+and compiled kernel payload when present.
 
 `make check-xnu-boot-abi` compiles a small C translation unit against
 `boot/xnu/xnu_boot_handoff.h` and verifies the magic, version, enum values,

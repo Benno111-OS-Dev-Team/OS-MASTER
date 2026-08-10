@@ -57,6 +57,7 @@ mkdir -p "$plan_dir"
   printf 'handoff_required_flags=%s\n' "$handoff_required_flags"
   printf 'handoff_abi=boot/xnu/xnu_boot_handoff.h\n'
   printf 'handoff_builder=boot/xnu/xnu_boot_handoff_builder.h\n'
+  printf 'macho_loader=boot/xnu/xnu_macho_loader.h\n'
   printf 'boot_handoff=metadata/xnu-boot-handoff.manifest\n'
   printf 'loader_step_1=load-kernel-payload\n'
   printf 'loader_step_2=prepare-architecture-boot-args\n'

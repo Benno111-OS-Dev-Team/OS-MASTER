@@ -10,7 +10,9 @@ object_file="$work_dir/check.o"
 binary_file="$work_dir/check"
 local_header="$work_dir/xnu_boot_handoff.h"
 builder_header="$(dirname "$header")/xnu_boot_handoff_builder.h"
+macho_loader_header="$(dirname "$header")/xnu_macho_loader.h"
 local_builder="$work_dir/xnu_boot_handoff_builder.h"
+local_macho_loader="$work_dir/xnu_macho_loader.h"
 
 cleanup() {
   rm -rf "$work_dir"
@@ -36,6 +38,9 @@ cp "$header" "$local_header"
 if [ -f "$builder_header" ]; then
   cp "$builder_header" "$local_builder"
 fi
+if [ -f "$macho_loader_header" ]; then
+  cp "$macho_loader_header" "$local_macho_loader"
+fi
 cat > "$source_file" <<'C'
 #include <stddef.h>
 #include <stdio.h>
@@ -45,6 +50,12 @@ cat > "$source_file" <<'C'
 #if __has_include("xnu_boot_handoff_builder.h")
 #include "xnu_boot_handoff_builder.h"
 #define OS8_XNU_HAVE_BUILDER 1
+#endif
+#endif
+#ifdef __has_include
+#if __has_include("xnu_macho_loader.h")
+#include "xnu_macho_loader.h"
+#define OS8_XNU_HAVE_MACHO_LOADER 1
 #endif
 #endif
 
@@ -105,6 +116,46 @@ int main(void) {
       handoff.flags != (OS8_XNU_BOOT_FLAG_GRAPHICS | OS8_XNU_BOOT_FLAG_ACPI) ||
       handoff.platform_kind != OS8_XNU_PLATFORM_ACPI ||
       handoff.memory_map_entry_size != sizeof(os8_xnu_range_t)) {
+    return 1;
+  }
+#endif
+#ifdef OS8_XNU_HAVE_MACHO_LOADER
+  struct synthetic_macho {
+    os8_xnu_macho64_header_t header;
+    os8_xnu_macho64_segment_command_t segment;
+    os8_xnu_macho64_entry_point_command_t entry;
+    unsigned char payload[16];
+  } macho = {
+      .header = {
+          .magic = OS8_XNU_MH_MAGIC_64,
+          .cputype = OS8_XNU_CPU_TYPE_X86_64,
+          .ncmds = 2,
+          .sizeofcmds = sizeof(os8_xnu_macho64_segment_command_t) +
+                        sizeof(os8_xnu_macho64_entry_point_command_t),
+      },
+      .segment = {
+          .cmd = OS8_XNU_LC_SEGMENT_64,
+          .cmdsize = sizeof(os8_xnu_macho64_segment_command_t),
+          .vmaddr = 0x100000,
+          .vmsize = sizeof(((struct synthetic_macho *)0)->payload),
+          .fileoff = offsetof(struct synthetic_macho, payload),
+          .filesize = sizeof(((struct synthetic_macho *)0)->payload),
+      },
+      .entry = {
+          .cmd = OS8_XNU_LC_MAIN,
+          .cmdsize = sizeof(os8_xnu_macho64_entry_point_command_t),
+          .entryoff = offsetof(struct synthetic_macho, payload),
+      },
+  };
+  os8_xnu_macho64_image_t macho_info;
+  if (os8_xnu_macho64_inspect(&macho, sizeof(macho), OS8_XNU_ARCH_X86_64,
+                              &macho_info) != 0) {
+    return 1;
+  }
+  if (macho_info.cputype != OS8_XNU_CPU_TYPE_X86_64 ||
+      macho_info.segment_count != 1 ||
+      macho_info.lowest_vmaddr != 0x100000 ||
+      macho_info.entry_vmaddr != 0x100000) {
     return 1;
   }
 #endif
