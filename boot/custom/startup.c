@@ -685,10 +685,69 @@ static void patch_limine_requests(void *fb_resp, void *hhdm_resp,
   }
 }
 
+typedef EFI_STATUS (*pre_exit_boot_services_fn)(void *context,
+                                                uint64_t memory_map_base,
+                                                uint64_t memory_map_size,
+                                                uint64_t desc_size,
+                                                uint32_t desc_version);
+
+typedef struct {
+  os8_xnu_x86_64_boot_args_t *boot_args;
+  uint64_t boot_args_phys;
+  uint64_t kernel_base;
+  uint64_t kernel_size;
+  uint64_t efi_system_table;
+  const char *command_line;
+  uint64_t command_line_size;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
+} XNU_PRE_EXIT_BOOT_ARGS;
+
+static EFI_STATUS build_xnu_boot_args_pre_exit(void *context,
+                                               uint64_t memory_map_base,
+                                               uint64_t memory_map_size,
+                                               uint64_t desc_size,
+                                               uint32_t desc_version) {
+  XNU_PRE_EXIT_BOOT_ARGS *xnu = (XNU_PRE_EXIT_BOOT_ARGS *)context;
+  os8_xnu_x86_64_boot_args_input_t input;
+
+  if (!xnu || !xnu->boot_args || !xnu->gop || !xnu->gop->Mode ||
+      !xnu->gop->Mode->Info) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  efi_memset(&input, 0, sizeof(input));
+  input.boot_args_base = xnu->boot_args_phys;
+  input.memory_map_base = memory_map_base;
+  input.memory_map_size = memory_map_size;
+  input.memory_map_descriptor_size = desc_size;
+  input.memory_map_descriptor_version = desc_version;
+  input.kernel_base = xnu->kernel_base;
+  input.kernel_size = xnu->kernel_size;
+  input.efi_system_table = xnu->efi_system_table;
+  input.command_line = xnu->command_line;
+  input.command_line_size = xnu->command_line_size;
+  input.framebuffer.base = xnu->gop->Mode->FrameBufferBase;
+  input.framebuffer.size = xnu->gop->Mode->FrameBufferSize;
+  input.framebuffer.width = xnu->gop->Mode->Info->HorizontalResolution;
+  input.framebuffer.height = xnu->gop->Mode->Info->VerticalResolution;
+  input.framebuffer.pitch =
+      (uint64_t)xnu->gop->Mode->Info->PixelsPerScanLine * 4;
+  input.framebuffer.pixel_format =
+      (uint32_t)xnu->gop->Mode->Info->PixelFormat;
+
+  if (os8_xnu_x86_64_boot_args_build(xnu->boot_args, &input) != 0) {
+    return EFI_LOAD_ERROR;
+  }
+
+  return EFI_SUCCESS;
+}
+
 static EFI_STATUS exit_boot_services_with_map(uint64_t *map_base_out,
                                               uint64_t *map_size_out,
                                               uint64_t *desc_size_out,
-                                              uint32_t *desc_version_out) {
+                                              uint32_t *desc_version_out,
+                                              pre_exit_boot_services_fn pre_exit,
+                                              void *pre_exit_context) {
   void *map = NULL;
   uint64_t map_capacity = 0;
   uint64_t map_base = 0;
@@ -734,6 +793,12 @@ static EFI_STATUS exit_boot_services_with_map(uint64_t *map_base_out,
       continue;
     }
     if (EFI_ERROR(status)) return status;
+
+    if (pre_exit) {
+      status = pre_exit(pre_exit_context, (uint64_t)(uintptr_t)map, map_size,
+                        desc_size, desc_version);
+      if (EFI_ERROR(status)) return status;
+    }
 
     status = g_st->BootServices->ExitBootServices(g_image, map_key);
     if (!EFI_ERROR(status)) {
@@ -865,38 +930,33 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st) {
     uint64_t memory_map_size = 0;
     uint64_t descriptor_size = 0;
     uint32_t descriptor_version = 0;
-    os8_xnu_x86_64_boot_args_input_t boot_args_input;
+    static const char xnu_command_line[] = "debug=0x144 keepsyms=1";
+    XNU_PRE_EXIT_BOOT_ARGS xnu_pre_exit;
+
+    efi_memset(&xnu_pre_exit, 0, sizeof(xnu_pre_exit));
+    xnu_pre_exit.boot_args = xnu_boot_args;
+    xnu_pre_exit.boot_args_phys = xnu_boot_args_phys;
+    xnu_pre_exit.kernel_base = g_kernel_physical_base;
+    xnu_pre_exit.kernel_size = xnu_kernel_size;
+    xnu_pre_exit.efi_system_table = (uint64_t)(uintptr_t)st;
+    xnu_pre_exit.command_line = xnu_command_line;
+    xnu_pre_exit.command_line_size = sizeof(xnu_command_line) - 1;
+    xnu_pre_exit.gop = gop;
 
     status = exit_boot_services_with_map(&memory_map_base, &memory_map_size,
                                          &descriptor_size,
-                                         &descriptor_version);
-    if (EFI_ERROR(status)) return error("KERNEL-0008", "ExitBootServices failed.", status);
-    efi_memset(&boot_args_input, 0, sizeof(boot_args_input));
-    boot_args_input.boot_args_base = xnu_boot_args_phys;
-    boot_args_input.memory_map_base = memory_map_base;
-    boot_args_input.memory_map_size = memory_map_size;
-    boot_args_input.memory_map_descriptor_size = descriptor_size;
-    boot_args_input.memory_map_descriptor_version = descriptor_version;
-    boot_args_input.kernel_base = g_kernel_physical_base;
-    boot_args_input.kernel_size = xnu_kernel_size;
-    boot_args_input.efi_system_table = (uint64_t)(uintptr_t)st;
-    boot_args_input.command_line = "debug=0x144 keepsyms=1";
-    boot_args_input.command_line_size = 21;
-    boot_args_input.framebuffer.base = gop->Mode->FrameBufferBase;
-    boot_args_input.framebuffer.size = gop->Mode->FrameBufferSize;
-    boot_args_input.framebuffer.width = gop->Mode->Info->HorizontalResolution;
-    boot_args_input.framebuffer.height = gop->Mode->Info->VerticalResolution;
-    boot_args_input.framebuffer.pitch =
-        (uint64_t)gop->Mode->Info->PixelsPerScanLine * 4;
-    boot_args_input.framebuffer.pixel_format =
-        (uint32_t)gop->Mode->Info->PixelFormat;
-    if (os8_xnu_x86_64_boot_args_build(xnu_boot_args, &boot_args_input) != 0) {
-      startup_enter_xnu_kernel(pml4_phys, entry, 0);
-    }
+                                         &descriptor_version,
+                                         build_xnu_boot_args_pre_exit,
+                                         &xnu_pre_exit);
+    if (EFI_ERROR(status)) return error("KERNEL-0008", "XNU boot args or ExitBootServices failed.", status);
+    (void)memory_map_base;
+    (void)memory_map_size;
+    (void)descriptor_size;
+    (void)descriptor_version;
     startup_enter_xnu_kernel(pml4_phys, entry, xnu_boot_args_phys);
     return EFI_SUCCESS;
   } else {
-    status = exit_boot_services_with_map(NULL, NULL, NULL, NULL);
+    status = exit_boot_services_with_map(NULL, NULL, NULL, NULL, NULL, NULL);
   }
   if (EFI_ERROR(status)) return error("KERNEL-0008", "ExitBootServices failed.", status);
 

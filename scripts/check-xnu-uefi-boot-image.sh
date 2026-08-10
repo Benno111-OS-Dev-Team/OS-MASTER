@@ -32,6 +32,11 @@ require_cmd mtype
 grep -q 'load_xnu_macho64_segments' "$startup_source"
 grep -q 'alloc_zero_pages_below(total / 4096' "$startup_source"
 grep -q 'OS8_XNU_BOOT_ARGS_MAX_ADDRESS' "$startup_source"
+grep -q 'build_xnu_boot_args_pre_exit' "$startup_source"
+if grep -q 'startup_enter_xnu_kernel(pml4_phys, entry, 0)' "$startup_source"; then
+  echo "error: XNU startup loader can enter without boot_args" >&2
+  exit 1
+fi
 
 mkdir -p "$build_dir/kernel" "$image_dir"
 printf 'synthetic-xnu-kernel-for-uefi-image-check\n' > "$kernel"

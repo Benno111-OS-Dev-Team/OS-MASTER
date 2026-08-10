@@ -73,6 +73,9 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   trusted payload as XNU Mach-O64, load Mach-O segments, build XNU EFI
   `boot_args`, capture the final EFI memory map, and enter through the XNU
   entry shim without using the OS8 ELF/Limine handoff.
+- The x86_64 startup loader must build XNU EFI `boot_args` after the final
+  `GetMemoryMap` call and before `ExitBootServices` so build failures can still
+  return a firmware error instead of entering XNU with a missing argument block.
 - The x86_64 startup loader must place loaded XNU Mach-O segments below 4G so
   the upstream x86_64 `boot_args.kaddr` field can address the kernel payload.
 - The x86_64 UEFI boot image creator must be covered by CI with a synthetic
