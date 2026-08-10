@@ -148,6 +148,41 @@ for required_key in contract_version boot_args memory_map firmware_state cpu_top
   fi
 done
 
+expected_fields='
+handoff_field_magic=0:uint64
+handoff_field_version=8:uint64
+handoff_field_flags=16:uint64
+handoff_field_arch=24:uint32
+handoff_field_platform_kind=28:uint32
+handoff_field_kernel_base=32:uint64
+handoff_field_kernel_size=40:uint64
+handoff_field_kernel_entry=48:uint64
+handoff_field_boot_args_base=56:uint64
+handoff_field_boot_args_size=64:uint64
+handoff_field_memory_map_base=72:uint64
+handoff_field_memory_map_entry_count=80:uint64
+handoff_field_memory_map_entry_size=88:uint64
+handoff_field_platform_data_base=96:uint64
+handoff_field_platform_data_size=104:uint64
+handoff_field_timer_frequency_hz=112:uint64
+handoff_field_cpu_topology_base=120:uint64
+handoff_field_cpu_topology_size=128:uint64
+handoff_field_framebuffer=136:os8_xnu_framebuffer_t
+'
+
+printf '%s\n' "$expected_fields" | while IFS= read -r expected_field; do
+  if [ -z "$expected_field" ]; then
+    continue
+  fi
+  expected_key="${expected_field%%=*}"
+  expected_value="${expected_field#*=}"
+  actual_value="$(manifest_value "$expected_key" "$handoff_manifest")"
+  if [ "$actual_value" != "$expected_value" ]; then
+    echo "error: boot handoff field metadata mismatch: $expected_key=$actual_value" >&2
+    exit 1
+  fi
+done
+
 if [ "$handoff_provider" != "xnu" ] || [ "$handoff_arch" != "$arch" ]; then
   echo "error: boot handoff manifest does not match XNU provider architecture" >&2
   exit 1
