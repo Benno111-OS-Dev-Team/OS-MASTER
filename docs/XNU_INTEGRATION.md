@@ -15,6 +15,14 @@ on Ubuntu. Real XNU compilation is driven by `scripts/build-xnu-kernel.sh` on
 macOS with Xcode and matching Apple kernel dependencies, with all generated
 objects rooted under `build/<arch>/xnu`.
 
+The selected kernel payload path is provider-owned:
+
+- XNU: `build/<arch>/kernel/xnu-<arch>.kernel`
+- OS8 compatibility: `build/<arch>/kernel/os-<arch>.elf`
+
+Image creation scripts accept `KERNEL_PATH` so provider glue can hand them the
+selected payload without modifying the external source tree.
+
 Local usage:
 
 ```sh

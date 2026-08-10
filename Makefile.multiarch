@@ -138,6 +138,8 @@ CUSTOM_UEFI_BINARIES := $(CUSTOM_UEFI_DIR)/BOOTX64.EFI $(CUSTOM_UEFI_DIR)/STARTU
 
 KERNEL_BINARY := $(BUILD_DIR)/kernel/$(ARTIFACT_PREFIX)-$(ARCH).elf
 KERNEL_FLAT_BINARY := $(BUILD_DIR)/kernel/$(ARTIFACT_PREFIX)-$(ARCH).bin
+XNU_KERNEL_BINARY := $(BUILD_DIR)/kernel/xnu-$(ARCH).kernel
+SELECTED_KERNEL_BINARY := $(if $(filter xnu,$(KERNEL_PROVIDER)),$(XNU_KERNEL_BINARY),$(KERNEL_BINARY))
 ISO_IMAGE := $(IMAGE_DIR)/$(ARTIFACT_PREFIX)-$(ARCH).iso
 RAW_IMAGE := $(IMAGE_DIR)/$(ARTIFACT_PREFIX)-$(ARCH).img
 
@@ -236,7 +238,7 @@ all: check-source-complete kernel image
 	@echo "=========================================="
 	@echo "OS8 $(ARCH) build complete!"
 	@echo "=========================================="
-	@echo "Kernel: $(KERNEL_BINARY)"
+	@echo "Kernel: $(SELECTED_KERNEL_BINARY)"
 ifeq ($(ARCH),x86)
 	@echo "Image:  $(RAW_IMAGE)"
 else ifeq ($(ARCH),arm64)
@@ -537,13 +539,13 @@ endif
 image: require-os8-kernel-provider kernel
 	@echo "[IMAGE] Creating $(ARCH) boot image..."
 ifeq ($(ARCH),arm64)
-	@bash ./scripts/create-arm64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@KERNEL_PATH="$(SELECTED_KERNEL_BINARY)" bash ./scripts/create-arm64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@cp "$(IMAGE_DIR)/os8-arm64.iso" "$(IMAGE_DIR)/os-arm64.iso"
 	@if [ -f "$(IMAGE_DIR)/os8-arm64.iso.xz" ]; then cp "$(IMAGE_DIR)/os8-arm64.iso.xz" "$(IMAGE_DIR)/os-arm64.iso.xz"; fi
 	@echo "[IMAGE] Created: $(IMAGE_DIR)/os8-arm64.iso"
 	@echo "[IMAGE] Compatibility alias: $(IMAGE_DIR)/os-arm64.iso"
 else ifeq ($(ARCH),x86_64)
-	@bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
+	@KERNEL_PATH="$(SELECTED_KERNEL_BINARY)" bash ./scripts/create-x86_64-iso.sh $(BUILD_DIR) $(IMAGE_DIR)
 	@echo "[IMAGE] Created: $(ISO_IMAGE)"
 else ifeq ($(ARCH),x86)
 	@bash ./scripts/create-bios-image.sh $(BUILD_DIR) $(IMAGE_DIR)

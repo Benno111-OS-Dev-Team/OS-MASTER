@@ -21,6 +21,7 @@ esac
 
 kernel_dir="$build_dir/kernel"
 xnu_build_root="$build_dir/xnu"
+provider_artifact="$kernel_dir/xnu-$arch.kernel"
 manifest="$kernel_dir/xnu-provider.manifest"
 mkdir -p "$kernel_dir" "$xnu_build_root/obj" "$xnu_build_root/sym" "$xnu_build_root/dst"
 
@@ -31,6 +32,7 @@ if [ "$host" != "Darwin" ]; then
       printf 'provider=xnu\n'
       printf 'arch=%s\n' "$arch"
       printf 'source=%s\n' "$xnu_dir"
+      printf 'artifact=%s\n' "$provider_artifact"
       printf 'mode=source-validation\n'
       printf 'reason=XNU kernel compilation requires macOS, Xcode, and matching Apple kernel dependencies\n'
     } > "$manifest"
@@ -63,13 +65,13 @@ if [ -z "$xnu_kernel" ]; then
   exit 1
 fi
 
-cp "$xnu_kernel" "$kernel_dir/xnu-$arch.kernel"
+cp "$xnu_kernel" "$provider_artifact"
 {
   printf 'provider=xnu\n'
   printf 'arch=%s\n' "$arch"
   printf 'source=%s\n' "$xnu_dir"
-  printf 'artifact=%s\n' "$kernel_dir/xnu-$arch.kernel"
+  printf 'artifact=%s\n' "$provider_artifact"
   printf 'mode=compiled\n'
 } > "$manifest"
 
-echo "[XNU] Kernel provider artifact staged: $kernel_dir/xnu-$arch.kernel"
+echo "[XNU] Kernel provider artifact staged: $provider_artifact"

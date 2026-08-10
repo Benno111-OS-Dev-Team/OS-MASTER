@@ -4,7 +4,7 @@ set -euo pipefail
 BUILD_DIR="${1:?missing build dir}"
 IMAGE_DIR="${2:?missing image dir}"
 
-KERNEL_ELF="${BUILD_DIR}/kernel/os-arm64.elf"
+KERNEL_ELF="${KERNEL_PATH:-${BUILD_DIR}/kernel/os-arm64.elf}"
 ISO_NAME="${ISO_NAME:-os8-arm64.iso}"
 ISO_LABEL="${ISO_LABEL:-OS_ARM64}"
 KERNEL_NAME="${KERNEL_NAME:-os-arm64.elf}"
