@@ -54,8 +54,8 @@ jobs:
       - name: Check source quality gates
         run: |
           set -euxo pipefail
-          make -f Makefile.multiarch check-source-complete
-          XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 kernel
+          make check-source-complete
+          XNU_SOURCE_VALIDATION_ONLY=1 make ARCH=x86_64 kernel
           grep -q '^provider=xnu$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^mode=source-validation$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^source_origin=https://github.com/apple-oss-distributions/xnu.git$' build/x86_64/kernel/xnu-provider.manifest
@@ -63,12 +63,12 @@ jobs:
           grep -q '^source_state=clean$' build/x86_64/kernel/xnu-provider.manifest
           grep -q '^artifact=.*/build/x86_64/kernel/xnu-x86_64.kernel$' build/x86_64/kernel/xnu-provider.manifest
           test ! -d External/xnu/BUILD
-          XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=x86_64 image
+          XNU_SOURCE_VALIDATION_ONLY=1 make ARCH=x86_64 image
           bash scripts/check-xnu-provider-media.sh x86_64 image/xnu-x86_64-provider.tar.gz source-validation
-          XNU_SOURCE_VALIDATION_ONLY=1 make -f Makefile.multiarch KERNEL_PROVIDER=xnu ARCH=arm64 image
+          XNU_SOURCE_VALIDATION_ONLY=1 make ARCH=arm64 image
           bash scripts/check-xnu-provider-media.sh arm64 image/xnu-arm64-provider.tar.gz source-validation
-          make -f Makefile.multiarch storage-format-stress
-          make -f Makefile.multiarch storage-driver-compile-check
+          make storage-format-stress
+          make storage-driver-compile-check
 
       - name: Compile custom x86_64 UEFI boot chain
         run: |

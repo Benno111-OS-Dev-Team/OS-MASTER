@@ -16,6 +16,7 @@ bad_patterns=(
 )
 
 scan_dirs=(
+  Makefile
   Makefile.multiarch
   boot
   drivers
