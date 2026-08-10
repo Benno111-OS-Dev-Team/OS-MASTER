@@ -60,6 +60,11 @@ if [ "$source_state" != "clean" ]; then
   exit 1
 fi
 
+if [ "$source_origin" != "https://github.com/apple-oss-distributions/xnu.git" ]; then
+  echo "error: unexpected XNU source origin: $source_origin" >&2
+  exit 1
+fi
+
 bash "$(dirname "$0")/check-xnu-boot-surface.sh" "$arch" "$xnu_dir"
 
 host="$(uname -s)"

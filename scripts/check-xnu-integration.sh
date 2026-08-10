@@ -45,6 +45,11 @@ if [ -n "$git_top" ]; then
     echo "error: XNU source must be a standalone checkout outside this repository's tracked tree" >&2
     exit 1
   fi
+  origin="$(git -C "$xnu_dir" remote get-url origin 2>/dev/null || true)"
+  if [ "$origin" != "https://github.com/apple-oss-distributions/xnu.git" ]; then
+    echo "error: unexpected XNU source origin: ${origin:-none}" >&2
+    exit 1
+  fi
   source_status="$(git -C "$xnu_dir" status --porcelain=v1 --untracked-files=normal)"
   if [ -n "$source_status" ]; then
     printf '%s\n' "$source_status" >&2
