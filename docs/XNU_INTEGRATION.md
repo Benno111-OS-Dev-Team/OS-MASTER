@@ -92,6 +92,11 @@ that enters x86_64 XNU. The shim loads the selected page table and jumps to the
 kernel entry with the physical `boot_args` address in `%edi`, matching XNU's
 `osfmk/x86_64/start.s` bootstrap contract.
 
+`make ARCH=x86_64 check-xnu-uefi-boot-image` builds a synthetic XNU-format
+custom UEFI startup config, creates the FAT `xnu-x86_64-uefi.img`, and inspects
+the image with mtools to prove the startup files, config, and `/boot/main.sys`
+payload are staged where the XNU startup path expects them.
+
 The custom x86_64 startup executable now keeps the OS8 ELF path as the default
 and selects the XNU Mach-O64 path when `os8boot.cfg` contains
 `kernel_format=xnu`. That path validates the trusted payload as XNU Mach-O64,

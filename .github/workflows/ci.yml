@@ -58,6 +58,7 @@ jobs:
           make check-xnu-boot-abi
           make check-xnu-uefi-handoff
           make check-xnu-entry-handoff
+          make ARCH=x86_64 check-xnu-uefi-boot-image
           make ARCH=x86_64 check-xnu-boot-surface
           make ARCH=arm64 check-xnu-boot-surface
           XNU_SOURCE_VALIDATION_ONLY=1 make ARCH=x86_64 kernel

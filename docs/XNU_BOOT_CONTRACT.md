@@ -73,6 +73,8 @@ A bootable XNU media path must provide these inputs to the XNU entry path:
   trusted payload as XNU Mach-O64, load Mach-O segments, build XNU EFI
   `boot_args`, capture the final EFI memory map, and enter through the XNU
   entry shim without using the OS8 ELF/Limine handoff.
+- The x86_64 UEFI boot image creator must be covered by CI with a synthetic
+  XNU-format payload and mtools inspection of the generated FAT image layout.
 - The packaged Mach-O payload inspector must compile against the packaged ABI
   and expose validated segment file offsets, virtual ranges, protections, and
   entry metadata for the selected architecture before a loader enters XNU.
