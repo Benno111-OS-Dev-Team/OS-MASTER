@@ -77,6 +77,10 @@ field offsets, and struct sizes used by the repository-owned handoff contract.
 The provider media verifier also emits layout metadata from the packaged copy
 of that header and compares it with `metadata/xnu-boot-handoff.manifest`.
 
+`make check-xnu-uefi-handoff` compile-checks the XNU UEFI handoff helpers with
+the same freestanding x86_64 Windows target style used by the custom UEFI boot
+chain, proving the packaged helpers are consumable from loader code.
+
 Local usage:
 
 ```sh
